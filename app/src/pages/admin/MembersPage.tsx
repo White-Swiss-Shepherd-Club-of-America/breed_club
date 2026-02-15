@@ -221,6 +221,13 @@ export function MembersPage() {
                         handleUpdate(member.id, "show_in_directory", !member.show_in_directory)
                       }
                     />
+                    <FlagToggle
+                      label="Skip Fees"
+                      active={member.skip_fees}
+                      onClick={() =>
+                        handleUpdate(member.id, "skip_fees", !member.skip_fees)
+                      }
+                    />
                   </div>
                 </td>
                 <td className="px-4 py-3">

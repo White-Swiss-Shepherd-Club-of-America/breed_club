@@ -39,6 +39,7 @@ export interface AuthContext {
     is_breeder: boolean;
     can_approve_members: boolean;
     can_approve_clearances: boolean;
+    skip_fees: boolean;
   };
 }
 

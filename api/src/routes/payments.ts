@@ -58,17 +58,21 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
 
   if (resource_type === "dog_create") {
     const tierFees = fees.create_dog || { certificate: 1500, member: 500 };
-    amountCents =
-      auth.tier === "member" || auth.tier === "admin"
-        ? tierFees.member || 500
-        : tierFees.certificate || 1500;
+    // Check for fee bypass
+    amountCents = auth.member?.skip_fees
+      ? 0
+      : auth.tier === "member" || auth.tier === "admin"
+      ? tierFees.member || 500
+      : tierFees.certificate || 1500;
     description = "Dog Registration Fee";
   } else if (resource_type === "clearance_submit") {
     const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
-    amountCents =
-      auth.tier === "member" || auth.tier === "admin"
-        ? tierFees.member || 0
-        : tierFees.certificate || 500;
+    // Check for fee bypass
+    amountCents = auth.member?.skip_fees
+      ? 0
+      : auth.tier === "member" || auth.tier === "admin"
+      ? tierFees.member || 0
+      : tierFees.certificate || 500;
     description = "Health Clearance Submission Fee";
   } else {
     throw new ApiError("VALIDATION_ERROR", "Invalid resource type", 422);

@@ -78,6 +78,7 @@ export const members = pgTable(
     can_approve_clearances: boolean("can_approve_clearances").notNull().default(false),
     show_in_directory: boolean("show_in_directory").notNull().default(true),
     verified_breeder: boolean("verified_breeder").notNull().default(false),
+    skip_fees: boolean("skip_fees").notNull().default(false),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

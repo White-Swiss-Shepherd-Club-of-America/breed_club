@@ -148,10 +148,13 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   const feeConfig = club.settings as any;
   const fees = feeConfig?.fees || {};
   const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
-  const amountCents =
-    member.tier === "member" || member.tier === "admin"
-      ? tierFees.member || 0
-      : tierFees.certificate || 500;
+
+  // Check for fee bypass
+  const amountCents = member.skip_fees
+    ? 0
+    : member.tier === "member" || member.tier === "admin"
+    ? tierFees.member || 0
+    : tierFees.certificate || 500;
 
   // If payment required, return payment info instead of creating clearance
   if (amountCents > 0) {

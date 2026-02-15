@@ -49,10 +49,20 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({
+      const responseData = await response.json().catch(() => ({
         error: { code: "UNKNOWN", message: response.statusText },
       }));
-      throw new ApiRequestError(response.status, error.error);
+
+      // For 402, preserve the full response (requiresPayment, amountCents, etc.)
+      if (response.status === 402) {
+        throw new ApiRequestError(
+          402,
+          { code: "PAYMENT_REQUIRED", message: "Payment required" },
+          responseData
+        );
+      }
+
+      throw new ApiRequestError(response.status, responseData.error || responseData);
     }
 
     if (response.status === 204) {
@@ -82,7 +92,8 @@ class ApiClient {
 export class ApiRequestError extends Error {
   constructor(
     public status: number,
-    public error: { code: string; message: string; details?: Record<string, unknown> }
+    public error: { code: string; message: string; details?: Record<string, unknown> },
+    public data?: unknown // Preserve full response data (e.g., 402 payment info)
   ) {
     super(error.message);
     this.name = "ApiRequestError";

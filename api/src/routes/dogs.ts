@@ -66,10 +66,13 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
   const feeConfig = club.settings as any;
   const fees = feeConfig?.fees || {};
   const tierFees = fees.create_dog || { certificate: 1500, member: 500 };
-  const amountCents =
-    auth.member.tier === "member" || auth.member.tier === "admin"
-      ? tierFees.member || 500
-      : tierFees.certificate || 1500;
+
+  // Check for fee bypass
+  const amountCents = auth.member.skip_fees
+    ? 0
+    : auth.member.tier === "member" || auth.member.tier === "admin"
+    ? tierFees.member || 500
+    : tierFees.certificate || 1500;
 
   // If payment required, return payment info instead of creating dog
   if (amountCents > 0) {

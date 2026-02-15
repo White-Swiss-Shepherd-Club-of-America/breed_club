@@ -60,6 +60,7 @@ export interface Member {
   can_approve_clearances: boolean;
   show_in_directory: boolean;
   verified_breeder: boolean;
+  skip_fees: boolean;
   created_at: string;
   updated_at: string;
   // Joined from contacts

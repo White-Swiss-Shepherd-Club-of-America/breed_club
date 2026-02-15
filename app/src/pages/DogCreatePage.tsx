@@ -10,6 +10,7 @@ import { createDogSchema } from "@breed-club/shared/validation.js";
 import { useCreateDog, useDogs } from "@/hooks/useDogs";
 import { useContacts } from "@/hooks/useContacts";
 import { useOrganizations } from "@/hooks/useAdmin";
+import { ApiRequestError } from "@/lib/api";
 import type { z } from "zod";
 import type { Contact, Organization } from "@breed-club/shared";
 
@@ -140,6 +141,7 @@ export function DogCreatePage() {
   const [registrations, setRegistrations] = useState<
     Array<{ organization_id: string; registration_number: string; registration_url?: string }>
   >([]);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const {
     register,
@@ -154,11 +156,23 @@ export function DogCreatePage() {
   });
 
   const onSubmit = async (data: DogForm) => {
-    await createMutation.mutateAsync({
-      ...data,
-      registrations: registrations.length > 0 ? registrations : undefined,
-    });
-    navigate("/registry");
+    try {
+      setPaymentError(null);
+      await createMutation.mutateAsync({
+        ...data,
+        registrations: registrations.length > 0 ? registrations : undefined,
+      });
+      navigate("/registry");
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 402) {
+        setPaymentError(
+          "Payment is required to register this dog. Please contact an administrator to enable fee bypass for your account."
+        );
+      } else {
+        // Re-throw other errors to be handled by react-query
+        throw error;
+      }
+    }
   };
 
   const addRegistration = () => {
@@ -404,6 +418,13 @@ export function DogCreatePage() {
             Make this dog's profile public (visible to non-members)
           </label>
         </div>
+
+        {/* Payment Error */}
+        {paymentError && (
+          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-sm text-yellow-800">{paymentError}</p>
+          </div>
+        )}
 
         <div className="flex gap-3">
           <button

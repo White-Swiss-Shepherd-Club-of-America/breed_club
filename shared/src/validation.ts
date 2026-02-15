@@ -113,6 +113,7 @@ export const updateMemberSchema = z.object({
   can_approve_clearances: z.boolean().optional(),
   show_in_directory: z.boolean().optional(),
   verified_breeder: z.boolean().optional(),
+  skip_fees: z.boolean().optional(),
 });
 
 // --- Organizations (admin) ---

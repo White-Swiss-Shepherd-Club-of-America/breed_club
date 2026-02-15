@@ -70,6 +70,7 @@ export const loadMember = createMiddleware<{
       is_breeder: member.is_breeder,
       can_approve_members: member.can_approve_members,
       can_approve_clearances: member.can_approve_clearances,
+      skip_fees: member.skip_fees,
     },
   };
 
