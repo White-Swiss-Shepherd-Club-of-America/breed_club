@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run db:migrate:*)",
+      "Bash(dotenv -e ../.env -- tsx:*)",
+      "Bash(grep:*)",
+      "Bash(curl:*)",
+      "Bash(source:*)",
+      "Bash(psql:*)",
+      "Bash(npm run dev:*)"
+    ]
+  }
+}

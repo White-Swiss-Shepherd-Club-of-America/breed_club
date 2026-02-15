@@ -1,0 +1,103 @@
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { logger } from "hono/logger";
+import type { Env } from "./lib/types.js";
+import { clubContext } from "./middleware/club-context.js";
+import { optionalAuth } from "./middleware/auth.js";
+import { loadMember } from "./middleware/rbac.js";
+import { ApiError } from "./lib/errors.js";
+import { publicRoutes } from "./routes/public.js";
+import { memberRoutes } from "./routes/members.js";
+import { applicationRoutes } from "./routes/applications.js";
+import { contactRoutes } from "./routes/contacts.js";
+import { dogRoutes } from "./routes/dogs.js";
+import { adminRoutes } from "./routes/admin.js";
+import { healthRoutes } from "./routes/health.js";
+import { healthStampRoutes } from "./routes/health-stamp.js";
+import { paymentRoutes } from "./routes/payments.js";
+import { litterRoutes } from "./routes/litters.js";
+
+const app = new Hono<{ Bindings: Env }>();
+
+// ─── Global middleware ──────────────────────────────────────────────────────
+
+app.use("*", logger());
+app.use(
+  "*",
+  cors({
+    origin: (origin) => origin, // TODO: restrict to app domain in production
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
+// Health check (no DB, no auth — just a ping)
+app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+
+// All /api/* routes get club context, optional auth, and member loading
+app.use("/api/*", clubContext, optionalAuth, loadMember);
+
+// ─── Routes ─────────────────────────────────────────────────────────────────
+
+// Public endpoints (no auth required)
+app.route("/api/public", publicRoutes);
+
+// Member self-service
+app.route("/api/members", memberRoutes);
+
+// Membership applications
+app.route("/api/applications", applicationRoutes);
+
+// Contact management
+app.route("/api/contacts", contactRoutes);
+
+// Dog registry
+app.route("/api/dogs", dogRoutes);
+
+// Admin panel
+app.route("/api/admin", adminRoutes);
+
+// Health clearances
+app.route("/api/health", healthRoutes);
+
+// Payments
+app.route("/api/payments", paymentRoutes);
+
+// Litters
+app.route("/api/litters", litterRoutes);
+
+// Health stamp SSR pages (no /api prefix)
+app.route("/", healthStampRoutes);
+
+// ─── Error handling ─────────────────────────────────────────────────────────
+
+app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Route not found" } }, 404));
+
+app.onError((err, c) => {
+  if (err instanceof ApiError) {
+    return c.json(err.toJSON(), err.statusCode as any);
+  }
+
+  // Handle Zod validation errors
+  if (err.name === "ZodError") {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Validation failed",
+          details: { errors: (err as any).errors },
+        },
+      },
+      422
+    );
+  }
+
+  console.error("Unhandled error:", err);
+  return c.json(
+    { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
+    500
+  );
+});
+
+export default app;

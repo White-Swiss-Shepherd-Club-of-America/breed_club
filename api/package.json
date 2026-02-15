@@ -1,0 +1,41 @@
+{
+  "name": "@breed-club/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "dotenv -e ../.env -- drizzle-kit generate",
+    "db:migrate": "dotenv -e ../.env -- drizzle-kit migrate",
+    "db:push": "dotenv -e ../.env -- drizzle-kit push",
+    "db:studio": "dotenv -e ../.env -- drizzle-kit studio",
+    "db:seed": "dotenv -e ../.env -- tsx src/db/seed.ts",
+    "db:setup-club": "dotenv -e ../.env -- tsx src/db/setup-club.ts"
+  },
+  "dependencies": {
+    "@breed-club/shared": "*",
+    "@clerk/backend": "^1.21.0",
+    "@hono/zod-validator": "^0.4.1",
+    "drizzle-orm": "^0.38.0",
+    "hono": "^4.6.0",
+    "postgres": "^3.4.0",
+    "stripe": "^17.5.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^25.2.3",
+    "dotenv-cli": "^11.0.0",
+    "drizzle-kit": "^0.30.0",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "wrangler": "^3.99.0"
+  }
+}

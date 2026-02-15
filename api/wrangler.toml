@@ -1,0 +1,29 @@
+name = "breed-club-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Local development
+[dev]
+port = 8787
+
+# Environment variables (secrets set via `wrangler secret put`)
+[vars]
+ENVIRONMENT = "development"
+CLUB_SLUG = "wssca"
+
+# Production environment
+[env.production]
+[env.production.vars]
+ENVIRONMENT = "production"
+CLUB_SLUG = "wssca"
+
+# Secrets (set via wrangler secret put):
+# DATABASE_URL
+# CLERK_SECRET_KEY
+# CLERK_PUBLISHABLE_KEY
+# CLERK_JWKS_URL
+# SUPABASE_URL
+# SUPABASE_SERVICE_KEY
+# STRIPE_SECRET_KEY
+# STRIPE_WEBHOOK_SECRET

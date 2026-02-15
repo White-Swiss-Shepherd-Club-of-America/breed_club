@@ -1,0 +1,32 @@
+{
+  "name": "breed-club-manager",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open source breed club management platform — dog registry, health clearances, membership management",
+  "workspaces": [
+    "app",
+    "api",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:app\" \"npm run dev:api\"",
+    "dev:app": "npm run dev --workspace=app",
+    "dev:api": "npm run dev --workspace=api",
+    "build": "npm run build --workspace=app && npm run build --workspace=api",
+    "build:app": "npm run build --workspace=app",
+    "build:api": "npm run build --workspace=api",
+    "lint": "npm run lint --workspace=app && npm run lint --workspace=api",
+    "typecheck": "npm run typecheck --workspace=app && npm run typecheck --workspace=api",
+    "db:migrate": "npm run db:migrate --workspace=api",
+    "db:generate": "npm run db:generate --workspace=api",
+    "db:seed": "npm run db:seed --workspace=api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,364 @@
+import {
+  pgTable,
+  uuid,
+  varchar,
+  text,
+  boolean,
+  integer,
+  date,
+  timestamp,
+  jsonb,
+  uniqueIndex,
+  index,
+  primaryKey,
+} from "drizzle-orm/pg-core";
+
+// ─── Clubs ──────────────────────────────────────────────────────────────────
+
+export const clubs = pgTable("clubs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  breed_name: varchar("breed_name", { length: 255 }).notNull(),
+  logo_url: varchar("logo_url", { length: 500 }),
+  primary_color: varchar("primary_color", { length: 7 }).default("#655e7a"),
+  secondary_color: varchar("secondary_color", { length: 7 }).default("#ffffff"),
+  settings: jsonb("settings").default({}).$type<Record<string, unknown>>(),
+  created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Contacts ───────────────────────────────────────────────────────────────
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    full_name: varchar("full_name", { length: 255 }).notNull(),
+    kennel_name: varchar("kennel_name", { length: 255 }),
+    email: varchar("email", { length: 255 }),
+    phone: varchar("phone", { length: 50 }),
+    city: varchar("city", { length: 100 }),
+    state: varchar("state", { length: 50 }),
+    country: varchar("country", { length: 2 }),
+    website_url: varchar("website_url", { length: 500 }),
+    member_id: uuid("member_id"), // FK added after members table
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_contacts_club").on(t.club_id),
+    index("idx_contacts_member").on(t.member_id),
+    index("idx_contacts_name").on(t.club_id, t.full_name),
+  ]
+);
+
+// ─── Members ────────────────────────────────────────────────────────────────
+
+export const members = pgTable(
+  "members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    clerk_user_id: varchar("clerk_user_id", { length: 255 }).notNull(),
+    contact_id: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id),
+    tier: varchar("tier", { length: 20 }).notNull().default("non_member"),
+    membership_status: varchar("membership_status", { length: 20 }).notNull().default("pending"),
+    membership_type: varchar("membership_type", { length: 50 }),
+    membership_expires: timestamp("membership_expires", { withTimezone: true }),
+    is_breeder: boolean("is_breeder").notNull().default(false),
+    can_approve_members: boolean("can_approve_members").notNull().default(false),
+    can_approve_clearances: boolean("can_approve_clearances").notNull().default(false),
+    show_in_directory: boolean("show_in_directory").notNull().default(true),
+    verified_breeder: boolean("verified_breeder").notNull().default(false),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_members_club_clerk").on(t.club_id, t.clerk_user_id),
+    index("idx_members_club_tier").on(t.club_id, t.tier),
+    index("idx_members_contact").on(t.contact_id),
+  ]
+);
+
+// ─── Membership Applications ────────────────────────────────────────────────
+
+export const membershipApplications = pgTable(
+  "membership_applications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    applicant_email: varchar("applicant_email", { length: 255 }).notNull(),
+    applicant_name: varchar("applicant_name", { length: 255 }).notNull(),
+    applicant_phone: varchar("applicant_phone", { length: 50 }),
+    applicant_address: text("applicant_address"),
+    membership_type: varchar("membership_type", { length: 50 }).notNull(),
+    notes: text("notes"),
+    status: varchar("status", { length: 20 }).notNull().default("submitted"),
+    review_notes: text("review_notes"),
+    reviewed_by: uuid("reviewed_by").references(() => members.id),
+    reviewed_at: timestamp("reviewed_at", { withTimezone: true }),
+    member_id: uuid("member_id").references(() => members.id),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_applications_club_status").on(t.club_id, t.status)]
+);
+
+// ─── Organizations ──────────────────────────────────────────────────────────
+
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    type: varchar("type", { length: 30 }).notNull(),
+    country: varchar("country", { length: 2 }),
+    website_url: varchar("website_url", { length: 500 }),
+    description: text("description"),
+    is_active: boolean("is_active").notNull().default(true),
+    sort_order: integer("sort_order").notNull().default(0),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_organizations_club").on(t.club_id)]
+);
+
+// ─── Dogs ───────────────────────────────────────────────────────────────────
+
+export const dogs = pgTable(
+  "dogs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    registered_name: varchar("registered_name", { length: 255 }).notNull(),
+    call_name: varchar("call_name", { length: 100 }),
+    microchip_number: varchar("microchip_number", { length: 50 }),
+    sex: varchar("sex", { length: 10 }),
+    date_of_birth: date("date_of_birth"),
+    date_of_death: date("date_of_death"),
+    color: varchar("color", { length: 100 }),
+    coat_type: varchar("coat_type", { length: 50 }),
+    sire_id: uuid("sire_id"), // self-ref, FK added via raw SQL or relations
+    dam_id: uuid("dam_id"),
+    owner_id: uuid("owner_id").references(() => contacts.id),
+    breeder_id: uuid("breeder_id").references(() => contacts.id),
+    photo_url: varchar("photo_url", { length: 500 }),
+    is_public: boolean("is_public").notNull().default(false),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    submitted_by: uuid("submitted_by").references(() => members.id),
+    approved_by: uuid("approved_by").references(() => members.id),
+    approved_at: timestamp("approved_at", { withTimezone: true }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_dogs_club").on(t.club_id),
+    index("idx_dogs_owner").on(t.owner_id),
+    index("idx_dogs_breeder").on(t.breeder_id),
+    index("idx_dogs_sire").on(t.sire_id),
+    index("idx_dogs_dam").on(t.dam_id),
+    index("idx_dogs_status").on(t.club_id, t.status),
+  ]
+);
+
+// ─── Dog Registrations ──────────────────────────────────────────────────────
+
+export const dogRegistrations = pgTable(
+  "dog_registrations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dog_id: uuid("dog_id")
+      .notNull()
+      .references(() => dogs.id, { onDelete: "cascade" }),
+    organization_id: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    registration_number: varchar("registration_number", { length: 100 }).notNull(),
+    registration_url: varchar("registration_url", { length: 500 }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("idx_dog_registrations_unique").on(t.dog_id, t.organization_id)]
+);
+
+// ─── Health Test Types ──────────────────────────────────────────────────────
+
+export const healthTestTypes = pgTable(
+  "health_test_types",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    short_name: varchar("short_name", { length: 50 }).notNull(),
+    category: varchar("category", { length: 30 }).notNull(),
+    result_options: jsonb("result_options").notNull().$type<string[]>(),
+    is_required_for_chic: boolean("is_required_for_chic").notNull().default(false),
+    description: text("description"),
+    sort_order: integer("sort_order").notNull().default(0),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_health_test_types_club").on(t.club_id)]
+);
+
+// ─── Health Test Type ↔ Organizations (join table) ──────────────────────────
+
+export const healthTestTypeOrgs = pgTable(
+  "health_test_type_orgs",
+  {
+    health_test_type_id: uuid("health_test_type_id")
+      .notNull()
+      .references(() => healthTestTypes.id, { onDelete: "cascade" }),
+    organization_id: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.health_test_type_id, t.organization_id] })]
+);
+
+// ─── Dog Health Clearances ──────────────────────────────────────────────────
+
+export const dogHealthClearances = pgTable(
+  "dog_health_clearances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dog_id: uuid("dog_id")
+      .notNull()
+      .references(() => dogs.id, { onDelete: "cascade" }),
+    health_test_type_id: uuid("health_test_type_id")
+      .notNull()
+      .references(() => healthTestTypes.id),
+    organization_id: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    result: varchar("result", { length: 100 }).notNull(),
+    result_detail: text("result_detail"),
+    test_date: date("test_date"),
+    expiration_date: date("expiration_date"),
+    certificate_number: varchar("certificate_number", { length: 100 }),
+    certificate_url: varchar("certificate_url", { length: 500 }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    submitted_by: uuid("submitted_by").references(() => members.id),
+    verified_by: uuid("verified_by").references(() => members.id),
+    verified_at: timestamp("verified_at", { withTimezone: true }),
+    notes: text("notes"),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_clearances_dog_test").on(t.dog_id, t.health_test_type_id),
+    index("idx_clearances_status").on(t.status),
+  ]
+);
+
+// ─── Health Conditions ──────────────────────────────────────────────────────
+
+export const healthConditions = pgTable(
+  "health_conditions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dog_id: uuid("dog_id")
+      .notNull()
+      .references(() => dogs.id, { onDelete: "cascade" }),
+    condition_name: varchar("condition_name", { length: 255 }).notNull(),
+    category: varchar("category", { length: 30 }),
+    diagnosis_date: date("diagnosis_date"),
+    resolved_date: date("resolved_date"),
+    severity: varchar("severity", { length: 20 }),
+    notes: text("notes"),
+    reported_by: uuid("reported_by").references(() => members.id),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_health_conditions_dog").on(t.dog_id)]
+);
+
+// ─── Litters ────────────────────────────────────────────────────────────────
+
+export const litters = pgTable(
+  "litters",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    sire_id: uuid("sire_id").references(() => dogs.id),
+    dam_id: uuid("dam_id").references(() => dogs.id),
+    breeder_id: uuid("breeder_id")
+      .notNull()
+      .references(() => contacts.id),
+    whelp_date: date("whelp_date"),
+    expected_date: date("expected_date"),
+    num_puppies_born: integer("num_puppies_born"),
+    num_puppies_survived: integer("num_puppies_survived"),
+    status: varchar("status", { length: 20 }).notNull().default("planned"),
+    approved: boolean("approved").notNull().default(false),
+    approved_by: uuid("approved_by").references(() => members.id),
+    approved_at: timestamp("approved_at", { withTimezone: true }),
+    notes: text("notes"),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_litters_club").on(t.club_id),
+    index("idx_litters_breeder").on(t.breeder_id),
+  ]
+);
+
+// ─── Litter Pups ────────────────────────────────────────────────────────────
+
+export const litterPups = pgTable(
+  "litter_pups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    litter_id: uuid("litter_id")
+      .notNull()
+      .references(() => litters.id, { onDelete: "cascade" }),
+    call_name: varchar("call_name", { length: 100 }),
+    sex: varchar("sex", { length: 10 }),
+    color: varchar("color", { length: 100 }),
+    coat_type: varchar("coat_type", { length: 50 }),
+    status: varchar("status", { length: 20 }).notNull().default("available"),
+    dog_id: uuid("dog_id").references(() => dogs.id),
+    buyer_contact_id: uuid("buyer_contact_id").references(() => contacts.id),
+    notes: text("notes"),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_litter_pups_litter").on(t.litter_id)]
+);
+
+// ─── Payments ───────────────────────────────────────────────────────────────
+
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    member_id: uuid("member_id")
+      .notNull()
+      .references(() => members.id),
+    stripe_payment_intent_id: varchar("stripe_payment_intent_id", { length: 255 }),
+    amount_cents: integer("amount_cents").notNull(),
+    currency: varchar("currency", { length: 3 }).notNull().default("usd"),
+    description: varchar("description", { length: 255 }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    metadata: jsonb("metadata").default({}).$type<Record<string, unknown>>(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_payments_club_member").on(t.club_id, t.member_id)]
+);
