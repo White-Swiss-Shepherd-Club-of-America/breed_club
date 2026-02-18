@@ -51,6 +51,7 @@ export function Layout() {
     { to: "/admin/members", label: "Members", icon: Users, show: isAdmin },
     { to: "/admin/applications", label: "Applications", icon: ClipboardCheck, show: canApproveMembers },
     { to: "/admin/dogs/pending", label: "Dog Approvals", icon: PawPrint, show: canApproveClearances },
+    { to: "/admin/health/pending", label: "Health Queue", icon: ClipboardCheck, show: canApproveClearances },
     { to: "/admin/health-tests", label: "Health Tests", icon: HeartPulse, show: isAdmin },
   ];
 
@@ -123,6 +124,13 @@ export function Layout() {
                   >
                     <Plus className="h-4 w-4" />
                     Register Dog
+                  </Link>
+                  <Link
+                    to="/health"
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition text-gray-600 hover:bg-gray-50 hover:text-gray-900 mt-1"
+                  >
+                    <HeartPulse className="h-4 w-4" />
+                    Add Health Clearance
                   </Link>
                   {member?.is_breeder && (
                     <Link

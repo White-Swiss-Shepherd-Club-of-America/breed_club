@@ -15,15 +15,20 @@ import { ApplicationsPage } from "@/pages/admin/ApplicationsPage";
 import { DogQueuePage } from "@/pages/admin/DogQueuePage";
 import { HealthQueuePage } from "@/pages/admin/HealthQueuePage";
 import { HealthTestsPage } from "@/pages/admin/HealthTestsPage";
+import { TransferQueuePage } from "@/pages/admin/TransferQueuePage";
 import { RegistryPage } from "@/pages/RegistryPage";
 import { DogCreatePage } from "@/pages/DogCreatePage";
 import { DogDetailPage } from "@/pages/DogDetailPage";
+import { DogEditPage } from "@/pages/DogEditPage";
 import { HealthPage } from "@/pages/HealthPage";
+import { HealthSelectPage } from "@/pages/HealthSelectPage";
 import { LittersPage } from "@/pages/LittersPage";
 import { LitterDetailPage } from "@/pages/LitterDetailPage";
 import { AnnouncementsPage } from "@/pages/AnnouncementsPage";
+import { PublicApplyPage } from "@/pages/PublicApplyPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { HealthStatsPage } from "@/pages/HealthStatsPage";
+import { NotFoundPage } from "@/pages/NotFoundPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +55,7 @@ export function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/directory" element={<DirectoryPage />} />
               <Route path="/announcements" element={<AnnouncementsPage />} />
+              <Route path="/public/apply" element={<PublicApplyPage />} />
               <Route
                 path="/register"
                 element={
@@ -123,6 +129,14 @@ export function App() {
                 }
               />
               <Route
+                path="/admin/transfers/pending"
+                element={
+                  <ProtectedRoute minTier="member" flag="can_approve_clearances">
+                    <TransferQueuePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/admin/health-tests"
                 element={
                   <ProtectedRoute minTier="admin">
@@ -171,6 +185,22 @@ export function App() {
                 }
               />
               <Route
+                path="/dogs/:id/edit"
+                element={
+                  <ProtectedRoute minTier="member" flag="can_approve_clearances">
+                    <DogEditPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/health"
+                element={
+                  <ProtectedRoute minTier="certificate">
+                    <HealthSelectPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/health/:dogId"
                 element={
                   <ProtectedRoute minTier="certificate">
@@ -194,6 +224,7 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

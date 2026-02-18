@@ -18,6 +18,11 @@ CLUB_SLUG = "wssca"
 ENVIRONMENT = "production"
 CLUB_SLUG = "wssca"
 
+# R2 storage for certificate uploads
+[[r2_buckets]]
+binding = "CERTIFICATES_BUCKET"
+bucket_name = "breed-club-certificates"
+
 # Secrets (set via wrangler secret put):
 # DATABASE_URL
 # CLERK_SECRET_KEY

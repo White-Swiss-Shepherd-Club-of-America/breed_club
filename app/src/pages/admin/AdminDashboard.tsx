@@ -5,7 +5,7 @@
 import { Link } from "react-router-dom";
 import { useApplicationQueue } from "@/hooks/useApplications";
 import { useAdminMembers } from "@/hooks/useAdmin";
-import { Users, ClipboardCheck, Settings, Heart, Dog } from "lucide-react";
+import { Users, ClipboardCheck, Settings, Heart, Dog, ArrowRightLeft } from "lucide-react";
 
 export function AdminDashboard() {
   const { data: appQueue } = useApplicationQueue("submitted");
@@ -51,7 +51,7 @@ export function AdminDashboard() {
       </div>
 
       <h2 className="text-lg font-semibold text-gray-900 mb-4">Approval Queues</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link
           to="/admin/dogs/pending"
           className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
@@ -68,6 +68,15 @@ export function AdminDashboard() {
           <Heart className="h-8 w-8 text-red-400 mb-3" />
           <h3 className="font-semibold text-gray-900">Health Clearances</h3>
           <p className="text-sm text-gray-500">Verify submitted health clearances</p>
+        </Link>
+
+        <Link
+          to="/admin/transfers/pending"
+          className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
+        >
+          <ArrowRightLeft className="h-8 w-8 text-orange-400 mb-3" />
+          <h3 className="font-semibold text-gray-900">Ownership Transfers</h3>
+          <p className="text-sm text-gray-500">Review pending ownership transfers</p>
         </Link>
       </div>
     </div>

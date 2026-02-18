@@ -26,6 +26,12 @@ export const updateContactSchema = createContactSchema.partial();
 
 // --- Dogs ---
 
+/** Parent ref: either an existing dog UUID or a new dog to create by name. */
+export const parentRefSchema = z.union([
+  uuidSchema,
+  z.object({ registered_name: z.string().min(1).max(255) }),
+]).nullish();
+
 export const createDogSchema = z.object({
   registered_name: z.string().min(1).max(255),
   call_name: z.string().max(100).nullish(),
@@ -35,8 +41,8 @@ export const createDogSchema = z.object({
   date_of_death: z.string().date().nullish(),
   color: z.string().max(100).nullish(),
   coat_type: z.string().max(50).nullish(),
-  sire_id: uuidSchema.nullish(),
-  dam_id: uuidSchema.nullish(),
+  sire_id: parentRefSchema,
+  dam_id: parentRefSchema,
   owner_id: uuidSchema.nullish(),
   breeder_id: uuidSchema.nullish(),
   is_public: z.boolean().default(false),
@@ -46,7 +52,7 @@ export const createDogSchema = z.object({
       z.object({
         organization_id: uuidSchema,
         registration_number: z.string().min(1).max(100),
-        registration_url: z.string().url().nullish(),
+        registration_url: z.string().max(500).nullish(),
       })
     )
     .optional(),
@@ -59,7 +65,7 @@ export const updateDogSchema = createDogSchema.partial();
 export const createDogRegistrationSchema = z.object({
   organization_id: uuidSchema,
   registration_number: z.string().min(1).max(100),
-  registration_url: z.string().url().nullish(),
+  registration_url: z.string().max(500).nullish(),
 });
 
 // --- Health Clearances ---
@@ -68,8 +74,9 @@ export const createHealthClearanceSchema = z.object({
   health_test_type_id: uuidSchema,
   organization_id: uuidSchema,
   result: z.string().min(1).max(100),
+  result_data: z.record(z.unknown()).nullish(),
   result_detail: z.string().max(1000).nullish(),
-  test_date: z.string().date().nullish(),
+  test_date: z.string().date(),
   expiration_date: z.string().date().nullish(),
   certificate_number: z.string().max(100).nullish(),
   notes: z.string().max(2000).nullish(),
@@ -129,6 +136,37 @@ export const createOrganizationSchema = z.object({
 
 // --- Health Test Types (admin) ---
 
+const resultSchemaValidator = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("enum"),
+    options: z.array(z.string().min(1)).min(1),
+  }),
+  z.object({
+    type: z.literal("numeric_lr"),
+    fields: z.array(z.object({
+      label: z.string().min(1),
+      key: z.string().min(1),
+      unit: z.string().optional(),
+      min: z.number().optional(),
+      max: z.number().optional(),
+      step: z.number().optional(),
+    })).min(1),
+  }),
+  z.object({
+    type: z.literal("point_score_lr"),
+    subcategories: z.array(z.object({
+      label: z.string().min(1),
+      key: z.string().min(1),
+      max: z.number().int().min(1),
+    })).min(1),
+  }),
+  z.object({
+    type: z.literal("elbow_lr"),
+  }),
+]);
+
+export { resultSchemaValidator };
+
 export const createHealthTestTypeSchema = z.object({
   name: z.string().min(1).max(255),
   short_name: z.string().min(1).max(50),
@@ -138,6 +176,10 @@ export const createHealthTestTypeSchema = z.object({
   description: z.string().max(2000).nullish(),
   sort_order: z.number().int().default(0),
   grading_org_ids: z.array(uuidSchema).optional(),
+  grading_orgs: z.array(z.object({
+    organization_id: uuidSchema,
+    result_schema: resultSchemaValidator.nullish(),
+  })).optional(),
 });
 
 // --- Litters ---
@@ -167,6 +209,14 @@ export const sellPupSchema = z.object({
   buyer_email: z.string().email(),
   buyer_name: z.string().min(1).max(255),
   registered_name: z.string().min(1).max(255),
+});
+
+// --- Ownership Transfers ---
+
+export const transferDogSchema = z.object({
+  new_owner_id: uuidSchema,
+  reason: z.enum(["sale", "return", "gift", "co_ownership", "other"]).optional(),
+  notes: z.string().max(2000).nullish(),
 });
 
 // --- Payments ---

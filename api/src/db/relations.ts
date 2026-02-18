@@ -6,6 +6,7 @@ import {
   membershipApplications,
   organizations,
   dogs,
+  dogOwnershipTransfers,
   dogRegistrations,
   healthTestTypes,
   healthTestTypeOrgs,
@@ -106,6 +107,33 @@ export const dogsRelations = relations(dogs, ({ one, many }) => ({
   registrations: many(dogRegistrations),
   healthClearances: many(dogHealthClearances),
   healthConditions: many(healthConditions),
+  ownershipTransfers: many(dogOwnershipTransfers),
+}));
+
+// ─── Dog Ownership Transfer relations ───────────────────────────────────────
+
+export const dogOwnershipTransfersRelations = relations(dogOwnershipTransfers, ({ one }) => ({
+  dog: one(dogs, { fields: [dogOwnershipTransfers.dog_id], references: [dogs.id] }),
+  fromOwner: one(contacts, {
+    fields: [dogOwnershipTransfers.from_owner_id],
+    references: [contacts.id],
+    relationName: "transferFromOwner",
+  }),
+  toOwner: one(contacts, {
+    fields: [dogOwnershipTransfers.to_owner_id],
+    references: [contacts.id],
+    relationName: "transferToOwner",
+  }),
+  requestedBy: one(members, {
+    fields: [dogOwnershipTransfers.requested_by],
+    references: [members.id],
+    relationName: "transferRequester",
+  }),
+  approvedBy: one(members, {
+    fields: [dogOwnershipTransfers.approved_by],
+    references: [members.id],
+    relationName: "transferApprover",
+  }),
 }));
 
 // ─── Dog Registration relations ─────────────────────────────────────────────

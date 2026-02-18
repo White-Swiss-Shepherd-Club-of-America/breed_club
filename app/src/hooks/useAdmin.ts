@@ -61,6 +61,15 @@ export function useOrganizations() {
   });
 }
 
+export function usePublicOrganizations() {
+  return useQuery({
+    queryKey: ["publicOrganizations"],
+    queryFn: async () => {
+      return api.get<{ data: Organization[] }>("/public/organizations");
+    },
+  });
+}
+
 export function useHealthTestTypes() {
   const { getToken } = useAuth();
 
@@ -114,6 +123,21 @@ export function useDeleteHealthTestType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminHealthTestTypes"] });
+    },
+  });
+}
+
+export function useUpdateContact() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: string } & Record<string, unknown>) => {
+      const token = await getToken();
+      return api.patch(`/contacts/${id}`, data, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminMembers"] });
     },
   });
 }

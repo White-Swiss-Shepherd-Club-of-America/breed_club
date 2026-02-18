@@ -16,6 +16,7 @@ import { healthRoutes } from "./routes/health.js";
 import { healthStampRoutes } from "./routes/health-stamp.js";
 import { paymentRoutes } from "./routes/payments.js";
 import { litterRoutes } from "./routes/litters.js";
+import { uploadRoutes } from "./routes/uploads.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -66,6 +67,9 @@ app.route("/api/payments", paymentRoutes);
 
 // Litters
 app.route("/api/litters", litterRoutes);
+
+// File uploads
+app.route("/api/uploads", uploadRoutes);
 
 // Health stamp SSR pages (no /api prefix)
 app.route("/", healthStampRoutes);

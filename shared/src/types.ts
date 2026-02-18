@@ -15,6 +15,33 @@ export type OrgType = "kennel_club" | "health_testing" | "grading_body" | "pedig
 export type HealthCategory = "orthopedic" | "cardiac" | "genetic" | "vision" | "thyroid" | "dental" | "other";
 export type ConditionSeverity = "mild" | "moderate" | "severe";
 
+// --- Result Schema Types ---
+
+export type ResultSchemaEnum = {
+  type: "enum";
+  options: string[];
+};
+
+export type ResultSchemaNumericLR = {
+  type: "numeric_lr";
+  fields: { label: string; key: string; unit?: string; min?: number; max?: number; step?: number }[];
+};
+
+export type ResultSchemaPointScoreLR = {
+  type: "point_score_lr";
+  subcategories: { label: string; key: string; max: number }[];
+};
+
+export type ResultSchemaElbowLR = {
+  type: "elbow_lr";
+};
+
+export type ResultSchema =
+  | ResultSchemaEnum
+  | ResultSchemaNumericLR
+  | ResultSchemaPointScoreLR
+  | ResultSchemaElbowLR;
+
 // --- Core Entities ---
 
 export interface Club {
@@ -97,6 +124,7 @@ export interface Dog {
   dam?: Dog;
   registrations?: DogRegistration[];
   health_clearances?: DogHealthClearance[];
+  healthClearances?: DogHealthClearance[];
 }
 
 export interface Organization {
@@ -123,6 +151,10 @@ export interface DogRegistration {
   organization?: Organization;
 }
 
+export interface GradingOrg extends Organization {
+  result_schema: ResultSchema | null;
+}
+
 export interface HealthTestType {
   id: string;
   club_id: string;
@@ -136,7 +168,7 @@ export interface HealthTestType {
   is_active: boolean;
   created_at: string;
   // Joined
-  grading_orgs?: Organization[];
+  grading_orgs?: GradingOrg[];
 }
 
 export interface DogHealthClearance {
@@ -145,8 +177,9 @@ export interface DogHealthClearance {
   health_test_type_id: string;
   organization_id: string;
   result: string;
+  result_data: Record<string, unknown> | null;
   result_detail: string | null;
-  test_date: string | null;
+  test_date: string;
   expiration_date: string | null;
   certificate_number: string | null;
   certificate_url: string | null;
@@ -158,6 +191,8 @@ export interface DogHealthClearance {
   created_at: string;
   // Joined
   health_test_type?: HealthTestType;
+  healthTestType?: HealthTestType;
+  testType?: HealthTestType;
   organization?: Organization;
 }
 
@@ -244,6 +279,29 @@ export interface Payment {
   status: string;
   metadata: Record<string, unknown>;
   created_at: string;
+}
+
+// --- Ownership Transfers ---
+
+export type TransferReason = "sale" | "return" | "gift" | "co_ownership" | "other";
+export type TransferStatus = "pending" | "approved" | "rejected";
+
+export interface DogOwnershipTransfer {
+  id: string;
+  dog_id: string;
+  from_owner_id: string | null;
+  to_owner_id: string;
+  requested_by: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  status: TransferStatus;
+  reason: TransferReason | null;
+  notes: string | null;
+  created_at: string;
+  // Joined
+  dog?: Dog;
+  fromOwner?: Contact;
+  toOwner?: Contact;
 }
 
 // --- API Response Types ---

@@ -14,7 +14,7 @@ import {
   useUpdateOrganization,
   useDeleteOrganization,
 } from "@/hooks/useAdmin";
-import type { HealthTestType, Organization, HealthCategory, OrgType } from "@breed-club/shared";
+import type { HealthTestType, Organization, HealthCategory, OrgType, ResultSchema, GradingOrg } from "@breed-club/shared";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 
 type Tab = "test-types" | "organizations";
@@ -28,6 +28,55 @@ const CATEGORIES: HealthCategory[] = [
   "dental",
   "other",
 ];
+
+const RESULT_SCHEMA_PRESETS: { value: string; label: string; schema: ResultSchema | null }[] = [
+  { value: "none", label: "Default (use result options)", schema: null },
+  {
+    value: "enum",
+    label: "Custom enum",
+    schema: { type: "enum", options: [] },
+  },
+  {
+    value: "pennhip",
+    label: "PennHIP (Distraction Index L/R)",
+    schema: {
+      type: "numeric_lr",
+      fields: [{ label: "Distraction Index", key: "di", min: 0, max: 1, step: 0.01 }],
+    },
+  },
+  {
+    value: "bva_hips",
+    label: "BVA/ANKC Hips (Point Score L/R)",
+    schema: {
+      type: "point_score_lr",
+      subcategories: [
+        { label: "Norberg Angle", key: "norberg_angle", max: 6 },
+        { label: "Subluxation", key: "subluxation", max: 6 },
+        { label: "Cranial acetabular edge", key: "cranial_acetabular_edge", max: 6 },
+        { label: "Dorsal acetabular edge", key: "dorsal_acetabular_edge", max: 6 },
+        { label: "Cranial effect acetabular rim", key: "cranial_effect_acetabular_rim", max: 6 },
+        { label: "Acetabular fossa", key: "acetabular_fossa", max: 6 },
+        { label: "Caudal acetabular edge", key: "caudal_acetabular_edge", max: 5 },
+        { label: "Femoral head/neck exostosis", key: "femoral_head_neck_exostosis", max: 6 },
+        { label: "Femoral head re-contouring", key: "femoral_head_recontouring", max: 6 },
+      ],
+    },
+  },
+  {
+    value: "elbow_lr",
+    label: "BVA/ANKC Elbows (Grade/mm/UAP L/R)",
+    schema: { type: "elbow_lr" },
+  },
+];
+
+function getPresetForSchema(schema: ResultSchema | null): string {
+  if (!schema) return "none";
+  if (schema.type === "elbow_lr") return "elbow_lr";
+  if (schema.type === "point_score_lr") return "bva_hips";
+  if (schema.type === "numeric_lr") return "pennhip";
+  if (schema.type === "enum") return "enum";
+  return "none";
+}
 
 const ORG_TYPES: { value: OrgType; label: string }[] = [
   { value: "kennel_club", label: "Kennel Club" },
@@ -176,7 +225,12 @@ function TestTypesTab() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">
-                    {tt.grading_orgs?.map((o) => o.name).join(", ") || "None"}
+                    {tt.grading_orgs?.map((o) => {
+                      const go = o as GradingOrg;
+                      const schema = go.result_schema;
+                      const tag = schema ? ` (${schema.type})` : "";
+                      return `${o.name}${tag}`;
+                    }).join(", ") || "None"}
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -238,9 +292,17 @@ function TestTypeForm({
   const [isChic, setIsChic] = useState(testType?.is_required_for_chic ?? false);
   const [description, setDescription] = useState(testType?.description ?? "");
   const [sortOrder, setSortOrder] = useState(testType?.sort_order ?? 0);
-  const [selectedOrgIds, setSelectedOrgIds] = useState<string[]>(
-    testType?.grading_orgs?.map((o) => o.id) ?? []
-  );
+  // Track per-org result schemas
+  const [orgSchemas, setOrgSchemas] = useState<Record<string, ResultSchema | null>>(() => {
+    const initial: Record<string, ResultSchema | null> = {};
+    if (testType?.grading_orgs) {
+      for (const org of testType.grading_orgs) {
+        initial[org.id] = (org as GradingOrg).result_schema ?? null;
+      }
+    }
+    return initial;
+  });
+  const selectedOrgIds = Object.keys(orgSchemas);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,13 +320,26 @@ function TestTypeForm({
       description: description || null,
       sort_order: sortOrder,
       grading_org_ids: selectedOrgIds,
+      grading_orgs: selectedOrgIds.map((orgId) => ({
+        organization_id: orgId,
+        result_schema: orgSchemas[orgId] ?? null,
+      })),
     });
   };
 
   const toggleOrg = (orgId: string) => {
-    setSelectedOrgIds((prev) =>
-      prev.includes(orgId) ? prev.filter((id) => id !== orgId) : [...prev, orgId]
-    );
+    setOrgSchemas((prev) => {
+      if (orgId in prev) {
+        const next = { ...prev };
+        delete next[orgId];
+        return next;
+      }
+      return { ...prev, [orgId]: null };
+    });
+  };
+
+  const setOrgSchema = (orgId: string, schema: ResultSchema | null) => {
+    setOrgSchemas((prev) => ({ ...prev, [orgId]: schema }));
   };
 
   return (
@@ -370,7 +445,7 @@ function TestTypeForm({
         {organizations.length > 0 && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Grading Organizations</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 mb-3">
               {organizations
                 .filter((o) => o.is_active)
                 .map((org) => (
@@ -388,6 +463,35 @@ function TestTypeForm({
                   </button>
                 ))}
             </div>
+            {/* Per-org result schema selection */}
+            {selectedOrgIds.length > 0 && (
+              <div className="space-y-2 mt-2 pl-2 border-l-2 border-blue-100">
+                {selectedOrgIds.map((orgId) => {
+                  const org = organizations.find((o) => o.id === orgId);
+                  if (!org) return null;
+                  const currentPreset = getPresetForSchema(orgSchemas[orgId] ?? null);
+                  return (
+                    <div key={orgId} className="flex items-center gap-3 text-sm">
+                      <span className="font-medium text-gray-700 w-24">{org.name}</span>
+                      <select
+                        value={currentPreset}
+                        onChange={(e) => {
+                          const preset = RESULT_SCHEMA_PRESETS.find((p) => p.value === e.target.value);
+                          setOrgSchema(orgId, preset?.schema ?? null);
+                        }}
+                        className="px-2 py-1 border rounded text-xs flex-1"
+                      >
+                        {RESULT_SCHEMA_PRESETS.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

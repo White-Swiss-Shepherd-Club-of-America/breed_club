@@ -20,7 +20,10 @@ import {
   dogs,
   dogHealthClearances,
   litters,
+  membershipApplications,
 } from "../db/schema.js";
+import { createApplicationSchema } from "@breed-club/shared/validation.js";
+import { conflict } from "../lib/errors.js";
 
 type Variables = {
   clubId: string;
@@ -283,6 +286,41 @@ publicRoutes.get("/dogs/:dog_id/health", async (c) => {
       verified_count: testResults.filter((t) => t.verified_at).length,
     },
   });
+});
+
+/**
+ * POST /applications — submit a membership application (no auth required).
+ */
+publicRoutes.post("/applications", async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const body = await c.req.json();
+  const data = createApplicationSchema.parse(body);
+
+  // Check for duplicate pending application
+  const existing = await db.query.membershipApplications.findFirst({
+    where: and(
+      eq(membershipApplications.club_id, clubId),
+      eq(membershipApplications.applicant_email, data.applicant_email),
+      eq(membershipApplications.status, "submitted")
+    ),
+  });
+
+  if (existing) {
+    throw conflict("An application with this email is already pending");
+  }
+
+  const [application] = await db
+    .insert(membershipApplications)
+    .values({
+      club_id: clubId,
+      ...data,
+      status: "submitted",
+    })
+    .returning();
+
+  return c.json({ application }, 201);
 });
 
 export { publicRoutes };

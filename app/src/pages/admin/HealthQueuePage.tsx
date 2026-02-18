@@ -7,10 +7,22 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
+import { PdfViewer } from "../../components/PdfViewer";
+
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
+
+function getCertificateUrl(urlOrKey: string): string {
+  return urlOrKey.startsWith("http") ? urlOrKey : `${API_BASE}/uploads/certificate/${urlOrKey}`;
+}
+
+function isImageUrl(urlOrKey: string): boolean {
+  return /\.(jpg|jpeg|png)$/i.test(urlOrKey);
+}
 
 interface Clearance {
   id: string;
   result: string;
+  result_data?: Record<string, unknown> | null;
   result_detail?: string;
   test_date?: string;
   certificate_number?: string;
@@ -59,6 +71,42 @@ interface PaginatedResponse {
   };
 }
 
+function ResultDataSummary({ data }: { data: Record<string, unknown> }) {
+  const left = data.left as Record<string, unknown> | undefined;
+  const right = data.right as Record<string, unknown> | undefined;
+  const total = data.total as number | undefined;
+
+  if (!left || !right) return null;
+
+  const keys = Object.keys(left).filter((k) => k !== "total");
+
+  return (
+    <div className="mt-1 text-xs text-gray-600">
+      <table className="border-collapse">
+        <thead>
+          <tr className="text-gray-500">
+            <th className="text-left font-normal pr-3" />
+            <th className="text-center font-normal px-2">R</th>
+            <th className="text-center font-normal px-2">L</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map((key) => (
+            <tr key={key}>
+              <td className="pr-3">{key.replace(/_/g, " ")}</td>
+              <td className="text-center px-2">{String((right as Record<string, unknown>)[key] ?? "-")}</td>
+              <td className="text-center px-2">{String((left as Record<string, unknown>)[key] ?? "-")}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {total != null && (
+        <p className="font-semibold mt-1">Total: {total}</p>
+      )}
+    </div>
+  );
+}
+
 export function HealthQueuePage() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
@@ -81,7 +129,7 @@ export function HealthQueuePage() {
   const approveMutation = useMutation({
     mutationFn: async (clearanceId: string) => {
       const token = await getToken();
-      return api.post(`/admin/clearances/${clearanceId}/approve`, { token });
+      return api.post(`/admin/clearances/${clearanceId}/approve`, undefined, { token });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "clearances", "pending"] });
@@ -92,7 +140,7 @@ export function HealthQueuePage() {
   const rejectMutation = useMutation({
     mutationFn: async (clearanceId: string) => {
       const token = await getToken();
-      return api.post(`/admin/clearances/${clearanceId}/reject`, { token });
+      return api.post(`/admin/clearances/${clearanceId}/reject`, undefined, { token });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "clearances", "pending"] });
@@ -203,6 +251,9 @@ export function HealthQueuePage() {
                       <div>
                         <p className="text-sm font-medium text-gray-700">Result</p>
                         <p className="text-lg font-semibold text-green-600">{clearance.result}</p>
+                        {clearance.result_data && (
+                          <ResultDataSummary data={clearance.result_data} />
+                        )}
                         {clearance.result_detail && (
                           <p className="text-sm text-gray-600">{clearance.result_detail}</p>
                         )}
@@ -226,14 +277,32 @@ export function HealthQueuePage() {
 
                     {clearance.certificate_url && (
                       <div className="mt-3">
-                        <a
-                          href={clearance.certificate_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-purple-600 hover:underline text-sm"
-                        >
-                          View Certificate →
-                        </a>
+                        <p className="text-sm font-medium text-gray-700 mb-1">Certificate</p>
+                        {isImageUrl(clearance.certificate_url) ? (
+                          <a
+                            href={getCertificateUrl(clearance.certificate_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <img
+                              src={getCertificateUrl(clearance.certificate_url)}
+                              alt="Certificate"
+                              className="max-w-md max-h-64 rounded border object-contain"
+                            />
+                          </a>
+                        ) : (
+                          <div>
+                            <PdfViewer url={getCertificateUrl(clearance.certificate_url)} />
+                            <a
+                              href={getCertificateUrl(clearance.certificate_url)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-purple-600 hover:underline mt-1 inline-block"
+                            >
+                              Open in new tab →
+                            </a>
+                          </div>
+                        )}
                       </div>
                     )}
 

@@ -7,6 +7,7 @@
  * - GET    /dogs/pending         — list dogs awaiting approval
  * - POST   /dogs/:id/approve     — approve dog
  * - POST   /dogs/:id/reject      — reject dog
+ * - PATCH  /dogs/:id             — update dog (admin/approver)
  * - GET    /organizations        — list organizations
  * - POST   /organizations        — create organization
  * - GET    /health-test-types    — list health test types
@@ -16,7 +17,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, sql, ilike } from "drizzle-orm";
+import { eq, and, sql, ilike, inArray } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -29,10 +30,12 @@ import {
   healthTestTypeOrgs,
   dogs,
   dogHealthClearances,
+  dogOwnershipTransfers,
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import {
   updateMemberSchema,
+  updateDogSchema,
   createOrganizationSchema,
   createHealthTestTypeSchema,
   paginationSchema,
@@ -306,6 +309,58 @@ adminRoutes.post("/dogs/:id/reject", requirePermission("clearances:approve"), as
   return c.json({ dog: updated });
 });
 
+/**
+ * PATCH /dogs/:id — update a dog (admin/approver, no status restrictions).
+ */
+adminRoutes.patch("/dogs/:id", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const body = await c.req.json();
+  const { registrations, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
+
+  // Admin edit only accepts UUID refs for parents (no auto-create)
+  const sire_id = typeof rawSireId === "string" ? rawSireId : rawSireId === null ? null : undefined;
+  const dam_id = typeof rawDamId === "string" ? rawDamId : rawDamId === null ? null : undefined;
+
+  const updateFields = { ...dogData, ...(sire_id !== undefined ? { sire_id } : {}), ...(dam_id !== undefined ? { dam_id } : {}) };
+
+  if (Object.keys(updateFields).length === 0) {
+    throw badRequest("No fields to update");
+  }
+
+  const existing = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!existing) {
+    throw notFound("Dog");
+  }
+
+  await db
+    .update(dogs)
+    .set({ ...updateFields, updated_at: new Date() })
+    .where(eq(dogs.id, id));
+
+  const updated = await db.query.dogs.findFirst({
+    where: eq(dogs.id, id),
+    with: {
+      owner: true,
+      breeder: true,
+      sire: { columns: { id: true, registered_name: true, call_name: true } },
+      dam: { columns: { id: true, registered_name: true, call_name: true } },
+    },
+  });
+
+  return c.json({ dog: updated });
+});
+
 // ─── Organizations ──────────────────────────────────────────────────────────
 
 /**
@@ -401,10 +456,13 @@ adminRoutes.get("/health-test-types", requireTier("admin"), async (c) => {
     orderBy: (tt, { asc }) => [asc(tt.sort_order)],
   });
 
-  // Reshape: flatten orgLinks into grading_orgs array
+  // Reshape: flatten orgLinks into grading_orgs array with result_schema
   const result = data.map((tt) => ({
     ...tt,
-    grading_orgs: tt.orgLinks.map((link) => link.organization),
+    grading_orgs: tt.orgLinks.map((link) => ({
+      ...link.organization,
+      result_schema: link.result_schema,
+    })),
     orgLinks: undefined,
   }));
 
@@ -419,21 +477,31 @@ adminRoutes.post("/health-test-types", requirePermission("test_types:manage"), a
   const clubId = c.get("clubId");
 
   const body = await c.req.json();
-  const { grading_org_ids, ...data } = createHealthTestTypeSchema.parse(body);
+  const { grading_org_ids, grading_orgs, ...data } = createHealthTestTypeSchema.parse(body);
 
   const [testType] = await db
     .insert(healthTestTypes)
     .values({ ...data, club_id: clubId })
     .returning();
 
-  // Link grading organizations
-  if (grading_org_ids && grading_org_ids.length > 0 && testType) {
-    await db.insert(healthTestTypeOrgs).values(
-      grading_org_ids.map((orgId) => ({
-        health_test_type_id: testType.id,
-        organization_id: orgId,
-      }))
-    );
+  // Link grading organizations with result schemas
+  if (testType) {
+    if (grading_orgs && grading_orgs.length > 0) {
+      await db.insert(healthTestTypeOrgs).values(
+        grading_orgs.map((org) => ({
+          health_test_type_id: testType.id,
+          organization_id: org.organization_id,
+          result_schema: org.result_schema ?? null,
+        }))
+      );
+    } else if (grading_org_ids && grading_org_ids.length > 0) {
+      await db.insert(healthTestTypeOrgs).values(
+        grading_org_ids.map((orgId) => ({
+          health_test_type_id: testType.id,
+          organization_id: orgId,
+        }))
+      );
+    }
   }
 
   return c.json({ health_test_type: testType }, 201);
@@ -448,7 +516,7 @@ adminRoutes.patch("/health-test-types/:id", requirePermission("test_types:manage
   const id = c.req.param("id");
 
   const body = await c.req.json();
-  const { grading_org_ids, ...data } = createHealthTestTypeSchema.partial().parse(body);
+  const { grading_org_ids, grading_orgs, ...data } = createHealthTestTypeSchema.partial().parse(body);
 
   const testType = await db.query.healthTestTypes.findFirst({
     where: and(eq(healthTestTypes.id, id), eq(healthTestTypes.club_id, clubId)),
@@ -460,8 +528,19 @@ adminRoutes.patch("/health-test-types/:id", requirePermission("test_types:manage
     await db.update(healthTestTypes).set(data as any).where(eq(healthTestTypes.id, id));
   }
 
-  // Update org links if provided
-  if (grading_org_ids !== undefined) {
+  // Update org links if provided (prefer grading_orgs with schemas over legacy grading_org_ids)
+  if (grading_orgs !== undefined) {
+    await db.delete(healthTestTypeOrgs).where(eq(healthTestTypeOrgs.health_test_type_id, id));
+    if (grading_orgs && grading_orgs.length > 0) {
+      await db.insert(healthTestTypeOrgs).values(
+        grading_orgs.map((org) => ({
+          health_test_type_id: id,
+          organization_id: org.organization_id,
+          result_schema: org.result_schema ?? null,
+        }))
+      );
+    }
+  } else if (grading_org_ids !== undefined) {
     await db.delete(healthTestTypeOrgs).where(eq(healthTestTypeOrgs.health_test_type_id, id));
     if (grading_org_ids && grading_org_ids.length > 0) {
       await db.insert(healthTestTypeOrgs).values(
@@ -480,7 +559,14 @@ adminRoutes.patch("/health-test-types/:id", requirePermission("test_types:manage
 
   return c.json({
     health_test_type: updated
-      ? { ...updated, grading_orgs: updated.orgLinks.map((l) => l.organization), orgLinks: undefined }
+      ? {
+          ...updated,
+          grading_orgs: updated.orgLinks.map((l) => ({
+            ...l.organization,
+            result_schema: l.result_schema,
+          })),
+          orgLinks: undefined,
+        }
       : null,
   });
 });
@@ -523,6 +609,7 @@ adminRoutes.get("/clearances/pending", requirePermission("clearances:approve"), 
         dog: {
           columns: {
             id: true,
+            club_id: true,
             registered_name: true,
             call_name: true,
             photo_url: true,
@@ -570,7 +657,10 @@ adminRoutes.get("/clearances/pending", requirePermission("clearances:approve"), 
       offset: (query.page - 1) * query.limit,
       orderBy: (c, { asc }) => [asc(c.created_at)],
     }),
-    db.select({ count: sql<number>`count(*)` }).from(dogHealthClearances).where(where),
+    db.select({ count: sql<number>`count(*)` })
+      .from(dogHealthClearances)
+      .innerJoin(dogs, and(eq(dogHealthClearances.dog_id, dogs.id), eq(dogs.club_id, clubId)))
+      .where(where),
   ]);
 
   // Filter to only clearances for dogs in this club
@@ -746,9 +836,9 @@ adminRoutes.get("/export/dogs", requireTier("admin"), async (c) => {
       dog.color || "",
       dog.sire?.registered_name || "",
       dog.dam?.registered_name || "",
-      dog.owner?.name || "",
+      dog.owner?.full_name || "",
       dog.owner?.email || "",
-      dog.breeder?.name || "",
+      dog.breeder?.full_name || "",
       dog.breeder?.email || "",
       registrations,
       dog.status,
@@ -856,6 +946,127 @@ adminRoutes.get("/export/health", requireTier("admin"), async (c) => {
     "Content-Type": "text/csv",
     "Content-Disposition": `attachment; filename="health-clearances-export-${new Date().toISOString().split("T")[0]}.csv"`,
   });
+});
+
+// ─── Ownership Transfers ──────────────────────────────────────────────────────
+
+/**
+ * GET /transfers/pending — list pending ownership transfers.
+ */
+adminRoutes.get("/transfers/pending", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const query = paginationSchema.parse(c.req.query());
+
+  const transfers = await db.query.dogOwnershipTransfers.findMany({
+    where: eq(dogOwnershipTransfers.status, "pending"),
+    with: {
+      dog: {
+        columns: { id: true, registered_name: true, call_name: true, club_id: true },
+      },
+      fromOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+      toOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+    },
+    limit: query.limit,
+    offset: (query.page - 1) * query.limit,
+    orderBy: (t, { desc }) => [desc(t.created_at)],
+  });
+
+  // Filter to transfers for dogs in this club
+  const filtered = transfers.filter((t) => t.dog?.club_id === clubId);
+
+  return c.json({
+    data: filtered,
+    meta: { page: query.page, limit: query.limit, total: filtered.length, pages: 1 },
+  });
+});
+
+/**
+ * POST /transfers/:id/approve — approve a pending ownership transfer.
+ */
+adminRoutes.post("/transfers/:id/approve", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) throw forbidden("Member record required");
+
+  const transfer = await db.query.dogOwnershipTransfers.findFirst({
+    where: eq(dogOwnershipTransfers.id, id),
+    with: {
+      dog: { columns: { id: true, club_id: true } },
+    },
+  });
+
+  if (!transfer || transfer.dog?.club_id !== clubId) {
+    throw notFound("Transfer");
+  }
+
+  if (transfer.status !== "pending") {
+    throw badRequest("Transfer is not pending");
+  }
+
+  // Update transfer status
+  const [updated] = await db
+    .update(dogOwnershipTransfers)
+    .set({
+      status: "approved",
+      approved_by: auth.member.id,
+      approved_at: new Date(),
+    })
+    .where(eq(dogOwnershipTransfers.id, id))
+    .returning();
+
+  // Update dog owner
+  await db
+    .update(dogs)
+    .set({
+      owner_id: transfer.to_owner_id,
+      updated_at: new Date(),
+    })
+    .where(eq(dogs.id, transfer.dog_id));
+
+  return c.json({ transfer: updated });
+});
+
+/**
+ * POST /transfers/:id/reject — reject a pending ownership transfer.
+ */
+adminRoutes.post("/transfers/:id/reject", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) throw forbidden("Member record required");
+
+  const transfer = await db.query.dogOwnershipTransfers.findFirst({
+    where: eq(dogOwnershipTransfers.id, id),
+    with: {
+      dog: { columns: { id: true, club_id: true } },
+    },
+  });
+
+  if (!transfer || transfer.dog?.club_id !== clubId) {
+    throw notFound("Transfer");
+  }
+
+  if (transfer.status !== "pending") {
+    throw badRequest("Transfer is not pending");
+  }
+
+  const [updated] = await db
+    .update(dogOwnershipTransfers)
+    .set({
+      status: "rejected",
+      approved_by: auth.member.id,
+      approved_at: new Date(),
+    })
+    .where(eq(dogOwnershipTransfers.id, id))
+    .returning();
+
+  return c.json({ transfer: updated });
 });
 
 export { adminRoutes };

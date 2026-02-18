@@ -7,6 +7,16 @@ import { Link } from "react-router-dom";
 import { usePendingDogs, useApproveDog, useRejectDog } from "@/hooks/useDogs";
 import type { Dog } from "@breed-club/shared";
 
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
+
+function getDocUrl(urlOrKey: string): string {
+  return urlOrKey.startsWith("http") ? urlOrKey : `${API_BASE}/uploads/certificate/${urlOrKey}`;
+}
+
+function isImageKey(urlOrKey: string): boolean {
+  return /\.(jpg|jpeg|png)$/i.test(urlOrKey);
+}
+
 function DogCard({ dog, onApprove, onReject }: { dog: Dog; onApprove: () => void; onReject: () => void }) {
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
@@ -72,14 +82,32 @@ function DogCard({ dog, onApprove, onReject }: { dog: Dog; onApprove: () => void
                   <div key={reg.id} className="text-sm">
                     <span className="font-medium">{reg.organization?.name}:</span> {reg.registration_number}
                     {reg.registration_url && (
-                      <a
-                        href={reg.registration_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 text-gray-600 hover:text-gray-900 underline"
-                      >
-                        verify
-                      </a>
+                      <>
+                        {isImageKey(reg.registration_url) ? (
+                          <div className="mt-1">
+                            <a
+                              href={getDocUrl(reg.registration_url)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={getDocUrl(reg.registration_url)}
+                                alt="Registration certificate"
+                                className="max-w-xs max-h-40 rounded border object-contain"
+                              />
+                            </a>
+                          </div>
+                        ) : (
+                          <a
+                            href={getDocUrl(reg.registration_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 text-gray-600 hover:text-gray-900 underline"
+                          >
+                            {reg.registration_url.startsWith("http") ? "verify" : "view certificate (PDF)"}
+                          </a>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}

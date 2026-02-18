@@ -7,10 +7,11 @@ import { useNavigate } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createDogSchema } from "@breed-club/shared/validation.js";
+import { useAuth } from "@clerk/clerk-react";
 import { useCreateDog, useDogs } from "@/hooks/useDogs";
 import { useContacts } from "@/hooks/useContacts";
-import { useOrganizations } from "@/hooks/useAdmin";
-import { ApiRequestError } from "@/lib/api";
+import { usePublicOrganizations } from "@/hooks/useAdmin";
+import { api, ApiRequestError } from "@/lib/api";
 import type { z } from "zod";
 import type { Contact, Organization } from "@breed-club/shared";
 
@@ -73,59 +74,90 @@ function ContactTypeahead({
   );
 }
 
+type ParentRef = string | { registered_name: string } | undefined;
+
 function DogTypeahead({
   value,
   onChange,
   label,
   excludeId,
+  sex,
 }: {
-  value?: string;
-  onChange: (id: string | undefined) => void;
+  value?: ParentRef;
+  onChange: (ref: ParentRef) => void;
   label: string;
   excludeId?: string;
+  sex?: "male" | "female";
 }) {
   const [search, setSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
-  const { data: dogsData } = useDogs(1, search);
+  const { data: dogsData } = useDogs(1, search, sex);
   const dogs = dogsData?.data || [];
-  const selectedDog = dogs.find((d) => d.id === value);
+
+  // Determine display value
+  const selectedId = typeof value === "string" ? value : undefined;
+  const newName = value && typeof value === "object" ? value.registered_name : undefined;
+  const selectedDog = selectedId ? dogs.find((d) => d.id === selectedId) : undefined;
+
+  const filteredDogs = dogs.filter((dog) => dog.id !== excludeId);
+  const showCreateNew = search.length >= 2 && !filteredDogs.some(
+    (d) => d.registered_name.toLowerCase() === search.toLowerCase()
+  );
 
   return (
     <div className="relative">
       <label className="block text-sm font-medium text-gray-700 mb-1">
         {label} <span className="text-gray-400">(optional)</span>
       </label>
-      <input
-        type="text"
-        value={search || selectedDog?.registered_name || ""}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setShowDropdown(true);
-          if (!e.target.value) onChange(undefined);
-        }}
-        onFocus={() => setShowDropdown(true)}
-        placeholder="Search by registered name..."
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-      />
-      {showDropdown && search && dogs.length > 0 && (
+      <div className="relative">
+        <input
+          type="text"
+          value={search || selectedDog?.registered_name || newName || ""}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setShowDropdown(true);
+            if (!e.target.value) onChange(undefined);
+          }}
+          onFocus={() => setShowDropdown(true)}
+          placeholder="Search by registered name..."
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+        />
+        {newName && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">
+            new
+          </span>
+        )}
+      </div>
+      {showDropdown && search && (filteredDogs.length > 0 || showCreateNew) && (
         <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {dogs
-            .filter((dog) => dog.id !== excludeId)
-            .map((dog) => (
-              <button
-                type="button"
-                key={dog.id}
-                onClick={() => {
-                  onChange(dog.id);
-                  setSearch("");
-                  setShowDropdown(false);
-                }}
-                className="w-full px-3 py-2 text-left hover:bg-gray-100 focus:bg-gray-100"
-              >
-                <div className="font-medium">{dog.registered_name}</div>
-                {dog.call_name && <div className="text-sm text-gray-600">{dog.call_name}</div>}
-              </button>
-            ))}
+          {filteredDogs.map((dog) => (
+            <button
+              type="button"
+              key={dog.id}
+              onClick={() => {
+                onChange(dog.id);
+                setSearch("");
+                setShowDropdown(false);
+              }}
+              className="w-full px-3 py-2 text-left hover:bg-gray-100 focus:bg-gray-100"
+            >
+              <div className="font-medium">{dog.registered_name}</div>
+              {dog.call_name && <div className="text-sm text-gray-600">{dog.call_name}</div>}
+            </button>
+          ))}
+          {showCreateNew && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ registered_name: search });
+                setSearch("");
+                setShowDropdown(false);
+              }}
+              className="w-full px-3 py-2 text-left hover:bg-yellow-50 focus:bg-yellow-50 border-t border-gray-200"
+            >
+              <div className="font-medium text-yellow-700">+ Create "{search}" as new {label.toLowerCase()}</div>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -134,14 +166,18 @@ function DogTypeahead({
 
 export function DogCreatePage() {
   const navigate = useNavigate();
+  const { getToken } = useAuth();
   const createMutation = useCreateDog();
-  const { data: orgsData } = useOrganizations();
+  const { data: orgsData } = usePublicOrganizations();
   const organizations = orgsData?.data || [];
 
   const [registrations, setRegistrations] = useState<
     Array<{ organization_id: string; registration_number: string; registration_url?: string }>
   >([]);
+  const [registrationFiles, setRegistrationFiles] = useState<Map<number, File>>(new Map());
+  const [uploading, setUploading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
 
   const {
     register,
@@ -158,19 +194,45 @@ export function DogCreatePage() {
   const onSubmit = async (data: DogForm) => {
     try {
       setPaymentError(null);
+      setGeneralError(null);
+
+      // Upload any registration certificate files first
+      let finalRegistrations = registrations;
+      if (registrationFiles.size > 0) {
+        setUploading(true);
+        const token = await getToken();
+        finalRegistrations = await Promise.all(
+          registrations.map(async (reg, index) => {
+            const file = registrationFiles.get(index);
+            if (file) {
+              const result = await api.upload<{ key: string }>(
+                "/uploads/certificate",
+                file,
+                { token }
+              );
+              return { ...reg, registration_url: result.key };
+            }
+            return reg;
+          })
+        );
+        setUploading(false);
+      }
+
       await createMutation.mutateAsync({
         ...data,
-        registrations: registrations.length > 0 ? registrations : undefined,
+        registrations: finalRegistrations.length > 0 ? finalRegistrations : undefined,
       });
       navigate("/registry");
     } catch (error) {
+      setUploading(false);
       if (error instanceof ApiRequestError && error.status === 402) {
         setPaymentError(
           "Payment is required to register this dog. Please contact an administrator to enable fee bypass for your account."
         );
+      } else if (error instanceof ApiRequestError) {
+        setGeneralError(error.error?.message || "Failed to register dog. Please try again.");
       } else {
-        // Re-throw other errors to be handled by react-query
-        throw error;
+        setGeneralError("An unexpected error occurred. Please try again.");
       }
     }
   };
@@ -181,6 +243,12 @@ export function DogCreatePage() {
 
   const removeRegistration = (index: number) => {
     setRegistrations(registrations.filter((_, i) => i !== index));
+    const newFiles = new Map<number, File>();
+    registrationFiles.forEach((file, i) => {
+      if (i < index) newFiles.set(i, file);
+      else if (i > index) newFiles.set(i - 1, file);
+    });
+    setRegistrationFiles(newFiles);
   };
 
   const updateRegistration = (
@@ -327,7 +395,7 @@ export function DogCreatePage() {
             name="sire_id"
             control={control}
             render={({ field }) => (
-              <DogTypeahead value={field.value ?? undefined} onChange={field.onChange} label="Sire" />
+              <DogTypeahead value={(field.value as ParentRef) ?? undefined} onChange={field.onChange} label="Sire" sex="male" />
             )}
           />
 
@@ -335,7 +403,7 @@ export function DogCreatePage() {
             name="dam_id"
             control={control}
             render={({ field }) => (
-              <DogTypeahead value={field.value ?? undefined} onChange={field.onChange} label="Dam" />
+              <DogTypeahead value={(field.value as ParentRef) ?? undefined} onChange={field.onChange} label="Dam" sex="female" />
             )}
           />
         </div>
@@ -398,14 +466,39 @@ export function DogCreatePage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Registration URL <span className="text-gray-400">(optional)</span>
+                  Registration Certificate <span className="text-gray-400">(optional)</span>
                 </label>
                 <input
-                  type="url"
-                  value={reg.registration_url || ""}
-                  onChange={(e) => updateRegistration(index, "registration_url", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const newFiles = new Map(registrationFiles);
+                      newFiles.set(index, file);
+                      setRegistrationFiles(newFiles);
+                      updateRegistration(index, "registration_url", "");
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                 />
+                {registrationFiles.get(index) && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    {registrationFiles.get(index)!.name} ({(registrationFiles.get(index)!.size / 1024).toFixed(0)} KB)
+                  </p>
+                )}
+                {!registrationFiles.get(index) && (
+                  <div className="mt-2">
+                    <label className="block text-xs text-gray-500 mb-1">Or paste a URL</label>
+                    <input
+                      type="url"
+                      value={reg.registration_url || ""}
+                      onChange={(e) => updateRegistration(index, "registration_url", e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      placeholder="https://..."
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -426,13 +519,19 @@ export function DogCreatePage() {
           </div>
         )}
 
+        {generalError && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800">{generalError}</p>
+          </div>
+        )}
+
         <div className="flex gap-3">
           <button
             type="submit"
-            disabled={isSubmitting || createMutation.isPending}
+            disabled={isSubmitting || createMutation.isPending || uploading}
             className="px-6 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
           >
-            {isSubmitting || createMutation.isPending ? "Submitting..." : "Submit for Approval"}
+            {uploading ? "Uploading certificates..." : isSubmitting || createMutation.isPending ? "Submitting..." : "Submit for Approval"}
           </button>
           <button
             type="button"

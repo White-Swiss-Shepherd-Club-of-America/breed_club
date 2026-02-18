@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import { eq, and } from "drizzle-orm";
 import type { Env, ApiContext } from "../lib/types.js";
-import { ApiError } from "../lib/errors.js";
+import { badRequest, notFound } from "../lib/errors.js";
 import { getDb } from "../db/client.js";
 import {
   dogs,
@@ -25,8 +25,8 @@ const healthStampRoutes = new Hono<{ Bindings: Env }>();
 // ─── GET /dogs/:id/health — SSR health stamp page with OG tags ─────────────
 
 healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
-  const { club } = c.var;
-  if (!club) throw new ApiError("Club context required", 400);
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
   const db = getDb(c.env);
@@ -47,7 +47,7 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
     .limit(1);
 
   if (!dog) {
-    throw new ApiError("Dog not found", 404);
+    throw notFound("Dog");
   }
 
   // Fetch all test types for this club

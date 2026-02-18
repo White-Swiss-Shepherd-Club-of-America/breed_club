@@ -2,17 +2,17 @@ import { Hono } from "hono";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { z } from "zod";
 import type { Env, ApiContext } from "../lib/types.js";
-import { ApiError } from "../lib/errors.js";
+import { notFound, unauthorized, badRequest, conflict, forbidden } from "../lib/errors.js";
+import { isDogOwner } from "../lib/ownership.js";
 import { getDb } from "../db/client.js";
 import {
   healthTestTypes,
   healthTestTypeOrgs,
   organizations,
   dogHealthClearances,
+  dogOwnershipTransfers,
   healthConditions,
   dogs,
-  members,
-  clubs,
 } from "../db/schema.js";
 
 const healthRoutes = new Hono<{ Bindings: Env }>();
@@ -23,15 +23,60 @@ const createClearanceSchema = z.object({
   health_test_type_id: z.string().uuid(),
   organization_id: z.string().uuid(),
   result: z.string().min(1),
+  result_data: z.record(z.unknown()).nullish(),
   result_detail: z.string().optional(),
-  test_date: z.string().optional(), // ISO date string
+  test_date: z.string(), // ISO date string, required
   expiration_date: z.string().optional(),
   certificate_number: z.string().optional(),
-  certificate_url: z.string().url().optional(),
+  certificate_url: z.string().max(500).optional(),
   notes: z.string().optional(),
 });
 
 const updateClearanceSchema = createClearanceSchema.partial();
+
+// ─── Result Summary Helpers ─────────────────────────────────────────────────
+
+/**
+ * Compute a human-readable result summary string from structured result_data.
+ * Falls back to the provided result string if result_data is null.
+ */
+function computeResultSummary(
+  result: string,
+  resultData: Record<string, unknown> | null | undefined,
+  resultSchema: { type: string } | null | undefined
+): string {
+  if (!resultData || !resultSchema) return result;
+
+  switch (resultSchema.type) {
+    case "numeric_lr": {
+      const left = resultData.left as Record<string, number> | undefined;
+      const right = resultData.right as Record<string, number> | undefined;
+      if (!left || !right) return result;
+      const keys = Object.keys(left);
+      const parts = keys.map((k) => `${k.toUpperCase()}: L=${left[k]}, R=${right[k]}`);
+      return parts.join("; ");
+    }
+    case "point_score_lr": {
+      const left = resultData.left as Record<string, number> | undefined;
+      const right = resultData.right as Record<string, number> | undefined;
+      const total = resultData.total as number | undefined;
+      if (left?.total != null && right?.total != null && total != null) {
+        return `${total} (R:${right.total}, L:${left.total})`;
+      }
+      return result;
+    }
+    case "elbow_lr": {
+      const left = resultData.left as { grade?: number } | undefined;
+      const right = resultData.right as { grade?: number } | undefined;
+      if (left && right) {
+        return `L: Grade ${left.grade ?? "?"}, R: Grade ${right.grade ?? "?"}`;
+      }
+      return result;
+    }
+    default:
+      return result;
+  }
+}
 
 const createConditionSchema = z.object({
   condition_name: z.string().min(1),
@@ -45,8 +90,8 @@ const createConditionSchema = z.object({
 // ─── GET /api/health/test-types — catalog of all test types with orgs ──────
 
 healthRoutes.get("/test-types", async (c: ApiContext) => {
-  const { club } = c.var;
-  if (!club) throw new ApiError("Club context required", 400);
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
 
   const db = getDb(c.env);
 
@@ -73,6 +118,7 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
   const orgLinks = await db
     .select({
       health_test_type_id: healthTestTypeOrgs.health_test_type_id,
+      result_schema: healthTestTypeOrgs.result_schema,
       organization: {
         id: organizations.id,
         name: organizations.name,
@@ -85,16 +131,19 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
     .innerJoin(organizations, eq(healthTestTypeOrgs.organization_id, organizations.id))
     .where(eq(organizations.is_active, true));
 
-  // Group orgs by test type
+  // Group orgs by test type, including result_schema
   const orgsByTestType = orgLinks.reduce(
     (acc, link) => {
       if (!acc[link.health_test_type_id]) {
         acc[link.health_test_type_id] = [];
       }
-      acc[link.health_test_type_id].push(link.organization);
+      acc[link.health_test_type_id].push({
+        ...link.organization,
+        result_schema: link.result_schema,
+      });
       return acc;
     },
-    {} as Record<string, typeof orgLinks[0]["organization"][]>
+    {} as Record<string, Array<typeof orgLinks[0]["organization"] & { result_schema: unknown }>>
   );
 
   const result = testTypes.map((tt) => ({
@@ -113,9 +162,11 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
 // - If fee > $0: returns requiresPayment flag (frontend should call /api/payments/create-session)
 
 healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
-  const { club, member } = c.var;
-  if (!club || !member) throw new ApiError("Authentication required", 401);
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
 
+  const member = auth.member;
   const dogId = c.req.param("dog_id");
   const body = await c.req.json();
   const data = createClearanceSchema.parse(body);
@@ -125,24 +176,65 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   // Verify dog exists and user has permission
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
 
-  if (!dog) throw new ApiError("Dog not found", 404);
-  if (dog.club_id !== club.id) throw new ApiError("Dog not found", 404);
+  if (!dog) throw notFound("Dog");
+  if (dog.club_id !== club.id) throw notFound("Dog");
 
-  // Check for duplicate clearance (one clearance per test type per dog)
+  // Only owner or admin can submit clearances
+  if (!isDogOwner(auth, dog, club.settings as Record<string, unknown>)) {
+    throw forbidden("You can only submit clearances for dogs you own");
+  }
+
+  // Block if dog has a pending ownership transfer
+  const [pendingTransfer] = await db
+    .select()
+    .from(dogOwnershipTransfers)
+    .where(
+      and(
+        eq(dogOwnershipTransfers.dog_id, dogId),
+        eq(dogOwnershipTransfers.status, "pending")
+      )
+    )
+    .limit(1);
+
+  if (pendingTransfer) {
+    throw forbidden("Dog has a pending ownership transfer and is locked");
+  }
+
+  // Check for duplicate clearance (one per dog + test type + org + date)
   const existing = await db
     .select()
     .from(dogHealthClearances)
     .where(
       and(
         eq(dogHealthClearances.dog_id, dogId),
-        eq(dogHealthClearances.health_test_type_id, data.health_test_type_id)
+        eq(dogHealthClearances.health_test_type_id, data.health_test_type_id),
+        eq(dogHealthClearances.organization_id, data.organization_id),
+        eq(dogHealthClearances.test_date, data.test_date)
       )
     )
     .limit(1);
 
   if (existing.length > 0) {
-    throw new ApiError("Clearance already exists for this test type", 409);
+    throw conflict("Clearance already exists for this test type, organization, and date");
   }
+
+  // Look up result_schema for this test type + org to auto-compute result summary
+  const [orgLink] = await db
+    .select({ result_schema: healthTestTypeOrgs.result_schema })
+    .from(healthTestTypeOrgs)
+    .where(
+      and(
+        eq(healthTestTypeOrgs.health_test_type_id, data.health_test_type_id),
+        eq(healthTestTypeOrgs.organization_id, data.organization_id)
+      )
+    )
+    .limit(1);
+
+  const computedResult = computeResultSummary(
+    data.result,
+    data.result_data,
+    orgLink?.result_schema as { type: string } | null
+  );
 
   // Check if payment is required
   const feeConfig = club.settings as any;
@@ -181,7 +273,8 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       dog_id: dogId,
       health_test_type_id: data.health_test_type_id,
       organization_id: data.organization_id,
-      result: data.result,
+      result: computedResult,
+      result_data: data.result_data ?? null,
       result_detail: data.result_detail,
       test_date: data.test_date,
       expiration_date: data.expiration_date,
@@ -199,8 +292,8 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
 // ─── GET /api/dogs/:id/clearances — list clearances ────────────────────────
 
 healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
-  const { club } = c.var;
-  if (!club) throw new ApiError("Club context required", 400);
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
   const db = getDb(c.env);
@@ -209,7 +302,7 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
 
   if (!dog || dog.club_id !== club.id) {
-    throw new ApiError("Dog not found", 404);
+    throw notFound("Dog");
   }
 
   // Fetch clearances with test type and org details
@@ -217,6 +310,7 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
     .select({
       id: dogHealthClearances.id,
       result: dogHealthClearances.result,
+      result_data: dogHealthClearances.result_data,
       result_detail: dogHealthClearances.result_detail,
       test_date: dogHealthClearances.test_date,
       expiration_date: dogHealthClearances.expiration_date,
@@ -250,9 +344,11 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
 // ─── PATCH /api/dogs/:dog_id/clearances/:id — update clearance ─────────────
 
 healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContext) => {
-  const { club, member } = c.var;
-  if (!club || !member) throw new ApiError("Authentication required", 401);
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
 
+  const member = auth.member;
   const dogId = c.req.param("dog_id");
   const clearanceId = c.req.param("clearance_id");
 
@@ -269,22 +365,65 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
     .limit(1);
 
   if (!clearance || clearance.dog_id !== dogId) {
-    throw new ApiError("Clearance not found", 404);
+    throw notFound("Clearance");
   }
 
-  // Check permissions — only submitter or approver can update
+  // Check permissions — dog owner, clearance submitter, or approver can update
+  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  if (!dog) throw notFound("Dog");
+
   const canEdit =
-    clearance.submitted_by === member.id || member.can_approve_clearances;
+    isDogOwner(auth, dog, club.settings as Record<string, unknown>) ||
+    clearance.submitted_by === member.id;
 
   if (!canEdit) {
-    throw new ApiError("Insufficient permissions", 403);
+    throw forbidden("Insufficient permissions");
+  }
+
+  // Block if dog has a pending ownership transfer
+  const [pendingTransfer] = await db
+    .select()
+    .from(dogOwnershipTransfers)
+    .where(
+      and(
+        eq(dogOwnershipTransfers.dog_id, dogId),
+        eq(dogOwnershipTransfers.status, "pending")
+      )
+    )
+    .limit(1);
+
+  if (pendingTransfer) {
+    throw forbidden("Dog has a pending ownership transfer and is locked");
+  }
+
+  // If result_data is being updated, re-compute the result summary
+  let updateData: Record<string, unknown> = { ...data };
+  if (data.result_data !== undefined || data.result !== undefined) {
+    const [orgLink] = await db
+      .select({ result_schema: healthTestTypeOrgs.result_schema })
+      .from(healthTestTypeOrgs)
+      .where(
+        and(
+          eq(healthTestTypeOrgs.health_test_type_id, data.health_test_type_id ?? clearance.health_test_type_id),
+          eq(healthTestTypeOrgs.organization_id, data.organization_id ?? clearance.organization_id)
+        )
+      )
+      .limit(1);
+
+    const resultData = data.result_data ?? clearance.result_data;
+    const resultStr = data.result ?? clearance.result;
+    updateData.result = computeResultSummary(
+      resultStr,
+      resultData as Record<string, unknown> | null,
+      orgLink?.result_schema as { type: string } | null
+    );
   }
 
   // Update clearance
   const [updated] = await db
     .update(dogHealthClearances)
     .set({
-      ...data,
+      ...updateData,
       // If updating after approval, reset status to pending
       ...(clearance.status === "approved" && { status: "pending", verified_by: null, verified_at: null }),
     })
@@ -297,9 +436,11 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
 // ─── POST /api/dogs/:id/conditions — report health condition ───────────────
 
 healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
-  const { club, member } = c.var;
-  if (!club || !member) throw new ApiError("Authentication required", 401);
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
 
+  const member = auth.member;
   const dogId = c.req.param("dog_id");
   const body = await c.req.json();
   const data = createConditionSchema.parse(body);
@@ -310,7 +451,7 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
 
   if (!dog || dog.club_id !== club.id) {
-    throw new ApiError("Dog not found", 404);
+    throw notFound("Dog");
   }
 
   // Insert condition
@@ -334,8 +475,8 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
 // ─── GET /api/dogs/:id/conditions — list conditions ────────────────────────
 
 healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
-  const { club } = c.var;
-  if (!club) throw new ApiError("Club context required", 400);
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
   const db = getDb(c.env);
@@ -344,7 +485,7 @@ healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
 
   if (!dog || dog.club_id !== club.id) {
-    throw new ApiError("Dog not found", 404);
+    throw notFound("Dog");
   }
 
   const conditions = await db
@@ -359,8 +500,8 @@ healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
 // ─── GET /api/health/statistics — aggregate health stats ───────────────────
 
 healthRoutes.get("/statistics", async (c: ApiContext) => {
-  const { club } = c.var;
-  if (!club) throw new ApiError("Club context required", 400);
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
 
   const db = getDb(c.env);
 

@@ -87,6 +87,31 @@ class ApiClient {
   delete<T>(path: string, options?: Omit<RequestOptions, "method" | "body">) {
     return this.request<T>(path, { ...options, method: "DELETE" });
   }
+
+  async upload<T>(path: string, file: File, options?: { token?: string | null }): Promise<T> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const headers: Record<string, string> = {};
+    if (options?.token) {
+      headers["Authorization"] = `Bearer ${options.token}`;
+    }
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const responseData = await response.json().catch(() => ({
+        error: { code: "UNKNOWN", message: response.statusText },
+      }));
+      throw new ApiRequestError(response.status, responseData.error || responseData);
+    }
+
+    return response.json();
+  }
 }
 
 export class ApiRequestError extends Error {

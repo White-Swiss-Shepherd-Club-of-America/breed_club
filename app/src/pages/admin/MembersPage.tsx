@@ -3,9 +3,9 @@
  */
 
 import { useState } from "react";
-import { useAdminMembers, useUpdateMember, useDeleteMember } from "@/hooks/useAdmin";
+import { useAdminMembers, useUpdateMember, useDeleteMember, useUpdateContact } from "@/hooks/useAdmin";
 import type { Member, Tier } from "@breed-club/shared";
-import { Trash2, AlertTriangle } from "lucide-react";
+import { Trash2, AlertTriangle, Pencil } from "lucide-react";
 
 const TIER_OPTIONS: Tier[] = ["non_member", "certificate", "member", "admin"];
 const STATUS_OPTIONS = ["pending", "active", "expired", "suspended"];
@@ -16,7 +16,9 @@ export function MembersPage() {
   const { data, isLoading } = useAdminMembers(page);
   const updateMutation = useUpdateMember();
   const deleteMutation = useDeleteMember();
+  const updateContactMutation = useUpdateContact();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
 
   const allMembers = data?.data ?? [];
   const meta = data?.meta;
@@ -98,6 +100,19 @@ export function MembersPage() {
         </div>
       )}
 
+      {/* Edit contact modal */}
+      {editingMember && editingMember.contact && (
+        <ContactEditModal
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+          onSave={async (data) => {
+            await updateContactMutation.mutateAsync({ id: editingMember.contact!.id, ...data });
+            setEditingMember(null);
+          }}
+          isSaving={updateContactMutation.isPending}
+        />
+      )}
+
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
@@ -115,12 +130,19 @@ export function MembersPage() {
             {members.map((member: Member) => (
               <tr key={member.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">
-                    {member.contact?.full_name}
-                  </div>
-                  {member.contact?.kennel_name && (
-                    <div className="text-xs text-gray-500">{member.contact.kennel_name}</div>
-                  )}
+                  <button
+                    onClick={() => setEditingMember(member)}
+                    className="text-left group"
+                    title="Edit contact info"
+                  >
+                    <div className="font-medium text-gray-900 group-hover:text-blue-600 flex items-center gap-1">
+                      {member.contact?.full_name}
+                      <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 text-blue-500" />
+                    </div>
+                    {member.contact?.kennel_name && (
+                      <div className="text-xs text-gray-500">{member.contact.kennel_name}</div>
+                    )}
+                  </button>
                 </td>
                 <td className="px-4 py-3 text-gray-600 text-xs">
                   {member.contact?.email}
@@ -291,5 +313,151 @@ function FlagToggle({
     >
       {label}
     </button>
+  );
+}
+
+function ContactEditModal({
+  member,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  member: Member;
+  onClose: () => void;
+  onSave: (data: Record<string, string | null>) => Promise<void>;
+  isSaving: boolean;
+}) {
+  const contact = member.contact!;
+  const [form, setForm] = useState({
+    full_name: contact.full_name || "",
+    email: contact.email || "",
+    phone: contact.phone || "",
+    kennel_name: contact.kennel_name || "",
+    city: contact.city || "",
+    state: contact.state || "",
+    country: contact.country || "",
+    website_url: contact.website_url || "",
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await onSave({
+      full_name: form.full_name || null,
+      email: form.email || null,
+      phone: form.phone || null,
+      kennel_name: form.kennel_name || null,
+      city: form.city || null,
+      state: form.state || null,
+      country: form.country || null,
+      website_url: form.website_url || null,
+    });
+  };
+
+  const update = (field: string, value: string) =>
+    setForm((prev) => ({ ...prev, [field]: value }));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Contact Info</h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+            <input
+              type="text"
+              value={form.full_name}
+              onChange={(e) => update("full_name", e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => update("email", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+              <input
+                type="text"
+                value={form.phone}
+                onChange={(e) => update("phone", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Kennel Name</label>
+            <input
+              type="text"
+              value={form.kennel_name}
+              onChange={(e) => update("kennel_name", e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+              <input
+                type="text"
+                value={form.city}
+                onChange={(e) => update("city", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+              <input
+                type="text"
+                value={form.state}
+                onChange={(e) => update("state", e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+              <input
+                type="text"
+                value={form.country}
+                onChange={(e) => update("country", e.target.value)}
+                maxLength={2}
+                placeholder="US"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Website URL</label>
+            <input
+              type="url"
+              value={form.website_url}
+              onChange={(e) => update("website_url", e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            />
+          </div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            >
+              {isSaving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

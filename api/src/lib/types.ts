@@ -1,3 +1,8 @@
+import type { Context } from "hono";
+import type { AuthContext } from "@breed-club/shared";
+import type { Database } from "../db/client.js";
+import type { clubs } from "../db/schema.js";
+
 /**
  * Cloudflare Workers environment bindings.
  * These are set in wrangler.toml and available on c.env in Hono handlers.
@@ -13,4 +18,20 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET: string;
   ENVIRONMENT: "development" | "staging" | "production";
   CLUB_SLUG: string; // For single-club deployments, identifies which club
+  CERTIFICATES_BUCKET: R2Bucket;
 }
+
+/**
+ * Hono context type for API route handlers.
+ * Includes variables set by clubContext, auth, and loadMember middleware.
+ */
+export type ApiContext = Context<{
+  Bindings: Env;
+  Variables: {
+    clubId: string;
+    club: typeof clubs.$inferSelect;
+    db: Database;
+    clerkUserId: string | null;
+    auth: AuthContext | null;
+  };
+}>;

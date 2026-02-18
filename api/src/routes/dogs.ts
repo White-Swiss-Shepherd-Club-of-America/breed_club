@@ -17,17 +17,20 @@ import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireTier } from "../middleware/rbac.js";
-import { dogs, dogRegistrations, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
-import { notFound, badRequest, forbidden } from "../lib/errors.js";
+import { dogs, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
+import { notFound, badRequest, forbidden, conflict } from "../lib/errors.js";
+import { isDogOwner } from "../lib/ownership.js";
 import {
   createDogSchema,
   updateDogSchema,
   createDogRegistrationSchema,
+  transferDogSchema,
   paginationSchema,
 } from "@breed-club/shared/validation.js";
 
 type Variables = {
   clubId: string;
+  club: { id: string; settings: Record<string, unknown> | null };
   db: Database;
   clerkUserId: string | null;
   auth: AuthContext | null;
@@ -92,11 +95,50 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
     );
   }
 
+  // Resolve parent refs: create stub dogs for inline { registered_name } objects
+  let resolvedSireId = typeof dogData.sire_id === "string" ? dogData.sire_id : null;
+  let resolvedDamId = typeof dogData.dam_id === "string" ? dogData.dam_id : null;
+
+  if (dogData.sire_id && typeof dogData.sire_id === "object" && "registered_name" in dogData.sire_id) {
+    const [stubSire] = await db
+      .insert(dogs)
+      .values({
+        registered_name: dogData.sire_id.registered_name,
+        sex: "male",
+        club_id: clubId,
+        status: "approved",
+        owner_id: null,
+        submitted_by: null,
+        is_public: false,
+      })
+      .returning();
+    resolvedSireId = stubSire.id;
+  }
+
+  if (dogData.dam_id && typeof dogData.dam_id === "object" && "registered_name" in dogData.dam_id) {
+    const [stubDam] = await db
+      .insert(dogs)
+      .values({
+        registered_name: dogData.dam_id.registered_name,
+        sex: "female",
+        club_id: clubId,
+        status: "approved",
+        owner_id: null,
+        submitted_by: null,
+        is_public: false,
+      })
+      .returning();
+    resolvedDamId = stubDam.id;
+  }
+
   // No payment required - create dog immediately
   const [dog] = await db
     .insert(dogs)
     .values({
       ...dogData,
+      sire_id: resolvedSireId,
+      dam_id: resolvedDamId,
+      owner_id: dogData.owner_id ?? auth.contactId,
       club_id: clubId,
       status: "pending",
       submitted_by: auth.member.id,
@@ -179,7 +221,7 @@ dogRoutes.get("/search", requireTier("member"), async (c) => {
         },
         healthClearances: {
           with: {
-            testType: true,
+            healthTestType: true,
             organization: true,
           },
         },
@@ -210,11 +252,27 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
   const auth = c.get("auth");
   const query = paginationSchema.parse(c.req.query());
 
+  const sex = c.req.query("sex") as "male" | "female" | undefined;
   const conditions = [eq(dogs.club_id, clubId)];
 
+  if (sex) {
+    conditions.push(eq(dogs.sex, sex));
+  }
+
   // RBAC: certificate tier sees only own dogs, member+ sees all approved dogs
+  const ownedOnly = c.req.query("owned_only") === "true";
+
   if (auth?.tier === "certificate") {
     conditions.push(eq(dogs.submitted_by, auth.member!.id));
+  } else if (ownedOnly && auth?.tier !== "admin" && !auth?.member?.can_approve_clearances) {
+    // Filter to dogs the user owns (for health select page etc.)
+    conditions.push(eq(dogs.status, "approved"));
+    conditions.push(
+      or(
+        eq(dogs.owner_id, auth!.contactId),
+        eq(dogs.submitted_by, auth!.memberId)
+      )!
+    );
   } else {
     // member+ tier
     conditions.push(eq(dogs.status, "approved"));
@@ -273,7 +331,7 @@ dogRoutes.get("/:id", requireTier("certificate"), async (c) => {
       },
       healthClearances: {
         with: {
-          testType: true,
+          healthTestType: true,
           organization: true,
         },
       },
@@ -285,15 +343,33 @@ dogRoutes.get("/:id", requireTier("certificate"), async (c) => {
   }
 
   // RBAC: certificate tier can only view own dogs, member+ can view all approved dogs
+  // Admins and members with can_approve_clearances can also view pending dogs
   if (auth?.tier === "certificate" && dog.submitted_by !== auth.member?.id) {
     throw forbidden("You can only view your own dogs");
   }
 
-  if (auth?.tier !== "certificate" && dog.status !== "approved") {
+  const canApprove = auth?.tier === "admin" || auth?.member?.can_approve_clearances;
+  if (auth?.tier !== "certificate" && dog.status !== "approved" && !canApprove) {
     throw forbidden("Dog not yet approved");
   }
 
-  return c.json({ dog });
+  const club = c.get("club");
+  const canManageClearances = auth
+    ? isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>)
+    : false;
+
+  // Check for pending ownership transfer
+  const pendingTransfer = await db.query.dogOwnershipTransfers.findFirst({
+    where: and(
+      eq(dogOwnershipTransfers.dog_id, id),
+      eq(dogOwnershipTransfers.status, "pending")
+    ),
+    with: {
+      toOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+    },
+  });
+
+  return c.json({ dog, canManageClearances, pendingTransfer: pendingTransfer ?? null });
 });
 
 /**
@@ -333,9 +409,44 @@ dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
     throw forbidden("Cannot update dog after approval/rejection");
   }
 
+  // Resolve parent refs if provided as objects
+  const updatePayload: Record<string, unknown> = { ...data, updated_at: new Date() };
+
+  if (data.sire_id && typeof data.sire_id === "object" && "registered_name" in data.sire_id) {
+    const [stubSire] = await db
+      .insert(dogs)
+      .values({
+        registered_name: data.sire_id.registered_name,
+        sex: "male",
+        club_id: clubId,
+        status: "approved",
+        owner_id: null,
+        submitted_by: null,
+        is_public: false,
+      })
+      .returning();
+    updatePayload.sire_id = stubSire.id;
+  }
+
+  if (data.dam_id && typeof data.dam_id === "object" && "registered_name" in data.dam_id) {
+    const [stubDam] = await db
+      .insert(dogs)
+      .values({
+        registered_name: data.dam_id.registered_name,
+        sex: "female",
+        club_id: clubId,
+        status: "approved",
+        owner_id: null,
+        submitted_by: null,
+        is_public: false,
+      })
+      .returning();
+    updatePayload.dam_id = stubDam.id;
+  }
+
   await db
     .update(dogs)
-    .set({ ...data, updated_at: new Date() })
+    .set(updatePayload)
     .where(eq(dogs.id, id));
 
   const updated = await db.query.dogs.findFirst({
@@ -451,6 +562,111 @@ dogRoutes.get("/:id/pedigree", requireTier("member"), async (c) => {
   };
 
   return c.json({ pedigree });
+});
+
+/**
+ * POST /:id/transfer — request ownership transfer.
+ * Only the current owner or admin can initiate. Creates a pending transfer
+ * that must be approved by an admin before ownership changes.
+ */
+dogRoutes.post("/:id/transfer", requireTier("certificate"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const club = c.get("club");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const body = await c.req.json();
+  const data = transferDogSchema.parse(body);
+
+  // Fetch the dog
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) throw notFound("Dog");
+
+  // Only owner or admin can transfer
+  if (!isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>)) {
+    throw forbidden("Only the dog's owner or an admin can transfer ownership");
+  }
+
+  // Verify new owner contact exists
+  const [newOwner] = await db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.id, data.new_owner_id), eq(contacts.club_id, clubId)))
+    .limit(1);
+
+  if (!newOwner) throw notFound("New owner contact");
+
+  // Cannot transfer to the same owner
+  if (dog.owner_id === data.new_owner_id) {
+    throw badRequest("Dog is already owned by this contact");
+  }
+
+  // Check no pending transfer already exists
+  const [existingTransfer] = await db
+    .select()
+    .from(dogOwnershipTransfers)
+    .where(
+      and(
+        eq(dogOwnershipTransfers.dog_id, id),
+        eq(dogOwnershipTransfers.status, "pending")
+      )
+    )
+    .limit(1);
+
+  if (existingTransfer) {
+    throw conflict("A pending transfer already exists for this dog");
+  }
+
+  // Create pending transfer
+  const [transfer] = await db
+    .insert(dogOwnershipTransfers)
+    .values({
+      dog_id: id,
+      from_owner_id: dog.owner_id,
+      to_owner_id: data.new_owner_id,
+      requested_by: auth.member.id,
+      status: "pending",
+      reason: data.reason,
+      notes: data.notes,
+    })
+    .returning();
+
+  return c.json({ transfer }, 201);
+});
+
+/**
+ * GET /:id/transfers — ownership transfer history.
+ */
+dogRoutes.get("/:id/transfers", requireTier("certificate"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+    columns: { id: true },
+  });
+
+  if (!dog) throw notFound("Dog");
+
+  const transfers = await db.query.dogOwnershipTransfers.findMany({
+    where: eq(dogOwnershipTransfers.dog_id, id),
+    with: {
+      fromOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+      toOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+    },
+    orderBy: (t, { desc }) => [desc(t.created_at)],
+  });
+
+  return c.json({ transfers });
 });
 
 export { dogRoutes };

@@ -176,6 +176,35 @@ export const dogs = pgTable(
   ]
 );
 
+// ─── Dog Ownership Transfers ────────────────────────────────────────────────
+
+export const dogOwnershipTransfers = pgTable(
+  "dog_ownership_transfers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dog_id: uuid("dog_id")
+      .notNull()
+      .references(() => dogs.id, { onDelete: "cascade" }),
+    from_owner_id: uuid("from_owner_id").references(() => contacts.id),
+    to_owner_id: uuid("to_owner_id")
+      .notNull()
+      .references(() => contacts.id),
+    requested_by: uuid("requested_by")
+      .notNull()
+      .references(() => members.id),
+    approved_by: uuid("approved_by").references(() => members.id),
+    approved_at: timestamp("approved_at", { withTimezone: true }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    reason: varchar("reason", { length: 100 }),
+    notes: text("notes"),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_ownership_transfers_dog").on(t.dog_id),
+    index("idx_ownership_transfers_status").on(t.status),
+  ]
+);
+
 // ─── Dog Registrations ──────────────────────────────────────────────────────
 
 export const dogRegistrations = pgTable(
@@ -228,9 +257,37 @@ export const healthTestTypeOrgs = pgTable(
     organization_id: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    result_schema: jsonb("result_schema").$type<ResultSchema | null>(),
   },
   (t) => [primaryKey({ columns: [t.health_test_type_id, t.organization_id] })]
 );
+
+// ─── Result Schema Types ────────────────────────────────────────────────────
+
+export type ResultSchemaEnum = {
+  type: "enum";
+  options: string[];
+};
+
+export type ResultSchemaNumericLR = {
+  type: "numeric_lr";
+  fields: { label: string; key: string; unit?: string; min?: number; max?: number; step?: number }[];
+};
+
+export type ResultSchemaPointScoreLR = {
+  type: "point_score_lr";
+  subcategories: { label: string; key: string; max: number }[];
+};
+
+export type ResultSchemaElbowLR = {
+  type: "elbow_lr";
+};
+
+export type ResultSchema =
+  | ResultSchemaEnum
+  | ResultSchemaNumericLR
+  | ResultSchemaPointScoreLR
+  | ResultSchemaElbowLR;
 
 // ─── Dog Health Clearances ──────────────────────────────────────────────────
 
@@ -248,8 +305,9 @@ export const dogHealthClearances = pgTable(
       .notNull()
       .references(() => organizations.id),
     result: varchar("result", { length: 100 }).notNull(),
+    result_data: jsonb("result_data").$type<Record<string, unknown> | null>(),
     result_detail: text("result_detail"),
-    test_date: date("test_date"),
+    test_date: date("test_date").notNull(),
     expiration_date: date("expiration_date"),
     certificate_number: varchar("certificate_number", { length: 100 }),
     certificate_url: varchar("certificate_url", { length: 500 }),
@@ -261,7 +319,7 @@ export const dogHealthClearances = pgTable(
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("idx_clearances_dog_test").on(t.dog_id, t.health_test_type_id),
+    uniqueIndex("idx_clearances_dog_test_org_date").on(t.dog_id, t.health_test_type_id, t.organization_id, t.test_date),
     index("idx_clearances_status").on(t.status),
   ]
 );
