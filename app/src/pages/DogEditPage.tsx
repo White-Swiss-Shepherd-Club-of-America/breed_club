@@ -95,6 +95,8 @@ function ContactTypeahead({
   );
 }
 
+type ParentRef = string | { registered_name: string } | undefined;
+
 function DogTypeahead({
   value,
   onChange,
@@ -103,8 +105,8 @@ function DogTypeahead({
   sex,
   initialLabel,
 }: {
-  value?: string;
-  onChange: (id: string | undefined) => void;
+  value?: ParentRef;
+  onChange: (ref: ParentRef) => void;
   label: string;
   excludeId?: string;
   sex?: "male" | "female";
@@ -115,9 +117,17 @@ function DogTypeahead({
   const [hasSelected, setHasSelected] = useState(!!value);
   const { data: dogsData } = useDogs(1, search, sex);
   const dogs = dogsData?.data || [];
-  const selectedDog = dogs.find((d) => d.id === value);
 
-  const displayValue = search || selectedDog?.registered_name || (hasSelected ? initialLabel : "") || "";
+  const selectedId = typeof value === "string" ? value : undefined;
+  const newName = value && typeof value === "object" ? value.registered_name : undefined;
+  const selectedDog = selectedId ? dogs.find((d) => d.id === selectedId) : undefined;
+
+  const filteredDogs = dogs.filter((dog) => dog.id !== excludeId);
+  const showCreateNew = search.length >= 2 && !filteredDogs.some(
+    (d) => d.registered_name.toLowerCase() === search.toLowerCase()
+  );
+
+  const displayValue = search || selectedDog?.registered_name || newName || (hasSelected ? initialLabel : "") || "";
 
   return (
     <div className="relative">
@@ -125,21 +135,28 @@ function DogTypeahead({
         {label} <span className="text-gray-400">(optional)</span>
       </label>
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={displayValue}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setShowDropdown(true);
-            if (!e.target.value) {
-              onChange(undefined);
-              setHasSelected(false);
-            }
-          }}
-          onFocus={() => setShowDropdown(true)}
-          placeholder="Search by registered name..."
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-        />
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={displayValue}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setShowDropdown(true);
+              if (!e.target.value) {
+                onChange(undefined);
+                setHasSelected(false);
+              }
+            }}
+            onFocus={() => setShowDropdown(true)}
+            placeholder="Search by registered name..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          />
+          {newName && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">
+              new
+            </span>
+          )}
+        </div>
         {value && (
           <button
             type="button"
@@ -154,26 +171,38 @@ function DogTypeahead({
           </button>
         )}
       </div>
-      {showDropdown && search && dogs.length > 0 && (
+      {showDropdown && search && (filteredDogs.length > 0 || showCreateNew) && (
         <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {dogs
-            .filter((dog) => dog.id !== excludeId)
-            .map((dog) => (
-              <button
-                type="button"
-                key={dog.id}
-                onClick={() => {
-                  onChange(dog.id);
-                  setSearch("");
-                  setShowDropdown(false);
-                  setHasSelected(true);
-                }}
-                className="w-full px-3 py-2 text-left hover:bg-gray-100 focus:bg-gray-100"
-              >
-                <div className="font-medium">{dog.registered_name}</div>
-                {dog.call_name && <div className="text-sm text-gray-600">{dog.call_name}</div>}
-              </button>
-            ))}
+          {filteredDogs.map((dog) => (
+            <button
+              type="button"
+              key={dog.id}
+              onClick={() => {
+                onChange(dog.id);
+                setSearch("");
+                setShowDropdown(false);
+                setHasSelected(true);
+              }}
+              className="w-full px-3 py-2 text-left hover:bg-gray-100 focus:bg-gray-100"
+            >
+              <div className="font-medium">{dog.registered_name}</div>
+              {dog.call_name && <div className="text-sm text-gray-600">{dog.call_name}</div>}
+            </button>
+          ))}
+          {showCreateNew && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ registered_name: search });
+                setSearch("");
+                setShowDropdown(false);
+                setHasSelected(true);
+              }}
+              className="w-full px-3 py-2 text-left hover:bg-yellow-50 focus:bg-yellow-50 border-t border-gray-200"
+            >
+              <div className="font-medium text-yellow-700">+ Create "{search}" as new {label.toLowerCase()}</div>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -418,7 +447,7 @@ export function DogEditPage() {
             control={control}
             render={({ field }) => (
               <DogTypeahead
-                value={typeof field.value === "string" ? field.value : undefined}
+                value={(field.value as ParentRef) ?? undefined}
                 onChange={field.onChange}
                 label="Sire"
                 excludeId={id}
@@ -433,7 +462,7 @@ export function DogEditPage() {
             control={control}
             render={({ field }) => (
               <DogTypeahead
-                value={typeof field.value === "string" ? field.value : undefined}
+                value={(field.value as ParentRef) ?? undefined}
                 onChange={field.onChange}
                 label="Dam"
                 excludeId={id}

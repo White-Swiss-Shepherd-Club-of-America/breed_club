@@ -3,6 +3,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 
 interface TestTypeStats {
@@ -96,11 +97,14 @@ function TestTypeCard({ stats }: { stats: TestTypeStats }) {
 }
 
 export function HealthStatsPage() {
+  const { getToken, isSignedIn } = useAuth();
   const { data, isLoading, error } = useQuery<HealthStats>({
     queryKey: ["health", "statistics"],
     queryFn: async () => {
-      return api.get<HealthStats>("/api/health/statistics");
+      const token = await getToken();
+      return api.get<HealthStats>("/health/statistics", { token });
     },
+    enabled: isSignedIn === true,
   });
 
   if (isLoading) {

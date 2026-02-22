@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 import type { Dog } from "@breed-club/shared";
 
@@ -69,6 +70,7 @@ function DogCard({ dog }: { dog: Dog }) {
 }
 
 export function SearchPage() {
+  const { getToken, isSignedIn } = useAuth();
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<SearchFilters>({
     q: "",
@@ -78,6 +80,7 @@ export function SearchPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["dogs", "search", page, filters],
     queryFn: async () => {
+      const token = await getToken();
       const params = new URLSearchParams({
         page: page.toString(),
         limit: "20",
@@ -88,8 +91,9 @@ export function SearchPage() {
       if (filters.sire_id) params.set("sire_id", filters.sire_id);
       if (filters.dam_id) params.set("dam_id", filters.dam_id);
 
-      return api.get<{ data: Dog[]; meta: { total: number; pages: number } }>(`/api/dogs/search?${params}`);
+      return api.get<{ data: Dog[]; meta: { total: number; pages: number } }>(`/dogs/search?${params}`, { token });
     },
+    enabled: isSignedIn === true,
   });
 
   const dogs = data?.data || [];

@@ -325,9 +325,41 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:approve"), async (c) => {
   const body = await c.req.json();
   const { registrations, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
 
-  // Admin edit only accepts UUID refs for parents (no auto-create)
-  const sire_id = typeof rawSireId === "string" ? rawSireId : rawSireId === null ? null : undefined;
-  const dam_id = typeof rawDamId === "string" ? rawDamId : rawDamId === null ? null : undefined;
+  // Resolve parent refs: create stub dogs for inline { registered_name } objects
+  let sire_id: string | null | undefined = typeof rawSireId === "string" ? rawSireId : rawSireId === null ? null : undefined;
+  let dam_id: string | null | undefined = typeof rawDamId === "string" ? rawDamId : rawDamId === null ? null : undefined;
+
+  if (rawSireId && typeof rawSireId === "object" && "registered_name" in rawSireId) {
+    const [stubSire] = await db
+      .insert(dogs)
+      .values({
+        registered_name: rawSireId.registered_name,
+        sex: "male",
+        club_id: clubId,
+        status: "pending",
+        owner_id: null,
+        submitted_by: null,
+        is_public: false,
+      })
+      .returning();
+    sire_id = stubSire.id;
+  }
+
+  if (rawDamId && typeof rawDamId === "object" && "registered_name" in rawDamId) {
+    const [stubDam] = await db
+      .insert(dogs)
+      .values({
+        registered_name: rawDamId.registered_name,
+        sex: "female",
+        club_id: clubId,
+        status: "pending",
+        owner_id: null,
+        submitted_by: null,
+        is_public: false,
+      })
+      .returning();
+    dam_id = stubDam.id;
+  }
 
   const updateFields = { ...dogData, ...(sire_id !== undefined ? { sire_id } : {}), ...(dam_id !== undefined ? { dam_id } : {}) };
 

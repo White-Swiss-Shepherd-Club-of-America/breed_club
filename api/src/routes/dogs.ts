@@ -70,10 +70,10 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
   const fees = feeConfig?.fees || {};
   const tierFees = fees.create_dog || { certificate: 1500, member: 500 };
 
-  // Check for fee bypass
-  const amountCents = auth.member.skip_fees
+  // Check for fee bypass — admins always bypass fees
+  const amountCents = auth.member.skip_fees || auth.member.tier === "admin"
     ? 0
-    : auth.member.tier === "member" || auth.member.tier === "admin"
+    : auth.member.tier === "member"
     ? tierFees.member || 500
     : tierFees.certificate || 1500;
 
@@ -106,7 +106,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
         registered_name: dogData.sire_id.registered_name,
         sex: "male",
         club_id: clubId,
-        status: "approved",
+        status: "pending",
         owner_id: null,
         submitted_by: null,
         is_public: false,
@@ -122,7 +122,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
         registered_name: dogData.dam_id.registered_name,
         sex: "female",
         club_id: clubId,
-        status: "approved",
+        status: "pending",
         owner_id: null,
         submitted_by: null,
         is_public: false,
@@ -419,7 +419,7 @@ dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
         registered_name: data.sire_id.registered_name,
         sex: "male",
         club_id: clubId,
-        status: "approved",
+        status: "pending",
         owner_id: null,
         submitted_by: null,
         is_public: false,
@@ -435,7 +435,7 @@ dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
         registered_name: data.dam_id.registered_name,
         sex: "female",
         club_id: clubId,
-        status: "approved",
+        status: "pending",
         owner_id: null,
         submitted_by: null,
         is_public: false,
