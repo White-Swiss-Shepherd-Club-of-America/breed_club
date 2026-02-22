@@ -99,8 +99,7 @@ export function HealthStatsPage() {
   const { data, isLoading, error } = useQuery<HealthStats>({
     queryKey: ["health", "statistics"],
     queryFn: async () => {
-      const response = await api.get("/api/health/statistics");
-      return response.json();
+      return api.get<HealthStats>("/api/health/statistics");
     },
   });
 

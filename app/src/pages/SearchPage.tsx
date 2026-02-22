@@ -34,8 +34,8 @@ function DogCard({ dog }: { dog: Dog }) {
             {dog.color && <span>{dog.color}</span>}
           </div>
           <div className="mt-2 text-xs text-gray-500">
-            {dog.owner?.name && <div>Owner: {dog.owner.name}</div>}
-            {dog.breeder?.name && <div>Breeder: {dog.breeder.name}</div>}
+            {dog.owner?.full_name && <div>Owner: {dog.owner.full_name}</div>}
+            {dog.breeder?.full_name && <div>Breeder: {dog.breeder.full_name}</div>}
           </div>
           <div className="mt-2">
             <div className="text-xs text-gray-600">
@@ -44,9 +44,9 @@ function DogCard({ dog }: { dog: Dog }) {
               {dog.dam && <span>Dam: {dog.dam.registered_name}</span>}
             </div>
           </div>
-          {dog.healthClearances && dog.healthClearances.length > 0 && (
+          {dog.health_clearances && dog.health_clearances.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
-              {dog.healthClearances.slice(0, 5).map((clearance: any) => (
+              {dog.health_clearances.slice(0, 5).map((clearance: any) => (
                 <span
                   key={clearance.id}
                   className="inline-block px-2 py-1 text-xs bg-green-100 text-green-800 rounded"
@@ -55,9 +55,9 @@ function DogCard({ dog }: { dog: Dog }) {
                   {clearance.testType.short_name || clearance.testType.name}
                 </span>
               ))}
-              {dog.healthClearances.length > 5 && (
+              {dog.health_clearances.length > 5 && (
                 <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
-                  +{dog.healthClearances.length - 5} more
+                  +{dog.health_clearances.length - 5} more
                 </span>
               )}
             </div>
@@ -88,8 +88,7 @@ export function SearchPage() {
       if (filters.sire_id) params.set("sire_id", filters.sire_id);
       if (filters.dam_id) params.set("dam_id", filters.dam_id);
 
-      const response = await api.get(`/api/dogs/search?${params}`);
-      return response.json();
+      return api.get<{ data: Dog[]; meta: { total: number; pages: number } }>(`/api/dogs/search?${params}`);
     },
   });
 

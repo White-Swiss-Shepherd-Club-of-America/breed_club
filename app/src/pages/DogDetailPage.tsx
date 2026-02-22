@@ -367,9 +367,9 @@ export function DogDetailPage() {
               </Link>
             )}
           </div>
-          {dog.healthClearances && dog.healthClearances.length > 0 ? (
+          {dog.health_clearances && dog.health_clearances.length > 0 ? (
             <div className="space-y-2">
-              {dog.healthClearances.map((clearance) => (
+              {dog.health_clearances.map((clearance) => (
                 <div key={clearance.id} className="p-3 bg-gray-50 rounded">
                   <div className="flex items-center justify-between">
                     <div>

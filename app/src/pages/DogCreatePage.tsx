@@ -220,6 +220,7 @@ export function DogCreatePage() {
 
       await createMutation.mutateAsync({
         ...data,
+        call_name: data.call_name ?? undefined,
         registrations: finalRegistrations.length > 0 ? finalRegistrations : undefined,
       });
       navigate("/registry");
