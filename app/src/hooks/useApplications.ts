@@ -51,6 +51,12 @@ export function useSubmitApplication() {
       applicant_address?: string;
       membership_type: string;
       notes?: string;
+      form_data?: Array<{
+        field_key: string;
+        label: string;
+        field_type: string;
+        value: string | string[] | boolean | null;
+      }>;
     }) => {
       const token = await getToken();
       return api.post<ApplicationResponse>("/applications", data, { token });

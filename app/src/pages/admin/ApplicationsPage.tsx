@@ -94,6 +94,26 @@ export function ApplicationsPage() {
               </div>
             )}
 
+            {app.form_data && app.form_data.length > 0 && (
+              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                <p className="text-xs font-medium text-gray-500 mb-2">Application Details</p>
+                <dl className="space-y-1.5">
+                  {app.form_data.map((entry) => (
+                    <div key={entry.field_key} className="flex gap-2 text-sm">
+                      <dt className="font-medium text-gray-700 shrink-0">{entry.label}:</dt>
+                      <dd className="text-gray-600">
+                        {Array.isArray(entry.value)
+                          ? entry.value.join(", ")
+                          : typeof entry.value === "boolean"
+                          ? entry.value ? "Yes" : "No"
+                          : entry.value || "—"}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
             {app.applicant_address && (
               <p className="mt-2 text-sm text-gray-500">
                 Address: {app.applicant_address}

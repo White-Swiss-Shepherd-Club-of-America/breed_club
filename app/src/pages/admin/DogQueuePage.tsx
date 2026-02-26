@@ -28,7 +28,14 @@ function DogCard({ dog, onApprove, onReject }: { dog: Dog; onApprove: () => void
           <img src={dog.photo_url} alt={dog.registered_name} className="w-20 h-20 object-cover rounded" />
         )}
         <div className="flex-1">
-          <h3 className="font-semibold text-gray-900">{dog.registered_name}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-900">{dog.registered_name}</h3>
+            {dog.is_historical && (
+              <span className="px-2 py-0.5 text-xs font-medium text-blue-700 bg-blue-100 rounded">
+                Historical
+              </span>
+            )}
+          </div>
           {dog.call_name && <p className="text-sm text-gray-600">"{dog.call_name}"</p>}
 
           <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">

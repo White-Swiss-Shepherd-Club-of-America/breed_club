@@ -29,6 +29,27 @@
       "when": 1771439184068,
       "tag": "0003_brainy_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771798969009,
+      "tag": "0004_lowly_stature",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771805627460,
+      "tag": "0005_odd_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772036305984,
+      "tag": "0006_lame_power_man",
+      "breakpoints": true
     }
   ]
 }

@@ -53,6 +53,7 @@ export function Layout() {
     { to: "/admin/dogs/pending", label: "Dog Approvals", icon: PawPrint, show: canApproveClearances },
     { to: "/admin/health/pending", label: "Health Queue", icon: ClipboardCheck, show: canApproveClearances },
     { to: "/admin/health-tests", label: "Health Tests", icon: HeartPulse, show: isAdmin },
+    { to: "/admin/form-fields", label: "Form Fields", icon: ClipboardCheck, show: isAdmin },
   ];
 
   return (

@@ -21,9 +21,12 @@ import {
   dogHealthClearances,
   litters,
   membershipApplications,
+  membershipFormFields,
 } from "../db/schema.js";
-import { createApplicationSchema } from "@breed-club/shared/validation.js";
-import { conflict } from "../lib/errors.js";
+import { publicApplicationSchema } from "@breed-club/shared/validation.js";
+import { conflict, badRequest } from "../lib/errors.js";
+import { verifyRecaptcha } from "../lib/recaptcha.js";
+import { validateFormData } from "../lib/form-data.js";
 
 type Variables = {
   clubId: string;
@@ -289,14 +292,71 @@ publicRoutes.get("/dogs/:dog_id/health", async (c) => {
 });
 
 /**
+ * GET /membership-form — return active form fields for the membership application.
+ */
+publicRoutes.get("/membership-form", async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const fields = await db.query.membershipFormFields.findMany({
+    where: and(
+      eq(membershipFormFields.club_id, clubId),
+      eq(membershipFormFields.is_active, true)
+    ),
+    orderBy: (f, { asc }) => [asc(f.sort_order)],
+    columns: {
+      id: true,
+      field_key: true,
+      label: true,
+      description: true,
+      field_type: true,
+      options: true,
+      required: true,
+      sort_order: true,
+    },
+  });
+
+  return c.json({ data: fields });
+});
+
+/**
  * POST /applications — submit a membership application (no auth required).
+ * Accepts optional reCAPTCHA token for spam protection.
  */
 publicRoutes.post("/applications", async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
   const body = await c.req.json();
-  const data = createApplicationSchema.parse(body);
+  const { recaptcha_token, form_data: rawFormData, ...data } =
+    publicApplicationSchema.parse(body);
+
+  // Verify reCAPTCHA (skip in development if no key configured)
+  const secretKey = c.env.RECAPTCHA_SECRET_KEY;
+  if (secretKey) {
+    const valid = await verifyRecaptcha(recaptcha_token, secretKey);
+    if (!valid) {
+      throw badRequest("reCAPTCHA verification failed. Please try again.");
+    }
+  }
+
+  // Validate form_data against configured fields
+  let formData = null;
+  if (rawFormData) {
+    const configuredFields = await db.query.membershipFormFields.findMany({
+      where: and(
+        eq(membershipFormFields.club_id, clubId),
+        eq(membershipFormFields.is_active, true)
+      ),
+      columns: {
+        field_key: true,
+        label: true,
+        field_type: true,
+        required: true,
+      },
+    });
+    formData = validateFormData(rawFormData, configuredFields);
+  }
 
   // Check for duplicate pending application
   const existing = await db.query.membershipApplications.findFirst({
@@ -316,6 +376,7 @@ publicRoutes.post("/applications", async (c) => {
     .values({
       club_id: clubId,
       ...data,
+      form_data: formData,
       status: "submitted",
     })
     .returning();

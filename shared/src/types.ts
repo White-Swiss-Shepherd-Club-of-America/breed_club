@@ -110,7 +110,9 @@ export interface Dog {
   owner_id: string | null;
   breeder_id: string | null;
   photo_url: string | null;
+  notes: string | null;
   is_public: boolean;
+  is_historical: boolean;
   status: DogStatus;
   submitted_by: string | null;
   approved_by: string | null;
@@ -250,6 +252,30 @@ export interface LitterPup {
   buyer?: Contact;
 }
 
+export interface FormDataEntry {
+  field_key: string;
+  label: string;
+  field_type: string;
+  value: string | string[] | boolean | null;
+}
+
+export type FormFieldType = "text" | "textarea" | "email" | "phone" | "select" | "checkbox" | "radio" | "number" | "date";
+
+export interface MembershipFormField {
+  id: string;
+  club_id: string;
+  field_key: string;
+  label: string;
+  description: string | null;
+  field_type: FormFieldType;
+  options: string[] | null;
+  required: boolean;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MembershipApplication {
   id: string;
   club_id: string;
@@ -259,6 +285,7 @@ export interface MembershipApplication {
   applicant_address: string | null;
   membership_type: string;
   notes: string | null;
+  form_data: FormDataEntry[] | null;
   status: ApprovalStatus;
   review_notes: string | null;
   reviewed_by: string | null;
@@ -302,6 +329,26 @@ export interface DogOwnershipTransfer {
   dog?: Dog;
   fromOwner?: Contact;
   toOwner?: Contact;
+}
+
+// --- Progeny Types ---
+
+export interface DogProgenyEntry {
+  id: string;
+  registered_name: string;
+  call_name: string | null;
+  sex: string | null;
+  date_of_birth: string | null;
+  color: string | null;
+  owner?: Pick<Contact, "id" | "full_name" | "kennel_name">;
+}
+
+export interface DogProgenyResponse {
+  generations: Array<{
+    generation: number;
+    dogs: DogProgenyEntry[];
+  }>;
+  totalCount: number;
 }
 
 // --- API Response Types ---

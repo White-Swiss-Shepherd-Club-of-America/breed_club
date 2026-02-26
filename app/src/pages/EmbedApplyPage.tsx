@@ -1,6 +1,7 @@
 /**
- * Public membership application form — no authentication required.
- * Includes reCAPTCHA for spam protection.
+ * Embeddable membership application form — designed for iframe use.
+ * No Layout wrapper (no nav/sidebar/header).
+ * Includes reCAPTCHA and postMessage height reporting for auto-resize.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -10,7 +11,7 @@ import { api, ApiRequestError } from "@/lib/api";
 
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
 
-export function PublicApplyPage() {
+export function EmbedApplyPage() {
   const { data: clubData } = useClub();
   const club = clubData?.club;
   const [submitted, setSubmitted] = useState(false);
@@ -33,6 +34,7 @@ export function PublicApplyPage() {
       document.head.appendChild(script);
     }
 
+    // Render widget once script is ready
     const tryRender = () => {
       if (
         (window as any).grecaptcha &&
@@ -57,16 +59,21 @@ export function PublicApplyPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleSubmit = async (payload: {
-    applicant_name: string;
-    applicant_email: string;
-    applicant_phone?: string;
-    applicant_address?: string;
-    membership_type: string;
-    notes?: string;
-    form_data: Array<{ field_key: string; label: string; field_type: string; value: string | string[] | boolean | null }>;
-    recaptcha_token?: string;
-  }) => {
+  // postMessage to parent for iframe auto-resize
+  useEffect(() => {
+    const sendHeight = () => {
+      window.parent.postMessage(
+        { type: "breed-club-form-height", height: document.body.scrollHeight },
+        "*"
+      );
+    };
+    sendHeight();
+    const observer = new ResizeObserver(sendHeight);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, [submitted]);
+
+  const handleSubmit = async (payload: Parameters<typeof MembershipForm>[0]["onSubmit"] extends (p: infer P) => any ? P : never) => {
     try {
       setSubmitError(null);
       setIsSubmitting(true);
@@ -87,41 +94,47 @@ export function PublicApplyPage() {
 
   if (submitted) {
     return (
-      <div className="max-w-lg mx-auto text-center py-12">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">Application Submitted</h1>
-        <p className="text-gray-600">
-          Thank you for your interest in joining {club?.name || "our club"}! A board member will
-          review your application and follow up via email.
-        </p>
+      <div className="bg-white p-6">
+        <div className="max-w-lg mx-auto text-center py-12">
+          <div className="text-4xl mb-4">✓</div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Application Submitted</h1>
+          <p className="text-gray-600">
+            Thank you for your interest in joining {club?.name || "our club"}! A board member will
+            review your application and follow up via email.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Apply for Membership</h1>
-      <p className="text-gray-600 mb-8">
-        Submit your application to join {club?.name || "the club"}. A board member will review it
-        and follow up via email.
-      </p>
+    <div className="bg-white">
+      <div className="max-w-lg mx-auto p-6">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Apply for Membership</h1>
+        <p className="text-gray-600 mb-6">
+          Submit your application to join {club?.name || "the club"}. A board member will review
+          your application and follow up via email.
+        </p>
 
-      <MembershipForm
-        onSubmit={handleSubmit}
-        recaptchaToken={recaptchaToken}
-        isSubmitting={isSubmitting}
-        submitError={submitError}
-      />
+        <MembershipForm
+          onSubmit={handleSubmit}
+          recaptchaToken={recaptchaToken}
+          isSubmitting={isSubmitting}
+          submitError={submitError}
+        />
 
-      {RECAPTCHA_SITE_KEY && (
-        <div className="mt-4">
-          <div ref={recaptchaContainerRef} />
-          {!recaptchaToken && (
-            <p className="mt-1 text-xs text-gray-500">
-              Please complete the reCAPTCHA to enable form submission.
-            </p>
-          )}
-        </div>
-      )}
+        {/* reCAPTCHA widget */}
+        {RECAPTCHA_SITE_KEY && (
+          <div className="mt-4">
+            <div ref={recaptchaContainerRef} />
+            {!recaptchaToken && (
+              <p className="mt-1 text-xs text-gray-500">
+                Please complete the reCAPTCHA above before submitting.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   contacts,
   members,
   membershipApplications,
+  membershipFormFields,
   organizations,
   dogs,
   dogOwnershipTransfers,
@@ -27,6 +28,7 @@ export const clubsRelations = relations(clubs, ({ many }) => ({
   healthTestTypes: many(healthTestTypes),
   litters: many(litters),
   membershipApplications: many(membershipApplications),
+  membershipFormFields: many(membershipFormFields),
   payments: many(payments),
 }));
 
@@ -60,6 +62,12 @@ export const membershipApplicationsRelations = relations(membershipApplications,
     references: [members.id],
     relationName: "applicationMember",
   }),
+}));
+
+// ─── Membership Form Field relations ────────────────────────────────────────
+
+export const membershipFormFieldsRelations = relations(membershipFormFields, ({ one }) => ({
+  club: one(clubs, { fields: [membershipFormFields.club_id], references: [clubs.id] }),
 }));
 
 // ─── Organization relations ─────────────────────────────────────────────────

@@ -1,0 +1,1 @@
+ALTER TABLE "dogs" ADD COLUMN "is_historical" boolean DEFAULT false NOT NULL;

@@ -33,6 +33,7 @@ import {
   dogOwnershipTransfers,
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
+import { resolvePedigreeTree } from "../lib/pedigree.js";
 import {
   updateMemberSchema,
   updateDogSchema,
@@ -196,7 +197,10 @@ adminRoutes.get("/dogs/pending", requirePermission("clearances:approve"), async 
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
 
-  const where = and(eq(dogs.club_id, clubId), eq(dogs.status, "pending"));
+  const where = and(
+    eq(dogs.club_id, clubId),
+    eq(dogs.status, "pending"),
+  );
 
   const [data, countResult] = await Promise.all([
     db.query.dogs.findMany({
@@ -323,47 +327,59 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:approve"), async (c) => {
   }
 
   const body = await c.req.json();
-  const { registrations, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
+  const { registrations, pedigree, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
 
-  // Resolve parent refs: create stub dogs for inline { registered_name } objects
-  let sire_id: string | null | undefined = typeof rawSireId === "string" ? rawSireId : rawSireId === null ? null : undefined;
-  let dam_id: string | null | undefined = typeof rawDamId === "string" ? rawDamId : rawDamId === null ? null : undefined;
+  let sire_id: string | null | undefined;
+  let dam_id: string | null | undefined;
 
-  if (rawSireId && typeof rawSireId === "object" && "registered_name" in rawSireId) {
-    const [stubSire] = await db
-      .insert(dogs)
-      .values({
-        registered_name: rawSireId.registered_name,
-        sex: "male",
-        club_id: clubId,
-        status: "pending",
-        owner_id: null,
-        submitted_by: null,
-        is_public: false,
-      })
-      .returning();
-    sire_id = stubSire.id;
-  }
+  if (pedigree) {
+    // Full pedigree tree — resolve recursively
+    const resolved = await resolvePedigreeTree(db, clubId, pedigree, auth.member.id);
+    sire_id = resolved.sire_id;
+    dam_id = resolved.dam_id;
+  } else {
+    // Legacy: resolve parent refs individually
+    sire_id = typeof rawSireId === "string" ? rawSireId : rawSireId === null ? null : undefined;
+    dam_id = typeof rawDamId === "string" ? rawDamId : rawDamId === null ? null : undefined;
 
-  if (rawDamId && typeof rawDamId === "object" && "registered_name" in rawDamId) {
-    const [stubDam] = await db
-      .insert(dogs)
-      .values({
-        registered_name: rawDamId.registered_name,
-        sex: "female",
-        club_id: clubId,
-        status: "pending",
-        owner_id: null,
-        submitted_by: null,
-        is_public: false,
-      })
-      .returning();
-    dam_id = stubDam.id;
+    if (rawSireId && typeof rawSireId === "object" && "registered_name" in rawSireId) {
+      const [stubSire] = await db
+        .insert(dogs)
+        .values({
+          registered_name: rawSireId.registered_name,
+          sex: "male",
+          club_id: clubId,
+          status: "approved",
+          owner_id: null,
+          submitted_by: null,
+          is_public: false,
+          is_historical: true,
+        })
+        .returning();
+      sire_id = stubSire.id;
+    }
+
+    if (rawDamId && typeof rawDamId === "object" && "registered_name" in rawDamId) {
+      const [stubDam] = await db
+        .insert(dogs)
+        .values({
+          registered_name: rawDamId.registered_name,
+          sex: "female",
+          club_id: clubId,
+          status: "approved",
+          owner_id: null,
+          submitted_by: null,
+          is_public: false,
+          is_historical: true,
+        })
+        .returning();
+      dam_id = stubDam.id;
+    }
   }
 
   const updateFields = { ...dogData, ...(sire_id !== undefined ? { sire_id } : {}), ...(dam_id !== undefined ? { dam_id } : {}) };
 
-  if (Object.keys(updateFields).length === 0) {
+  if (Object.keys(updateFields).length === 0 && !pedigree) {
     throw badRequest("No fields to update");
   }
 
@@ -850,6 +866,7 @@ adminRoutes.get("/export/dogs", requireTier("admin"), async (c) => {
     "Breeder Email",
     "Registrations",
     "Status",
+    "Historical",
     "Created At",
   ];
 
@@ -874,6 +891,7 @@ adminRoutes.get("/export/dogs", requireTier("admin"), async (c) => {
       dog.breeder?.email || "",
       registrations,
       dog.status,
+      dog.is_historical ? "Yes" : "No",
       dog.created_at?.toISOString() || "",
     ];
   });

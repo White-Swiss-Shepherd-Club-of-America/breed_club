@@ -15,9 +15,10 @@ import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/rbac.js";
-import { membershipApplications, members, contacts } from "../db/schema.js";
+import { membershipApplications, membershipFormFields, members, contacts } from "../db/schema.js";
 import { notFound, badRequest, conflict } from "../lib/errors.js";
 import { createApplicationSchema, paginationSchema } from "@breed-club/shared/validation.js";
+import { validateFormData } from "../lib/form-data.js";
 import { z } from "zod";
 
 type Variables = {
@@ -44,10 +45,27 @@ const reviewSchema = z.object({
 applicationRoutes.post("/", requireAuth, async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
-  const clerkUserId = c.get("clerkUserId")!;
 
   const body = await c.req.json();
-  const data = createApplicationSchema.parse(body);
+  const { form_data: rawFormData, ...data } = createApplicationSchema.parse(body);
+
+  // Validate form_data against configured fields
+  let formData = null;
+  if (rawFormData) {
+    const configuredFields = await db.query.membershipFormFields.findMany({
+      where: and(
+        eq(membershipFormFields.club_id, clubId),
+        eq(membershipFormFields.is_active, true)
+      ),
+      columns: {
+        field_key: true,
+        label: true,
+        field_type: true,
+        required: true,
+      },
+    });
+    formData = validateFormData(rawFormData, configuredFields);
+  }
 
   // Check for duplicate pending application
   const existing = await db.query.membershipApplications.findFirst({
@@ -67,6 +85,7 @@ applicationRoutes.post("/", requireAuth, async (c) => {
     .values({
       club_id: clubId,
       ...data,
+      form_data: formData,
       status: "submitted",
     })
     .returning();

@@ -29,6 +29,8 @@ import { PublicApplyPage } from "@/pages/PublicApplyPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { HealthStatsPage } from "@/pages/HealthStatsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { EmbedApplyPage } from "@/pages/EmbedApplyPage";
+import { FormFieldsPage } from "@/pages/admin/FormFieldsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +53,9 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <Routes>
+            {/* Embed route — no Layout, no auth */}
+            <Route path="/embed/apply" element={<EmbedApplyPage />} />
+
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />
               <Route path="/directory" element={<DirectoryPage />} />
@@ -141,6 +146,14 @@ export function App() {
                 element={
                   <ProtectedRoute minTier="admin">
                     <HealthTestsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/form-fields"
+                element={
+                  <ProtectedRoute minTier="admin">
+                    <FormFieldsPage />
                   </ProtectedRoute>
                 }
               />

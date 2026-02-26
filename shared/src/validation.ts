@@ -32,6 +32,24 @@ export const parentRefSchema = z.union([
   z.object({ registered_name: z.string().min(1).max(255) }),
 ]).nullish();
 
+/** Full 3-generation pedigree tree for dog create/update. */
+export const pedigreeTreeSchema = z.object({
+  sire: parentRefSchema,
+  dam: parentRefSchema,
+  sire_sire: parentRefSchema,
+  sire_dam: parentRefSchema,
+  dam_sire: parentRefSchema,
+  dam_dam: parentRefSchema,
+  sire_sire_sire: parentRefSchema,
+  sire_sire_dam: parentRefSchema,
+  sire_dam_sire: parentRefSchema,
+  sire_dam_dam: parentRefSchema,
+  dam_sire_sire: parentRefSchema,
+  dam_sire_dam: parentRefSchema,
+  dam_dam_sire: parentRefSchema,
+  dam_dam_dam: parentRefSchema,
+}).optional();
+
 export const createDogSchema = z.object({
   registered_name: z.string().min(1).max(255),
   call_name: z.string().max(100).nullish(),
@@ -41,11 +59,14 @@ export const createDogSchema = z.object({
   date_of_death: z.string().date().nullish(),
   color: z.string().max(100).nullish(),
   coat_type: z.string().max(50).nullish(),
+  notes: z.string().max(5000).nullish(),
   sire_id: parentRefSchema,
   dam_id: parentRefSchema,
+  pedigree: pedigreeTreeSchema,
   owner_id: uuidSchema.nullish(),
   breeder_id: uuidSchema.nullish(),
   is_public: z.boolean().default(false),
+  is_historical: z.boolean().default(false),
   // Inline registrations for convenience
   registrations: z
     .array(
@@ -99,6 +120,13 @@ export const createHealthConditionSchema = z.object({
 
 // --- Membership Applications ---
 
+export const formDataEntrySchema = z.object({
+  field_key: z.string().min(1),
+  label: z.string().min(1),
+  field_type: z.string().min(1),
+  value: z.union([z.string(), z.array(z.string()), z.boolean(), z.null()]),
+});
+
 export const createApplicationSchema = z.object({
   applicant_name: z.string().min(1).max(255),
   applicant_email: z.string().email(),
@@ -106,6 +134,50 @@ export const createApplicationSchema = z.object({
   applicant_address: z.string().max(500).nullish(),
   membership_type: z.string().min(1).max(50),
   notes: z.string().max(2000).nullish(),
+  form_data: z.array(formDataEntrySchema).nullish(),
+});
+
+export const publicApplicationSchema = createApplicationSchema.extend({
+  recaptcha_token: z.string().min(1, "reCAPTCHA verification required").optional(),
+});
+
+// --- Membership Form Fields (admin) ---
+
+export const formFieldTypeSchema = z.enum([
+  "text", "textarea", "email", "phone", "select", "checkbox", "radio", "number", "date",
+]);
+
+export const createFormFieldSchema = z.object({
+  field_key: z.string().min(1).max(100).regex(/^[a-z0-9_]+$/, "Must be lowercase alphanumeric with underscores"),
+  label: z.string().min(1).max(255),
+  description: z.string().max(1000).nullish(),
+  field_type: formFieldTypeSchema,
+  options: z.array(z.string().min(1)).nullish(),
+  required: z.boolean().default(false),
+  sort_order: z.number().int().default(0),
+  is_active: z.boolean().default(true),
+}).refine(
+  (data) => {
+    if (["select", "radio"].includes(data.field_type)) {
+      return data.options && data.options.length > 0;
+    }
+    return true;
+  },
+  { message: "Select and radio fields require at least one option", path: ["options"] }
+);
+
+export const updateFormFieldSchema = z.object({
+  label: z.string().min(1).max(255).optional(),
+  description: z.string().max(1000).nullish(),
+  field_type: formFieldTypeSchema.optional(),
+  options: z.array(z.string().min(1)).nullish(),
+  required: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+  is_active: z.boolean().optional(),
+});
+
+export const reorderFormFieldsSchema = z.object({
+  field_ids: z.array(z.string().uuid()),
 });
 
 // --- Members (admin update) ---

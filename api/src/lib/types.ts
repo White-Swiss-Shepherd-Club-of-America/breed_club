@@ -16,6 +16,7 @@ export interface Env {
   SUPABASE_SERVICE_KEY: string;
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
+  RECAPTCHA_SECRET_KEY: string;
   ENVIRONMENT: "development" | "staging" | "production";
   CLUB_SLUG: string; // For single-club deployments, identifies which club
   CERTIFICATES_BUCKET: R2Bucket;

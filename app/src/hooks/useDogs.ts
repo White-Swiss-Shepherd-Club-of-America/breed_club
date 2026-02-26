@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, PaginatedResponse, DogRegistration, DogOwnershipTransfer } from "@breed-club/shared";
+import type { Dog, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -37,16 +37,22 @@ interface PedigreeResponse {
   };
 }
 
-export function useDogs(page = 1, search?: string, sex?: "male" | "female", ownedOnly?: boolean) {
+export function useDogs(page = 1, search?: string, sex?: "male" | "female", ownedOnly?: boolean, includeHistorical?: boolean) {
   const { getToken, isSignedIn } = useAuth();
 
   return useQuery({
-    queryKey: ["dogs", page, search, sex, ownedOnly],
+    queryKey: ["dogs", page, search, sex, ownedOnly, includeHistorical],
     queryFn: async () => {
       const token = await getToken();
       return api.get<PaginatedResponse<Dog>>("/dogs", {
         token,
-        params: { page, search, sex, owned_only: ownedOnly ? "true" : undefined },
+        params: {
+          page,
+          search,
+          sex,
+          owned_only: ownedOnly ? "true" : undefined,
+          include_historical: includeHistorical ? "true" : undefined,
+        },
       });
     },
     enabled: isSignedIn === true,
@@ -84,6 +90,42 @@ export function useDogPedigree(id: string | undefined, depth = 3) {
   });
 }
 
+export function useDogProgeny(id: string | undefined, depth = 1) {
+  const { getToken, isSignedIn } = useAuth();
+
+  return useQuery({
+    queryKey: ["dogProgeny", id, depth],
+    queryFn: async () => {
+      if (!id) throw new Error("Dog ID required");
+      const token = await getToken();
+      return api.get<DogProgenyResponse>(`/dogs/${id}/progeny`, {
+        token,
+        params: { depth },
+      });
+    },
+    enabled: isSignedIn === true && !!id,
+  });
+}
+
+type AncestorRef = string | { registered_name: string } | null;
+
+interface PedigreeTree {
+  sire?: AncestorRef;
+  dam?: AncestorRef;
+  sire_sire?: AncestorRef;
+  sire_dam?: AncestorRef;
+  dam_sire?: AncestorRef;
+  dam_dam?: AncestorRef;
+  sire_sire_sire?: AncestorRef;
+  sire_sire_dam?: AncestorRef;
+  sire_dam_sire?: AncestorRef;
+  sire_dam_dam?: AncestorRef;
+  dam_sire_sire?: AncestorRef;
+  dam_sire_dam?: AncestorRef;
+  dam_dam_sire?: AncestorRef;
+  dam_dam_dam?: AncestorRef;
+}
+
 export function useCreateDog() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
@@ -100,6 +142,7 @@ export function useCreateDog() {
       coat_type?: string | null;
       sire_id?: string | { registered_name: string } | null;
       dam_id?: string | { registered_name: string } | null;
+      pedigree?: PedigreeTree;
       owner_id?: string | null;
       breeder_id?: string | null;
       is_public?: boolean;
@@ -138,6 +181,7 @@ export function useUpdateDog() {
       coat_type?: string;
       sire_id?: string;
       dam_id?: string;
+      pedigree?: PedigreeTree;
       owner_id?: string;
       breeder_id?: string;
       is_public?: boolean;
@@ -172,9 +216,11 @@ export function useAdminUpdateDog() {
       coat_type?: string;
       sire_id?: string | null;
       dam_id?: string | null;
+      pedigree?: PedigreeTree;
       owner_id?: string | null;
       breeder_id?: string | null;
       is_public?: boolean;
+      is_historical?: boolean;
     }) => {
       const token = await getToken();
       return api.patch<DogResponse>(`/admin/dogs/${id}`, data, { token });

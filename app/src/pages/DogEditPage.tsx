@@ -3,13 +3,20 @@
  * Allows editing any dog regardless of status.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { updateDogSchema } from "@breed-club/shared/validation.js";
-import { useDog, useDogs, useAdminUpdateDog } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useAdminUpdateDog } from "@/hooks/useDogs";
 import { useContacts } from "@/hooks/useContacts";
+import {
+  PedigreeEditor,
+  createEmptySlots,
+  slotsToTree,
+  pedigreeToSlots,
+  type PedigreeSlotData,
+} from "@/components/PedigreeEditor";
 import type { z } from "zod";
 import type { Contact } from "@breed-club/shared";
 
@@ -95,128 +102,26 @@ function ContactTypeahead({
   );
 }
 
-type ParentRef = string | { registered_name: string } | undefined;
-
-function DogTypeahead({
-  value,
-  onChange,
-  label,
-  excludeId,
-  sex,
-  initialLabel,
-}: {
-  value?: ParentRef;
-  onChange: (ref: ParentRef) => void;
-  label: string;
-  excludeId?: string;
-  sex?: "male" | "female";
-  initialLabel?: string;
-}) {
-  const [search, setSearch] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [hasSelected, setHasSelected] = useState(!!value);
-  const { data: dogsData } = useDogs(1, search, sex);
-  const dogs = dogsData?.data || [];
-
-  const selectedId = typeof value === "string" ? value : undefined;
-  const newName = value && typeof value === "object" ? value.registered_name : undefined;
-  const selectedDog = selectedId ? dogs.find((d) => d.id === selectedId) : undefined;
-
-  const filteredDogs = dogs.filter((dog) => dog.id !== excludeId);
-  const showCreateNew = search.length >= 2 && !filteredDogs.some(
-    (d) => d.registered_name.toLowerCase() === search.toLowerCase()
-  );
-
-  const displayValue = search || selectedDog?.registered_name || newName || (hasSelected ? initialLabel : "") || "";
-
-  return (
-    <div className="relative">
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label} <span className="text-gray-400">(optional)</span>
-      </label>
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <input
-            type="text"
-            value={displayValue}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setShowDropdown(true);
-              if (!e.target.value) {
-                onChange(undefined);
-                setHasSelected(false);
-              }
-            }}
-            onFocus={() => setShowDropdown(true)}
-            placeholder="Search by registered name..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-          />
-          {newName && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">
-              new
-            </span>
-          )}
-        </div>
-        {value && (
-          <button
-            type="button"
-            onClick={() => {
-              onChange(undefined);
-              setSearch("");
-              setHasSelected(false);
-            }}
-            className="px-2 text-sm text-gray-500 hover:text-gray-700"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-      {showDropdown && search && (filteredDogs.length > 0 || showCreateNew) && (
-        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-          {filteredDogs.map((dog) => (
-            <button
-              type="button"
-              key={dog.id}
-              onClick={() => {
-                onChange(dog.id);
-                setSearch("");
-                setShowDropdown(false);
-                setHasSelected(true);
-              }}
-              className="w-full px-3 py-2 text-left hover:bg-gray-100 focus:bg-gray-100"
-            >
-              <div className="font-medium">{dog.registered_name}</div>
-              {dog.call_name && <div className="text-sm text-gray-600">{dog.call_name}</div>}
-            </button>
-          ))}
-          {showCreateNew && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange({ registered_name: search });
-                setSearch("");
-                setShowDropdown(false);
-                setHasSelected(true);
-              }}
-              className="w-full px-3 py-2 text-left hover:bg-yellow-50 focus:bg-yellow-50 border-t border-gray-200"
-            >
-              <div className="font-medium text-yellow-700">+ Create "{search}" as new {label.toLowerCase()}</div>
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function DogEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, isLoading, error } = useDog(id);
+  const { data: pedigreeData } = useDogPedigree(id, 3);
   const updateMutation = useAdminUpdateDog();
   const [generalError, setGeneralError] = useState<string | null>(null);
 
+  const [pedigreeSlots, setPedigreeSlots] = useState<PedigreeSlotData[]>(createEmptySlots());
+  const [pedigreeInitialized, setPedigreeInitialized] = useState(false);
+
   const dog = data?.dog;
+
+  // Pre-populate pedigree from fetched data
+  useEffect(() => {
+    if (pedigreeData?.pedigree && !pedigreeInitialized) {
+      setPedigreeSlots(pedigreeToSlots(pedigreeData.pedigree));
+      setPedigreeInitialized(true);
+    }
+  }, [pedigreeData, pedigreeInitialized]);
 
   const {
     register,
@@ -238,8 +143,7 @@ export function DogEditPage() {
           date_of_death: dog.date_of_death ?? undefined,
           color: dog.color ?? undefined,
           coat_type: dog.coat_type ?? undefined,
-          sire_id: dog.sire_id ?? undefined,
-          dam_id: dog.dam_id ?? undefined,
+          notes: dog.notes ?? undefined,
           owner_id: dog.owner_id ?? undefined,
           breeder_id: dog.breeder_id ?? undefined,
           is_public: dog.is_public ?? false,
@@ -249,7 +153,7 @@ export function DogEditPage() {
 
   if (isLoading) {
     return (
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-3xl mx-auto">
         <div className="text-center py-12 text-gray-600">Loading dog details...</div>
       </div>
     );
@@ -257,7 +161,7 @@ export function DogEditPage() {
 
   if (error || !dog) {
     return (
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-3xl mx-auto">
         <div className="text-center py-12">
           <p className="text-red-600 mb-4">Failed to load dog details.</p>
           <Link to="/registry" className="text-gray-700 hover:text-gray-900 underline">
@@ -275,7 +179,18 @@ export function DogEditPage() {
       const cleaned = Object.fromEntries(
         Object.entries(formData).map(([k, v]) => [k, v === null ? undefined : v])
       );
-      await updateMutation.mutateAsync({ id: id!, ...cleaned });
+
+      // Convert pedigree slots to tree structure
+      const pedigree = slotsToTree(pedigreeSlots);
+
+      await updateMutation.mutateAsync({
+        id: id!,
+        ...cleaned,
+        // Use pedigree tree instead of direct sire_id/dam_id
+        sire_id: undefined,
+        dam_id: undefined,
+        pedigree,
+      });
       navigate(`/dogs/${id}`);
     } catch {
       setGeneralError("Failed to update dog. Please try again.");
@@ -283,10 +198,10 @@ export function DogEditPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-3xl mx-auto">
       <div className="mb-6">
         <Link to={`/dogs/${id}`} className="text-gray-600 hover:text-gray-900 text-sm">
-          ← Back to {dog.registered_name}
+          &larr; Back to {dog.registered_name}
         </Link>
       </div>
 
@@ -395,6 +310,19 @@ export function DogEditPage() {
           </div>
 
           <div>
+            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+              Notes <span className="text-gray-400">(optional)</span>
+            </label>
+            <textarea
+              {...register("notes")}
+              id="notes"
+              rows={4}
+              placeholder="Any additional notes about this dog..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            />
+          </div>
+
+          <div>
             <label htmlFor="date_of_death" className="block text-sm font-medium text-gray-700 mb-1">
               Date of Death <span className="text-gray-400">(optional)</span>
             </label>
@@ -441,35 +369,13 @@ export function DogEditPage() {
         {/* Pedigree */}
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Pedigree</h2>
-
-          <Controller
-            name="sire_id"
-            control={control}
-            render={({ field }) => (
-              <DogTypeahead
-                value={(field.value as ParentRef) ?? undefined}
-                onChange={field.onChange}
-                label="Sire"
-                excludeId={id}
-                sex="male"
-                initialLabel={dog.sire?.registered_name}
-              />
-            )}
-          />
-
-          <Controller
-            name="dam_id"
-            control={control}
-            render={({ field }) => (
-              <DogTypeahead
-                value={(field.value as ParentRef) ?? undefined}
-                onChange={field.onChange}
-                label="Dam"
-                excludeId={id}
-                sex="female"
-                initialLabel={dog.dam?.registered_name}
-              />
-            )}
+          <p className="text-sm text-gray-500">
+            Click a slot to search for an existing dog or enter a new name. Selecting an existing dog will auto-fill its known ancestors.
+          </p>
+          <PedigreeEditor
+            slots={pedigreeSlots}
+            onChange={setPedigreeSlots}
+            excludeId={id}
           />
         </div>
 
@@ -511,7 +417,7 @@ export function DogEditPage() {
           to={`/health/${id}`}
           className="text-sm text-purple-600 hover:text-purple-700 font-medium"
         >
-          Manage Health Clearances →
+          Manage Health Clearances &rarr;
         </Link>
       </div>
     </div>

@@ -11,7 +11,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, or, desc, sql, ilike } from "drizzle-orm";
+import { eq, and, or, desc, sql, ilike, inArray } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -20,6 +20,7 @@ import { requireTier } from "../middleware/rbac.js";
 import { dogs, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
 import { notFound, badRequest, forbidden, conflict } from "../lib/errors.js";
 import { isDogOwner } from "../lib/ownership.js";
+import { resolvePedigreeTree } from "../lib/pedigree.js";
 import {
   createDogSchema,
   updateDogSchema,
@@ -57,7 +58,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
   }
 
   const body = await c.req.json();
-  const { registrations: inlineRegs, ...dogData } = createDogSchema.parse(body);
+  const { registrations: inlineRegs, pedigree, ...dogData } = createDogSchema.parse(body);
 
   // Check if payment is required
   const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
@@ -88,6 +89,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
         metadata: {
           resource_type: "dog_create",
           ...dogData,
+          pedigree,
           registrations: inlineRegs,
         },
       },
@@ -95,43 +97,56 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
     );
   }
 
-  // Resolve parent refs: create stub dogs for inline { registered_name } objects
-  let resolvedSireId = typeof dogData.sire_id === "string" ? dogData.sire_id : null;
-  let resolvedDamId = typeof dogData.dam_id === "string" ? dogData.dam_id : null;
+  // Resolve parent refs
+  let resolvedSireId: string | null = null;
+  let resolvedDamId: string | null = null;
 
-  if (dogData.sire_id && typeof dogData.sire_id === "object" && "registered_name" in dogData.sire_id) {
-    const [stubSire] = await db
-      .insert(dogs)
-      .values({
-        registered_name: dogData.sire_id.registered_name,
-        sex: "male",
-        club_id: clubId,
-        status: "pending",
-        owner_id: null,
-        submitted_by: null,
-        is_public: false,
-      })
-      .returning();
-    resolvedSireId = stubSire.id;
+  if (pedigree) {
+    // Full pedigree tree — resolve recursively (bottom-up)
+    const resolved = await resolvePedigreeTree(db, clubId, pedigree, auth.member.id);
+    resolvedSireId = resolved.sire_id;
+    resolvedDamId = resolved.dam_id;
+  } else {
+    // Legacy: just sire_id and dam_id with inline stub creation
+    resolvedSireId = typeof dogData.sire_id === "string" ? dogData.sire_id : null;
+    resolvedDamId = typeof dogData.dam_id === "string" ? dogData.dam_id : null;
+
+    if (dogData.sire_id && typeof dogData.sire_id === "object" && "registered_name" in dogData.sire_id) {
+      const [stubSire] = await db
+        .insert(dogs)
+        .values({
+          registered_name: dogData.sire_id.registered_name,
+          sex: "male",
+          club_id: clubId,
+          status: "approved",
+          owner_id: null,
+          submitted_by: null,
+          is_public: false,
+          is_historical: true,
+        })
+        .returning();
+      resolvedSireId = stubSire.id;
+    }
+
+    if (dogData.dam_id && typeof dogData.dam_id === "object" && "registered_name" in dogData.dam_id) {
+      const [stubDam] = await db
+        .insert(dogs)
+        .values({
+          registered_name: dogData.dam_id.registered_name,
+          sex: "female",
+          club_id: clubId,
+          status: "approved",
+          owner_id: null,
+          submitted_by: null,
+          is_public: false,
+          is_historical: true,
+        })
+        .returning();
+      resolvedDamId = stubDam.id;
+    }
   }
 
-  if (dogData.dam_id && typeof dogData.dam_id === "object" && "registered_name" in dogData.dam_id) {
-    const [stubDam] = await db
-      .insert(dogs)
-      .values({
-        registered_name: dogData.dam_id.registered_name,
-        sex: "female",
-        club_id: clubId,
-        status: "pending",
-        owner_id: null,
-        submitted_by: null,
-        is_public: false,
-      })
-      .returning();
-    resolvedDamId = stubDam.id;
-  }
-
-  // No payment required - create dog immediately
+  // Create dog
   const [dog] = await db
     .insert(dogs)
     .values({
@@ -182,7 +197,7 @@ dogRoutes.get("/search", requireTier("member"), async (c) => {
   const page = parseInt(query.page || "1");
   const limit = Math.min(parseInt(query.limit || "50"), 100);
 
-  const conditions = [eq(dogs.club_id, clubId), eq(dogs.status, "approved")];
+  const conditions = [eq(dogs.club_id, clubId), eq(dogs.status, "approved"), eq(dogs.is_historical, false)];
 
   // Full-text search on names
   if (searchTerm) {
@@ -253,6 +268,7 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
   const query = paginationSchema.parse(c.req.query());
 
   const sex = c.req.query("sex") as "male" | "female" | undefined;
+  const includeHistorical = c.req.query("include_historical") === "true";
   const conditions = [eq(dogs.club_id, clubId)];
 
   if (sex) {
@@ -267,6 +283,9 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
   } else if (ownedOnly && auth?.tier !== "admin" && !auth?.member?.can_approve_clearances) {
     // Filter to dogs the user owns (for health select page etc.)
     conditions.push(eq(dogs.status, "approved"));
+    if (!includeHistorical) {
+      conditions.push(eq(dogs.is_historical, false));
+    }
     conditions.push(
       or(
         eq(dogs.owner_id, auth!.contactId),
@@ -274,8 +293,19 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
       )!
     );
   } else {
-    // member+ tier
-    conditions.push(eq(dogs.status, "approved"));
+    // member+ tier: all approved dogs, plus their own pending submissions
+    conditions.push(
+      or(
+        eq(dogs.status, "approved"),
+        and(
+          eq(dogs.status, "pending"),
+          eq(dogs.submitted_by, auth!.member!.id),
+        )!
+      )!
+    );
+    if (!includeHistorical) {
+      conditions.push(eq(dogs.is_historical, false));
+    }
   }
 
   const where = and(...conditions);
@@ -386,9 +416,10 @@ dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
   }
 
   const body = await c.req.json();
-  const data = updateDogSchema.parse(body);
+  // Strip is_historical — only admins can set this via admin PATCH route
+  const { is_historical: _, pedigree, ...data } = updateDogSchema.parse(body);
 
-  if (Object.keys(data).length === 0) {
+  if (Object.keys(data).length === 0 && !pedigree) {
     throw badRequest("No fields to update");
   }
 
@@ -409,39 +440,47 @@ dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
     throw forbidden("Cannot update dog after approval/rejection");
   }
 
-  // Resolve parent refs if provided as objects
+  // Resolve parent refs
   const updatePayload: Record<string, unknown> = { ...data, updated_at: new Date() };
 
-  if (data.sire_id && typeof data.sire_id === "object" && "registered_name" in data.sire_id) {
-    const [stubSire] = await db
-      .insert(dogs)
-      .values({
-        registered_name: data.sire_id.registered_name,
-        sex: "male",
-        club_id: clubId,
-        status: "pending",
-        owner_id: null,
-        submitted_by: null,
-        is_public: false,
-      })
-      .returning();
-    updatePayload.sire_id = stubSire.id;
-  }
+  if (pedigree) {
+    const resolved = await resolvePedigreeTree(db, clubId, pedigree, auth.member.id);
+    updatePayload.sire_id = resolved.sire_id;
+    updatePayload.dam_id = resolved.dam_id;
+  } else {
+    if (data.sire_id && typeof data.sire_id === "object" && "registered_name" in data.sire_id) {
+      const [stubSire] = await db
+        .insert(dogs)
+        .values({
+          registered_name: data.sire_id.registered_name,
+          sex: "male",
+          club_id: clubId,
+          status: "approved",
+          owner_id: null,
+          submitted_by: null,
+          is_public: false,
+          is_historical: true,
+        })
+        .returning();
+      updatePayload.sire_id = stubSire.id;
+    }
 
-  if (data.dam_id && typeof data.dam_id === "object" && "registered_name" in data.dam_id) {
-    const [stubDam] = await db
-      .insert(dogs)
-      .values({
-        registered_name: data.dam_id.registered_name,
-        sex: "female",
-        club_id: clubId,
-        status: "pending",
-        owner_id: null,
-        submitted_by: null,
-        is_public: false,
-      })
-      .returning();
-    updatePayload.dam_id = stubDam.id;
+    if (data.dam_id && typeof data.dam_id === "object" && "registered_name" in data.dam_id) {
+      const [stubDam] = await db
+        .insert(dogs)
+        .values({
+          registered_name: data.dam_id.registered_name,
+          sex: "female",
+          club_id: clubId,
+          status: "approved",
+          owner_id: null,
+          submitted_by: null,
+          is_public: false,
+          is_historical: true,
+        })
+        .returning();
+      updatePayload.dam_id = stubDam.id;
+    }
   }
 
   await db
@@ -509,17 +548,17 @@ dogRoutes.post("/:id/registrations", requireTier("certificate"), async (c) => {
  * GET /:id/pedigree — fetch pedigree tree (sire/dam ancestry).
  * Returns up to 3 generations by default (depth=3).
  */
-dogRoutes.get("/:id/pedigree", requireTier("member"), async (c) => {
+dogRoutes.get("/:id/pedigree", requireTier("certificate"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
-  const depth = Math.min(parseInt(c.req.query("depth") || "3"), 5); // Max 5 generations
+  const depth = Math.min(parseInt(c.req.query("depth") || "3"), 6); // Max 6 generations
 
   const dog = await db.query.dogs.findFirst({
     where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
   });
 
-  if (!dog || dog.status !== "approved") {
+  if (!dog) {
     throw notFound("Dog");
   }
 
@@ -562,6 +601,71 @@ dogRoutes.get("/:id/pedigree", requireTier("member"), async (c) => {
   };
 
   return c.json({ pedigree });
+});
+
+/**
+ * GET /:id/progeny — fetch descendants (children, grandchildren, etc.).
+ * Returns dogs grouped by generation depth.
+ * Query params:
+ *   depth: max generations to fetch (1-4, default 1)
+ */
+dogRoutes.get("/:id/progeny", requireTier("member"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+  const depth = Math.min(parseInt(c.req.query("depth") || "1"), 4);
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog || dog.status !== "approved") {
+    throw notFound("Dog");
+  }
+
+  // Breadth-first descendant fetch
+  const generations: Array<{ generation: number; dogs: any[] }> = [];
+  let currentParentIds = [id];
+
+  for (let gen = 1; gen <= depth; gen++) {
+    if (currentParentIds.length === 0) break;
+
+    const children = await db.query.dogs.findMany({
+      where: and(
+        eq(dogs.club_id, clubId),
+        or(eq(dogs.status, "approved"), eq(dogs.is_historical, true)),
+        or(
+          inArray(dogs.sire_id, currentParentIds),
+          inArray(dogs.dam_id, currentParentIds)
+        )
+      ),
+      columns: {
+        id: true,
+        registered_name: true,
+        call_name: true,
+        sex: true,
+        date_of_birth: true,
+        color: true,
+      },
+      with: {
+        owner: {
+          columns: { id: true, full_name: true, kennel_name: true },
+        },
+      },
+      orderBy: [desc(dogs.date_of_birth)],
+    });
+
+    if (children.length > 0) {
+      generations.push({ generation: gen, dogs: children });
+      currentParentIds = children.map((child) => child.id);
+    } else {
+      break;
+    }
+  }
+
+  const totalCount = generations.reduce((sum, g) => sum + g.dogs.length, 0);
+
+  return c.json({ generations, totalCount });
 });
 
 /**

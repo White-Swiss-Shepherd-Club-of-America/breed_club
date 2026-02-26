@@ -104,6 +104,7 @@ export const membershipApplications = pgTable(
     applicant_address: text("applicant_address"),
     membership_type: varchar("membership_type", { length: 50 }).notNull(),
     notes: text("notes"),
+    form_data: jsonb("form_data").$type<FormDataEntry[]>(),
     status: varchar("status", { length: 20 }).notNull().default("submitted"),
     review_notes: text("review_notes"),
     reviewed_by: uuid("reviewed_by").references(() => members.id),
@@ -113,6 +114,39 @@ export const membershipApplications = pgTable(
     updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index("idx_applications_club_status").on(t.club_id, t.status)]
+);
+
+// ─── Membership Form Fields ────────────────────────────────────────────────
+
+export type FormDataEntry = {
+  field_key: string;
+  label: string;
+  field_type: string;
+  value: string | string[] | boolean | null;
+};
+
+export const membershipFormFields = pgTable(
+  "membership_form_fields",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    field_key: varchar("field_key", { length: 100 }).notNull(),
+    label: varchar("label", { length: 255 }).notNull(),
+    description: text("description"),
+    field_type: varchar("field_type", { length: 30 }).notNull(),
+    options: jsonb("options").$type<string[]>(),
+    required: boolean("required").notNull().default(false),
+    sort_order: integer("sort_order").notNull().default(0),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_form_fields_club_key").on(t.club_id, t.field_key),
+    index("idx_form_fields_club_active").on(t.club_id, t.is_active),
+  ]
 );
 
 // ─── Organizations ──────────────────────────────────────────────────────────
@@ -158,7 +192,9 @@ export const dogs = pgTable(
     owner_id: uuid("owner_id").references(() => contacts.id),
     breeder_id: uuid("breeder_id").references(() => contacts.id),
     photo_url: varchar("photo_url", { length: 500 }),
+    notes: text("notes"),
     is_public: boolean("is_public").notNull().default(false),
+    is_historical: boolean("is_historical").notNull().default(false),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     submitted_by: uuid("submitted_by").references(() => members.id),
     approved_by: uuid("approved_by").references(() => members.id),

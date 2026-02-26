@@ -6,6 +6,7 @@ import { clubContext } from "./middleware/club-context.js";
 import { optionalAuth } from "./middleware/auth.js";
 import { loadMember } from "./middleware/rbac.js";
 import { ApiError } from "./lib/errors.js";
+import { FormDataValidationError } from "./lib/form-data.js";
 import { publicRoutes } from "./routes/public.js";
 import { memberRoutes } from "./routes/members.js";
 import { applicationRoutes } from "./routes/applications.js";
@@ -17,6 +18,7 @@ import { healthStampRoutes } from "./routes/health-stamp.js";
 import { paymentRoutes } from "./routes/payments.js";
 import { litterRoutes } from "./routes/litters.js";
 import { uploadRoutes } from "./routes/uploads.js";
+import { formFieldRoutes } from "./routes/form-fields.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -71,6 +73,9 @@ app.route("/api/litters", litterRoutes);
 // File uploads
 app.route("/api/uploads", uploadRoutes);
 
+// Membership form fields (admin)
+app.route("/api/admin/form-fields", formFieldRoutes);
+
 // Health stamp SSR pages (no /api prefix)
 app.route("/", healthStampRoutes);
 
@@ -81,6 +86,19 @@ app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Route not fou
 app.onError((err, c) => {
   if (err instanceof ApiError) {
     return c.json(err.toJSON(), err.statusCode as any);
+  }
+
+  // Handle form data validation errors
+  if (err instanceof FormDataValidationError) {
+    return c.json(
+      {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: err.message,
+        },
+      },
+      422
+    );
   }
 
   // Handle Zod validation errors
