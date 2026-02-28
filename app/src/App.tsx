@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ClerkProvider } from "@clerk/clerk-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Layout } from "@/components/Layout";
@@ -26,7 +26,6 @@ import { LittersPage } from "@/pages/LittersPage";
 import { LitterDetailPage } from "@/pages/LitterDetailPage";
 import { AnnouncementsPage } from "@/pages/AnnouncementsPage";
 import { PublicApplyPage } from "@/pages/PublicApplyPage";
-import { SearchPage } from "@/pages/SearchPage";
 import { HealthStatsPage } from "@/pages/HealthStatsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { EmbedApplyPage } from "@/pages/EmbedApplyPage";
@@ -160,19 +159,12 @@ export function App() {
               <Route
                 path="/registry"
                 element={
-                  <ProtectedRoute minTier="certificate">
+                  <ProtectedRoute minTier="member">
                     <RegistryPage />
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/search"
-                element={
-                  <ProtectedRoute minTier="member">
-                    <SearchPage />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/search" element={<Navigate to="/registry" replace />} />
               <Route
                 path="/health-stats"
                 element={

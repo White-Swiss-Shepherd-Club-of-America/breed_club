@@ -60,6 +60,15 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
   const body = await c.req.json();
   const { registrations: inlineRegs, pedigree, ...dogData } = createDogSchema.parse(body);
 
+  // Non-admin users must provide at least one external registration for non-historical dogs
+  if (
+    !dogData.is_historical &&
+    auth.member.tier !== "admin" &&
+    (!inlineRegs || inlineRegs.length === 0)
+  ) {
+    throw badRequest("At least one external registration (e.g. AKC, UKC) is required");
+  }
+
   // Check if payment is required
   const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
 
@@ -270,6 +279,12 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
   const sex = c.req.query("sex") as "male" | "female" | undefined;
   const includeHistorical = c.req.query("include_historical") === "true";
   const conditions = [eq(dogs.club_id, clubId)];
+
+  // Text search on registered_name and call_name
+  if (query.search) {
+    const term = `%${query.search}%`;
+    conditions.push(or(ilike(dogs.registered_name, term), ilike(dogs.call_name, term))!);
+  }
 
   if (sex) {
     conditions.push(eq(dogs.sex, sex));

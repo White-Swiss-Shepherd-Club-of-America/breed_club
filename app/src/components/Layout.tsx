@@ -15,8 +15,6 @@ import {
   Settings,
   Shield,
   LogIn,
-  BookOpen,
-  Search,
   BarChart3,
   HeartPulse,
   Plus,
@@ -38,8 +36,7 @@ export function Layout() {
   const navItems = [
     { to: "/", label: "Home", icon: Home, show: true },
     { to: "/dashboard", label: "Dashboard", icon: Home, show: !!member },
-    { to: "/registry", label: "Dog Registry", icon: PawPrint, show: !!isCertificateOrHigher },
-    { to: "/search", label: "Search Dogs", icon: Search, show: !!isMemberOrHigher },
+    { to: "/registry", label: "Dog Registry", icon: PawPrint, show: !!isMemberOrHigher },
     { to: "/health-stats", label: "Health Statistics", icon: BarChart3, show: !!isMemberOrHigher },
     { to: "/directory", label: "Breeder Directory", icon: Users, show: true },
     { to: "/apply", label: "Apply for Membership", icon: UserPlus, show: !!member && member.tier === "non_member" },

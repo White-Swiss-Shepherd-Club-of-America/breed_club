@@ -9,6 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { createDogSchema } from "@breed-club/shared/validation.js";
 import { useAuth } from "@clerk/clerk-react";
 import { useCreateDog } from "@/hooks/useDogs";
+import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
 import { usePublicOrganizations } from "@/hooks/useAdmin";
 import { api, ApiRequestError } from "@/lib/api";
@@ -84,13 +85,17 @@ export function DogCreatePage() {
   const navigate = useNavigate();
   const { getToken } = useAuth();
   const createMutation = useCreateDog();
+  const { member } = useCurrentMember();
   const { data: orgsData } = usePublicOrganizations();
   const organizations = orgsData?.data || [];
+
+  const isAdmin = member?.tier === "admin";
+  const requiresRegistration = !isAdmin;
 
   const [pedigreeSlots, setPedigreeSlots] = useState<PedigreeSlotData[]>(createEmptySlots());
   const [registrations, setRegistrations] = useState<
     Array<{ organization_id: string; registration_number: string; registration_url?: string }>
-  >([]);
+  >(requiresRegistration ? [{ organization_id: "", registration_number: "" }] : []);
   const [registrationFiles, setRegistrationFiles] = useState<Map<number, File>>(new Map());
   const [uploading, setUploading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -112,6 +117,17 @@ export function DogCreatePage() {
     try {
       setPaymentError(null);
       setGeneralError(null);
+
+      // Validate at least one complete registration for non-admin users
+      if (requiresRegistration) {
+        const validRegs = registrations.filter(
+          (r) => r.organization_id && r.registration_number.trim()
+        );
+        if (validRegs.length === 0) {
+          setGeneralError("At least one external registration (e.g. AKC, UKC) is required.");
+          return;
+        }
+      }
 
       // Upload any registration certificate files first
       let finalRegistrations = registrations;
@@ -327,7 +343,17 @@ export function DogCreatePage() {
         {/* Registrations */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">External Registrations</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                External Registrations
+                {requiresRegistration && <span className="text-red-500 ml-1">*</span>}
+              </h2>
+              {requiresRegistration && (
+                <p className="text-sm text-gray-500 mt-0.5">
+                  At least one external registration (e.g. AKC, UKC) is required
+                </p>
+              )}
+            </div>
             <button
               type="button"
               onClick={addRegistration}
@@ -341,13 +367,15 @@ export function DogCreatePage() {
             <div key={index} className="p-4 border border-gray-200 rounded-lg space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium text-gray-700">Registration {index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeRegistration(index)}
-                  className="text-sm text-red-600 hover:text-red-700"
-                >
-                  Remove
-                </button>
+                {(!requiresRegistration || registrations.length > 1) && (
+                  <button
+                    type="button"
+                    onClick={() => removeRegistration(index)}
+                    className="text-sm text-red-600 hover:text-red-700"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
 
               <div>
