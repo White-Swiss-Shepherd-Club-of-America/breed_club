@@ -36,10 +36,28 @@ const RESULT_SCHEMA_PRESETS: { value: string; label: string; schema: ResultSchem
     label: "Custom enum",
     schema: { type: "enum", options: [] },
   },
+  // ── Orthopedic: Hips ──────────────────────────────────────────────────────
+  {
+    value: "ofa_hips",
+    label: "OFA Hips (Excellent/Good/Fair/…)",
+    schema: {
+      type: "enum",
+      options: ["Excellent", "Good", "Fair", "Borderline", "Mild", "Moderate", "Severe"],
+      score_config: {
+        score_map: { Excellent: 100, Good: 90, Fair: 70, Borderline: 50, Mild: 30, Moderate: 15, Severe: 0 },
+      },
+    },
+  },
   {
     value: "fci_hips",
-    label: "FCI Hips (A1/A2/B1/B2/C/D/E)",
-    schema: { type: "enum", options: ["A1", "A2", "B1", "B2", "C", "D", "E"] },
+    label: "FCI/SV Hips (A1/A2/B1/B2/C/D/E)",
+    schema: {
+      type: "enum",
+      options: ["A1", "A2", "B1", "B2", "C", "D", "E"],
+      score_config: {
+        score_map: { A1: 100, A2: 85, B1: 70, B2: 55, C: 30, D: 10, E: 0 },
+      },
+    },
   },
   {
     value: "pennhip",
@@ -47,6 +65,17 @@ const RESULT_SCHEMA_PRESETS: { value: string; label: string; schema: ResultSchem
     schema: {
       type: "numeric_lr",
       fields: [{ label: "Distraction Index", key: "di", min: 0, max: 1, step: 0.01 }],
+      score_config: {
+        field: "di",
+        ranges: [
+          { max: 0.3, score: 100 },
+          { max: 0.4, score: 80 },
+          { max: 0.5, score: 60 },
+          { max: 0.6, score: 40 },
+          { max: 0.7, score: 20 },
+          { max: 1.0, score: 0 },
+        ],
+      },
     },
   },
   {
@@ -65,12 +94,96 @@ const RESULT_SCHEMA_PRESETS: { value: string; label: string; schema: ResultSchem
         { label: "Femoral head/neck exostosis", key: "femoral_head_neck_exostosis", max: 6 },
         { label: "Femoral head re-contouring", key: "femoral_head_recontouring", max: 6 },
       ],
+      score_config: {
+        ranges: [
+          { max: 5, score: 100 },
+          { max: 10, score: 90 },
+          { max: 15, score: 75 },
+          { max: 25, score: 50 },
+          { max: 35, score: 25 },
+          { max: 53, score: 0 },
+        ],
+      },
+    },
+  },
+  // ── Orthopedic: Elbows ────────────────────────────────────────────────────
+  {
+    value: "ofa_elbows",
+    label: "OFA Elbows (Normal/DJD1/DJD2/DJD3)",
+    schema: {
+      type: "enum",
+      options: ["Normal", "DJD1", "DJD2", "DJD3"],
+      score_config: {
+        score_map: { Normal: 100, DJD1: 66, DJD2: 33, DJD3: 0 },
+      },
     },
   },
   {
     value: "elbow_lr",
     label: "BVA/ANKC Elbows (Grade/mm/UAP L/R)",
-    schema: { type: "elbow_lr" },
+    schema: {
+      type: "elbow_lr",
+      score_config: {
+        score_map: { "0": 100, "1": 66, "2": 33, "3": 0 },
+      },
+    },
+  },
+  // ── General ───────────────────────────────────────────────────────────────
+  {
+    value: "normal_abnormal",
+    label: "Normal / Abnormal",
+    schema: {
+      type: "enum",
+      options: ["Normal", "Abnormal"],
+      score_config: {
+        score_map: { Normal: 100, Abnormal: 0 },
+      },
+    },
+  },
+  {
+    value: "eye_exam",
+    label: "Eye Exam (Normal/Breeder Option/Abnormal)",
+    schema: {
+      type: "enum",
+      options: ["Normal", "Normal w/Breeder Option", "Abnormal"],
+      score_config: {
+        score_map: { Normal: 100, "Normal w/Breeder Option": 75, Abnormal: 0 },
+      },
+    },
+  },
+  // ── Genetic ───────────────────────────────────────────────────────────────
+  {
+    value: "genetic_clear_carrier",
+    label: "Genetic: Clear / Carrier / Affected",
+    schema: {
+      type: "enum",
+      options: ["Clear", "Carrier", "Affected"],
+      score_config: {
+        score_map: { Clear: 100, Carrier: 50, Affected: 0 },
+      },
+    },
+  },
+  {
+    value: "dm_genetic",
+    label: "Genetic: DM (Normal/Clear, Carrier, At Risk/Affected)",
+    schema: {
+      type: "enum",
+      options: ["Normal/Clear", "Carrier", "At Risk/Affected"],
+      score_config: {
+        score_map: { "Normal/Clear": 100, Carrier: 50, "At Risk/Affected": 0 },
+      },
+    },
+  },
+  {
+    value: "mdr1_genetic",
+    label: "Genetic: MDR1 (Normal/Normal, Normal/Mutant, Mutant/Mutant)",
+    schema: {
+      type: "enum",
+      options: ["Normal/Normal", "Normal/Mutant", "Mutant/Mutant"],
+      score_config: {
+        score_map: { "Normal/Normal": 100, "Normal/Mutant": 50, "Mutant/Mutant": 0 },
+      },
+    },
   },
 ];
 
@@ -363,11 +476,38 @@ function EnumOptionsEditor({
 function ScoreConfigEditor({
   schema,
   onChange,
+  resultOptions = [],
 }: {
   schema: ResultSchema | null;
   onChange: (updated: ResultSchema) => void;
+  resultOptions?: string[];
 }) {
-  if (!schema) return null;
+  if (!schema) {
+    // No structured schema — but if the test type has result_options, offer a quick way to enable scoring
+    if (resultOptions.length === 0) return null;
+    return (
+      <div className="mt-1 ml-27">
+        <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={false}
+            onChange={() => {
+              // Auto-promote to a scored enum schema using the test type's result_options
+              onChange({
+                type: "enum",
+                options: resultOptions,
+                score_config: {
+                  score_map: Object.fromEntries(resultOptions.map((o) => [o, 0])),
+                },
+              });
+            }}
+            className="rounded"
+          />
+          Score mapping
+        </label>
+      </div>
+    );
+  }
 
   const hasScoreConfig = "score_config" in schema && schema.score_config != null;
 
@@ -842,6 +982,7 @@ function TestTypeForm({
                       <ScoreConfigEditor
                         schema={orgSchemas[orgId] ?? null}
                         onChange={(updated) => setOrgSchema(orgId, updated)}
+                        resultOptions={resultOptions.split(",").map((s) => s.trim()).filter(Boolean)}
                       />
                     </div>
                   );

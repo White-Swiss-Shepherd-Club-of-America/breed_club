@@ -9,7 +9,7 @@
 
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { clubs, organizations, healthTestTypes, healthTestTypeOrgs, type ResultSchema } from "./schema.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -386,20 +386,33 @@ async function seed() {
     },
   ];
 
+  // Build a short_name → id lookup of existing test types for this club
+  // (no unique constraint on short_name, so we query and take the first match)
+  const existingTestTypes = await db
+    .select({ id: healthTestTypes.id, short_name: healthTestTypes.short_name })
+    .from(healthTestTypes)
+    .where(eq(healthTestTypes.club_id, clubId));
+  const testTypeIdByShortName: Record<string, string> = {};
+  for (const existing of existingTestTypes) {
+    testTypeIdByShortName[existing.short_name] = existing.id;
+  }
+
   let insertedCount = 0;
   for (const tt of testTypeData) {
     const { grading_orgs, ...data } = tt;
 
-    const [testType] = await db
-      .insert(healthTestTypes)
-      .values({ ...data, club_id: clubId })
-      .onConflictDoNothing()
-      .returning();
+    // Use existing test type if found, otherwise insert
+    let testTypeId = testTypeIdByShortName[tt.short_name];
+    if (!testTypeId) {
+      const [testType] = await db
+        .insert(healthTestTypes)
+        .values({ ...data, club_id: clubId })
+        .returning();
+      testTypeId = testType!.id;
+      insertedCount++;
+    }
 
-    if (!testType) continue; // already exists
-    insertedCount++;
-
-    // Link grading organizations with result schemas and confidence
+    // Upsert org links — always update result_schema and confidence so score_config lands
     const orgLinks = grading_orgs
       .map((org) => {
         const orgId = orgByName[org.name];
@@ -408,7 +421,7 @@ async function seed() {
           return null;
         }
         return {
-          health_test_type_id: testType.id,
+          health_test_type_id: testTypeId,
           organization_id: orgId,
           result_schema: org.result_schema,
           confidence: org.confidence,
@@ -417,13 +430,22 @@ async function seed() {
       .filter(Boolean) as Array<{ health_test_type_id: string; organization_id: string; result_schema: ResultSchema | null; confidence: number | null }>;
 
     if (orgLinks.length > 0) {
-      await db.insert(healthTestTypeOrgs).values(orgLinks).onConflictDoNothing();
+      await db
+        .insert(healthTestTypeOrgs)
+        .values(orgLinks)
+        .onConflictDoUpdate({
+          target: [healthTestTypeOrgs.health_test_type_id, healthTestTypeOrgs.organization_id],
+          set: {
+            result_schema: sql`EXCLUDED.result_schema`,
+            confidence: sql`EXCLUDED.confidence`,
+          },
+        });
     }
 
-    console.log(`  ${tt.short_name} → ${orgLinks.length} grading orgs`);
+    console.log(`  ${tt.short_name} → ${orgLinks.length} grading orgs (upserted)`);
   }
 
-  console.log(`\nHealth test types: ${insertedCount} inserted`);
+  console.log(`\nHealth test types: ${insertedCount} inserted, ${existingTestTypes.length} already existed`);
   console.log("Seed complete.");
   await client.end();
 }
