@@ -27,6 +27,7 @@ interface GradingOrg {
   country?: string;
   website_url?: string;
   result_schema: ResultSchema | null;
+  confidence?: number | null;
 }
 
 interface Clearance {
@@ -34,6 +35,9 @@ interface Clearance {
   result: string;
   result_data?: Record<string, unknown> | null;
   result_detail?: string;
+  result_score?: number | null;
+  result_score_left?: number | null;
+  result_score_right?: number | null;
   test_date: string;
   certificate_number?: string;
   certificate_url?: string;
@@ -812,6 +816,13 @@ export function HealthPage() {
                           </p>
                           {clearance.result_data && (
                             <ResultDataDisplay resultData={clearance.result_data} />
+                          )}
+                          {(clearance.result_score != null || clearance.result_score_left != null) && (
+                            <p className="text-sm font-medium text-purple-700 mt-1">
+                              {clearance.result_score != null && `Score: ${clearance.result_score}/100`}
+                              {clearance.result_score_left != null && clearance.result_score_right != null &&
+                                `Score: L=${clearance.result_score_left}, R=${clearance.result_score_right}`}
+                            </p>
                           )}
                           {clearance.test_date && (
                             <p className="text-sm text-gray-600 mt-1">

@@ -18,6 +18,7 @@
 
 import { Hono } from "hono";
 import { eq, and, sql, ilike, inArray } from "drizzle-orm";
+import { z } from "zod";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -504,12 +505,13 @@ adminRoutes.get("/health-test-types", requireTier("admin"), async (c) => {
     orderBy: (tt, { asc }) => [asc(tt.sort_order)],
   });
 
-  // Reshape: flatten orgLinks into grading_orgs array with result_schema
+  // Reshape: flatten orgLinks into grading_orgs array with result_schema + confidence
   const result = data.map((tt) => ({
     ...tt,
     grading_orgs: tt.orgLinks.map((link) => ({
       ...link.organization,
       result_schema: link.result_schema,
+      confidence: link.confidence,
     })),
     orgLinks: undefined,
   }));
@@ -540,6 +542,7 @@ adminRoutes.post("/health-test-types", requirePermission("test_types:manage"), a
           health_test_type_id: testType.id,
           organization_id: org.organization_id,
           result_schema: org.result_schema ?? null,
+          confidence: org.confidence ?? null,
         }))
       );
     } else if (grading_org_ids && grading_org_ids.length > 0) {
@@ -585,6 +588,7 @@ adminRoutes.patch("/health-test-types/:id", requirePermission("test_types:manage
           health_test_type_id: id,
           organization_id: org.organization_id,
           result_schema: org.result_schema ?? null,
+          confidence: org.confidence ?? null,
         }))
       );
     }
@@ -612,6 +616,7 @@ adminRoutes.patch("/health-test-types/:id", requirePermission("test_types:manage
           grading_orgs: updated.orgLinks.map((l) => ({
             ...l.organization,
             result_schema: l.result_schema,
+            confidence: l.confidence,
           })),
           orgLinks: undefined,
         }
@@ -753,12 +758,24 @@ adminRoutes.post("/clearances/:id/approve", requirePermission("clearances:approv
     throw badRequest("Clearance is not pending verification");
   }
 
+  // Parse optional score overrides from request body
+  const scoreOverrideSchema = z.object({
+    result_score: z.number().int().min(0).max(100).nullish(),
+    result_score_left: z.number().int().min(0).max(100).nullish(),
+    result_score_right: z.number().int().min(0).max(100).nullish(),
+  });
+  const body = await c.req.json().catch(() => ({}));
+  const overrides = scoreOverrideSchema.parse(body);
+
   await db
     .update(dogHealthClearances)
     .set({
       status: "approved",
       verified_by: auth.member.id,
       verified_at: new Date(),
+      ...(overrides.result_score != null ? { result_score: overrides.result_score } : {}),
+      ...(overrides.result_score_left != null ? { result_score_left: overrides.result_score_left } : {}),
+      ...(overrides.result_score_right != null ? { result_score_right: overrides.result_score_right } : {}),
     })
     .where(eq(dogHealthClearances.id, id));
 

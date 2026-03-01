@@ -12,6 +12,12 @@ import { PedigreeTree as PedigreeChart } from "@/components/PedigreeTree";
 import { CertificateModal } from "@/components/CertificateModal";
 import type { Dog, DogRegistration, DogHealthClearance, Contact } from "@breed-club/shared";
 
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
+
+function getCertificateUrl(urlOrKey: string): string {
+  return urlOrKey.startsWith("http") ? urlOrKey : `${API_BASE}/uploads/certificate/${urlOrKey}`;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabId = "overview" | "pedigree" | "health" | "progeny";
@@ -473,7 +479,7 @@ function HealthRecordsTab({
                     <td className="py-2 px-2">
                       {c.certificate_url ? (
                         <button
-                          onClick={() => setViewingCert(c.certificate_url!)}
+                          onClick={() => setViewingCert(getCertificateUrl(c.certificate_url!))}
                           className="text-xs text-purple-600 hover:text-purple-700 font-medium"
                         >
                           View

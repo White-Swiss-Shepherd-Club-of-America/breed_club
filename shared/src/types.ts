@@ -15,25 +15,48 @@ export type OrgType = "kennel_club" | "health_testing" | "grading_body" | "pedig
 export type HealthCategory = "orthopedic" | "cardiac" | "genetic" | "vision" | "thyroid" | "dental" | "other";
 export type ConditionSeverity = "mild" | "moderate" | "severe";
 
+// --- Score Config Types ---
+
+export type ScoreConfigEnum = {
+  score_map: Record<string, number>; // option string → 0-100
+};
+
+export type ScoreConfigNumericLR = {
+  field: string; // which field key to score on
+  ranges: Array<{ max: number; score: number }>; // sorted ascending by max
+};
+
+export type ScoreConfigPointScoreLR = {
+  ranges: Array<{ max: number; score: number }>; // per-side total → score
+};
+
+export type ScoreConfigElbowLR = {
+  score_map: Record<string, number>; // grade string → 0-100
+};
+
 // --- Result Schema Types ---
 
 export type ResultSchemaEnum = {
   type: "enum";
   options: string[];
+  score_config?: ScoreConfigEnum;
 };
 
 export type ResultSchemaNumericLR = {
   type: "numeric_lr";
   fields: { label: string; key: string; unit?: string; min?: number; max?: number; step?: number }[];
+  score_config?: ScoreConfigNumericLR;
 };
 
 export type ResultSchemaPointScoreLR = {
   type: "point_score_lr";
   subcategories: { label: string; key: string; max: number }[];
+  score_config?: ScoreConfigPointScoreLR;
 };
 
 export type ResultSchemaElbowLR = {
   type: "elbow_lr";
+  score_config?: ScoreConfigElbowLR;
 };
 
 export type ResultSchema =
@@ -155,6 +178,7 @@ export interface DogRegistration {
 
 export interface GradingOrg extends Organization {
   result_schema: ResultSchema | null;
+  confidence: number | null;
 }
 
 export interface HealthTestType {
@@ -181,6 +205,9 @@ export interface DogHealthClearance {
   result: string;
   result_data: Record<string, unknown> | null;
   result_detail: string | null;
+  result_score: number | null;
+  result_score_left: number | null;
+  result_score_right: number | null;
   test_date: string;
   expiration_date: string | null;
   certificate_number: string | null;

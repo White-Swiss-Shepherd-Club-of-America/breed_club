@@ -24,6 +24,9 @@ interface Clearance {
   result: string;
   result_data?: Record<string, unknown> | null;
   result_detail?: string;
+  result_score?: number | null;
+  result_score_left?: number | null;
+  result_score_right?: number | null;
   test_date?: string;
   certificate_number?: string;
   certificate_url?: string;
@@ -125,11 +128,20 @@ export function HealthQueuePage() {
     },
   });
 
+  // Score overrides per clearance (collapsible)
+  const [scoreOverrides, setScoreOverrides] = useState<Record<string, {
+    result_score?: number | null;
+    result_score_left?: number | null;
+    result_score_right?: number | null;
+  }>>({});
+  const [showOverride, setShowOverride] = useState<Record<string, boolean>>({});
+
   // Approve mutation
   const approveMutation = useMutation({
     mutationFn: async (clearanceId: string) => {
       const token = await getToken();
-      return api.post(`/admin/clearances/${clearanceId}/approve`, undefined, { token });
+      const overrides = scoreOverrides[clearanceId];
+      return api.post(`/admin/clearances/${clearanceId}/approve`, overrides || {}, { token });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "clearances", "pending"] });
@@ -267,6 +279,87 @@ export function HealthQueuePage() {
                         </p>
                       </div>
                     </div>
+
+                    {/* Score display + override */}
+                    {(clearance.result_score != null || clearance.result_score_left != null) && (
+                      <div className="mt-3 border-t pt-3">
+                        <div className="flex items-center gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-gray-700">Score</p>
+                            {clearance.result_score != null && (
+                              <p className="text-lg font-semibold text-purple-600">{clearance.result_score}/100</p>
+                            )}
+                            {clearance.result_score_left != null && (
+                              <p className="text-lg font-semibold text-purple-600">
+                                L: {clearance.result_score_left}, R: {clearance.result_score_right}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowOverride((prev) => ({ ...prev, [clearance.id]: !prev[clearance.id] }))}
+                            className="text-xs text-purple-600 hover:underline"
+                          >
+                            {showOverride[clearance.id] ? "Hide override" : "Override score"}
+                          </button>
+                        </div>
+                        {showOverride[clearance.id] && (
+                          <div className="mt-2 flex items-center gap-3">
+                            {clearance.result_score != null && (
+                              <label className="flex items-center gap-1 text-xs">
+                                Score:
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={scoreOverrides[clearance.id]?.result_score ?? ""}
+                                  onChange={(e) => setScoreOverrides((prev) => ({
+                                    ...prev,
+                                    [clearance.id]: { ...prev[clearance.id], result_score: e.target.value ? parseInt(e.target.value) : null },
+                                  }))}
+                                  placeholder={String(clearance.result_score)}
+                                  className="w-16 px-1 py-0.5 border rounded text-xs text-center"
+                                />
+                              </label>
+                            )}
+                            {clearance.result_score_left != null && (
+                              <>
+                                <label className="flex items-center gap-1 text-xs">
+                                  L:
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={scoreOverrides[clearance.id]?.result_score_left ?? ""}
+                                    onChange={(e) => setScoreOverrides((prev) => ({
+                                      ...prev,
+                                      [clearance.id]: { ...prev[clearance.id], result_score_left: e.target.value ? parseInt(e.target.value) : null },
+                                    }))}
+                                    placeholder={String(clearance.result_score_left)}
+                                    className="w-16 px-1 py-0.5 border rounded text-xs text-center"
+                                  />
+                                </label>
+                                <label className="flex items-center gap-1 text-xs">
+                                  R:
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={scoreOverrides[clearance.id]?.result_score_right ?? ""}
+                                    onChange={(e) => setScoreOverrides((prev) => ({
+                                      ...prev,
+                                      [clearance.id]: { ...prev[clearance.id], result_score_right: e.target.value ? parseInt(e.target.value) : null },
+                                    }))}
+                                    placeholder={String(clearance.result_score_right)}
+                                    className="w-16 px-1 py-0.5 border rounded text-xs text-center"
+                                  />
+                                </label>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {clearance.certificate_number && (
                       <div className="mt-3">

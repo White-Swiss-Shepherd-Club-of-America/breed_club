@@ -208,10 +208,18 @@ export const createOrganizationSchema = z.object({
 
 // --- Health Test Types (admin) ---
 
+const scoreRangeSchema = z.object({
+  max: z.number(),
+  score: z.number().int().min(0).max(100),
+});
+
 const resultSchemaValidator = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("enum"),
     options: z.array(z.string().min(1)).min(1),
+    score_config: z.object({
+      score_map: z.record(z.string(), z.number().int().min(0).max(100)),
+    }).optional(),
   }),
   z.object({
     type: z.literal("numeric_lr"),
@@ -223,6 +231,10 @@ const resultSchemaValidator = z.discriminatedUnion("type", [
       max: z.number().optional(),
       step: z.number().optional(),
     })).min(1),
+    score_config: z.object({
+      field: z.string().min(1),
+      ranges: z.array(scoreRangeSchema).min(1),
+    }).optional(),
   }),
   z.object({
     type: z.literal("point_score_lr"),
@@ -231,9 +243,15 @@ const resultSchemaValidator = z.discriminatedUnion("type", [
       key: z.string().min(1),
       max: z.number().int().min(1),
     })).min(1),
+    score_config: z.object({
+      ranges: z.array(scoreRangeSchema).min(1),
+    }).optional(),
   }),
   z.object({
     type: z.literal("elbow_lr"),
+    score_config: z.object({
+      score_map: z.record(z.string(), z.number().int().min(0).max(100)),
+    }).optional(),
   }),
 ]);
 
@@ -251,6 +269,7 @@ export const createHealthTestTypeSchema = z.object({
   grading_orgs: z.array(z.object({
     organization_id: uuidSchema,
     result_schema: resultSchemaValidator.nullish(),
+    confidence: z.number().int().min(1).max(10).nullish(),
   })).optional(),
 });
 

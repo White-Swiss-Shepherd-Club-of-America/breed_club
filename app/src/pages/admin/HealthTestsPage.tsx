@@ -3,7 +3,7 @@
  * Two tabs: Test Types and Organizations.
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   useHealthTestTypes,
   useCreateHealthTestType,
@@ -35,6 +35,11 @@ const RESULT_SCHEMA_PRESETS: { value: string; label: string; schema: ResultSchem
     value: "enum",
     label: "Custom enum",
     schema: { type: "enum", options: [] },
+  },
+  {
+    value: "fci_hips",
+    label: "FCI Hips (A1/A2/B1/B2/C/D/E)",
+    schema: { type: "enum", options: ["A1", "A2", "B1", "B2", "C", "D", "E"] },
   },
   {
     value: "pennhip",
@@ -270,6 +275,272 @@ function TestTypesTab() {
   );
 }
 
+// ─── Enum Options Editor ────────────────────────────────────────────────────
+
+function EnumOptionsEditor({
+  options,
+  onChange,
+}: {
+  options: string[];
+  onChange: (options: string[]) => void;
+}) {
+  const lastInputRef = useRef<HTMLInputElement>(null);
+  const [shouldFocus, setShouldFocus] = useState(false);
+
+  useEffect(() => {
+    if (shouldFocus && lastInputRef.current) {
+      lastInputRef.current.focus();
+      setShouldFocus(false);
+    }
+  }, [shouldFocus, options.length]);
+
+  const addOption = () => {
+    onChange([...options, ""]);
+    setShouldFocus(true);
+  };
+
+  const removeOption = (index: number) => {
+    onChange(options.filter((_, i) => i !== index));
+  };
+
+  const updateOption = (index: number, value: string) => {
+    const updated = [...options];
+    updated[index] = value;
+    onChange(updated);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addOption();
+    }
+    if (e.key === "Backspace" && options[index] === "" && options.length > 0) {
+      e.preventDefault();
+      removeOption(index);
+    }
+  };
+
+  return (
+    <div className="mt-2 ml-[108px] space-y-1.5">
+      {options.length === 0 && (
+        <p className="text-xs text-amber-600">At least one option is required.</p>
+      )}
+      {options.map((opt, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <input
+            ref={index === options.length - 1 ? lastInputRef : undefined}
+            type="text"
+            value={opt}
+            onChange={(e) => updateOption(index, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(e, index)}
+            placeholder={`Option ${index + 1}`}
+            className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-gray-900 focus:border-transparent"
+          />
+          <button
+            type="button"
+            onClick={() => removeOption(index)}
+            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+            title="Remove option"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addOption}
+        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition"
+      >
+        <Plus className="h-3 w-3" />
+        Add option
+      </button>
+    </div>
+  );
+}
+
+// ─── Score Config Editor ─────────────────────────────────────────────────────
+
+function ScoreConfigEditor({
+  schema,
+  onChange,
+}: {
+  schema: ResultSchema | null;
+  onChange: (updated: ResultSchema) => void;
+}) {
+  if (!schema) return null;
+
+  const hasScoreConfig = "score_config" in schema && schema.score_config != null;
+
+  // Toggle score config on/off
+  const toggleScoreConfig = () => {
+    if (hasScoreConfig) {
+      // Remove score_config
+      const { score_config: _, ...rest } = schema as Record<string, unknown>;
+      onChange(rest as ResultSchema);
+    } else {
+      // Initialize empty score_config
+      switch (schema.type) {
+        case "enum":
+          onChange({ ...schema, score_config: { score_map: Object.fromEntries(schema.options.map((o) => [o, 0])) } });
+          break;
+        case "numeric_lr":
+          onChange({ ...schema, score_config: { field: schema.fields[0]?.key ?? "", ranges: [{ max: 0, score: 100 }] } });
+          break;
+        case "point_score_lr":
+          onChange({ ...schema, score_config: { ranges: [{ max: 0, score: 100 }] } });
+          break;
+        case "elbow_lr":
+          onChange({ ...schema, score_config: { score_map: { "0": 100, "1": 66, "2": 33, "3": 0 } } });
+          break;
+      }
+    }
+  };
+
+  return (
+    <div className="mt-1 ml-27">
+      <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+        <input type="checkbox" checked={hasScoreConfig} onChange={toggleScoreConfig} className="rounded" />
+        Score mapping
+      </label>
+      {hasScoreConfig && schema.type === "enum" && schema.score_config && (
+        <div className="mt-1 space-y-1">
+          {schema.options.map((opt) => (
+            <div key={opt} className="flex items-center gap-2 ml-4">
+              <span className="text-xs text-gray-600 w-32 truncate" title={opt}>{opt}</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={schema.score_config!.score_map[opt] ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? parseInt(e.target.value) : 0;
+                  onChange({
+                    ...schema,
+                    score_config: { score_map: { ...schema.score_config!.score_map, [opt]: val } },
+                  });
+                }}
+                className="w-14 px-1 py-0.5 border rounded text-xs text-center"
+              />
+              <span className="text-xs text-gray-400">/100</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {hasScoreConfig && schema.type === "numeric_lr" && schema.score_config && (
+        <div className="mt-1 ml-4 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Field:</span>
+            <select
+              value={schema.score_config.field}
+              onChange={(e) => onChange({ ...schema, score_config: { ...schema.score_config!, field: e.target.value } })}
+              className="px-1 py-0.5 border rounded text-xs"
+            >
+              {schema.fields.map((f) => (
+                <option key={f.key} value={f.key}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+          <RangesEditor
+            ranges={schema.score_config.ranges}
+            onChange={(ranges) => onChange({ ...schema, score_config: { ...schema.score_config!, ranges } })}
+          />
+        </div>
+      )}
+      {hasScoreConfig && schema.type === "point_score_lr" && schema.score_config && (
+        <div className="mt-1 ml-4">
+          <span className="text-xs text-gray-500">Per-side total ranges:</span>
+          <RangesEditor
+            ranges={schema.score_config.ranges}
+            onChange={(ranges) => onChange({ ...schema, score_config: { ranges } })}
+          />
+        </div>
+      )}
+      {hasScoreConfig && schema.type === "elbow_lr" && schema.score_config && (
+        <div className="mt-1 space-y-1">
+          {["0", "1", "2", "3"].map((grade) => (
+            <div key={grade} className="flex items-center gap-2 ml-4">
+              <span className="text-xs text-gray-600 w-32">Grade {grade}</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={schema.score_config!.score_map[grade] ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? parseInt(e.target.value) : 0;
+                  onChange({
+                    ...schema,
+                    score_config: { score_map: { ...schema.score_config!.score_map, [grade]: val } },
+                  });
+                }}
+                className="w-14 px-1 py-0.5 border rounded text-xs text-center"
+              />
+              <span className="text-xs text-gray-400">/100</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Ranges Editor (for numeric_lr and point_score_lr) ──────────────────────
+
+function RangesEditor({
+  ranges,
+  onChange,
+}: {
+  ranges: Array<{ max: number; score: number }>;
+  onChange: (ranges: Array<{ max: number; score: number }>) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      {ranges.map((range, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">max:</span>
+          <input
+            type="number"
+            step="any"
+            value={range.max}
+            onChange={(e) => {
+              const updated = [...ranges];
+              updated[i] = { ...range, max: parseFloat(e.target.value) || 0 };
+              onChange(updated);
+            }}
+            className="w-16 px-1 py-0.5 border rounded text-xs text-center"
+          />
+          <span className="text-xs text-gray-500">score:</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={range.score}
+            onChange={(e) => {
+              const updated = [...ranges];
+              updated[i] = { ...range, score: parseInt(e.target.value) || 0 };
+              onChange(updated);
+            }}
+            className="w-14 px-1 py-0.5 border rounded text-xs text-center"
+          />
+          <button
+            type="button"
+            onClick={() => onChange(ranges.filter((_, j) => j !== i))}
+            className="text-red-400 hover:text-red-600"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...ranges, { max: 0, score: 0 }])}
+        className="text-xs text-blue-600 hover:underline"
+      >
+        + Add range
+      </button>
+    </div>
+  );
+}
+
 // ─── Test Type Form ──────────────────────────────────────────────────────────
 
 function TestTypeForm({
@@ -304,8 +575,54 @@ function TestTypeForm({
   });
   const selectedOrgIds = Object.keys(orgSchemas);
 
+  // Track per-org confidence values (1-10)
+  const [orgConfidence, setOrgConfidence] = useState<Record<string, number | null>>(() => {
+    const initial: Record<string, number | null> = {};
+    if (testType?.grading_orgs) {
+      for (const org of testType.grading_orgs) {
+        initial[org.id] = (org as GradingOrg).confidence ?? null;
+      }
+    }
+    return initial;
+  });
+
+  // Cache enum options so they survive preset round-trips
+  const [cachedEnumOptions, setCachedEnumOptions] = useState<Record<string, string[]>>(() => {
+    const initial: Record<string, string[]> = {};
+    if (testType?.grading_orgs) {
+      for (const org of testType.grading_orgs) {
+        const schema = (org as GradingOrg).result_schema;
+        if (schema?.type === "enum") {
+          initial[org.id] = schema.options;
+        }
+      }
+    }
+    return initial;
+  });
+
+  const updateEnumOptions = (orgId: string, options: string[]) => {
+    const existing = orgSchemas[orgId];
+    const scoreConfig = existing?.type === "enum" ? existing.score_config : undefined;
+    setOrgSchema(orgId, { type: "enum", options, ...(scoreConfig ? { score_config: scoreConfig } : {}) });
+    setCachedEnumOptions((prev) => ({ ...prev, [orgId]: options }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate enum schemas have at least one non-empty option
+    for (const orgId of selectedOrgIds) {
+      const schema = orgSchemas[orgId];
+      if (schema?.type === "enum") {
+        const nonEmpty = schema.options.filter((o) => o.trim().length > 0);
+        if (nonEmpty.length === 0) {
+          const org = organizations.find((o) => o.id === orgId);
+          alert(`${org?.name ?? "Organization"}: Custom enum requires at least one option.`);
+          return;
+        }
+      }
+    }
+
     const results = resultOptions
       .split(",")
       .map((r) => r.trim())
@@ -320,10 +637,17 @@ function TestTypeForm({
       description: description || null,
       sort_order: sortOrder,
       grading_org_ids: selectedOrgIds,
-      grading_orgs: selectedOrgIds.map((orgId) => ({
-        organization_id: orgId,
-        result_schema: orgSchemas[orgId] ?? null,
-      })),
+      grading_orgs: selectedOrgIds.map((orgId) => {
+        let schema = orgSchemas[orgId] ?? null;
+        if (schema?.type === "enum") {
+          schema = { ...schema, options: schema.options.filter((o) => o.trim().length > 0) };
+        }
+        return {
+          organization_id: orgId,
+          result_schema: schema,
+          confidence: orgConfidence[orgId] ?? null,
+        };
+      }),
     });
   };
 
@@ -470,23 +794,55 @@ function TestTypeForm({
                   const org = organizations.find((o) => o.id === orgId);
                   if (!org) return null;
                   const currentPreset = getPresetForSchema(orgSchemas[orgId] ?? null);
+                  const isEnum = orgSchemas[orgId]?.type === "enum";
                   return (
-                    <div key={orgId} className="flex items-center gap-3 text-sm">
-                      <span className="font-medium text-gray-700 w-24">{org.name}</span>
-                      <select
-                        value={currentPreset}
-                        onChange={(e) => {
-                          const preset = RESULT_SCHEMA_PRESETS.find((p) => p.value === e.target.value);
-                          setOrgSchema(orgId, preset?.schema ?? null);
-                        }}
-                        className="px-2 py-1 border rounded text-xs flex-1"
-                      >
-                        {RESULT_SCHEMA_PRESETS.map((p) => (
-                          <option key={p.value} value={p.value}>
-                            {p.label}
-                          </option>
-                        ))}
-                      </select>
+                    <div key={orgId} className="text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium text-gray-700 w-24">{org.name}</span>
+                        <select
+                          value={currentPreset}
+                          onChange={(e) => {
+                            const preset = RESULT_SCHEMA_PRESETS.find((p) => p.value === e.target.value);
+                            if (preset?.value === "enum") {
+                              const cached = cachedEnumOptions[orgId];
+                              setOrgSchema(orgId, { type: "enum", options: cached ?? [] });
+                            } else {
+                              setOrgSchema(orgId, preset?.schema ?? null);
+                            }
+                          }}
+                          className="px-2 py-1 border rounded text-xs flex-1"
+                        >
+                          {RESULT_SCHEMA_PRESETS.map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={orgConfidence[orgId] ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value ? parseInt(e.target.value) : null;
+                            setOrgConfidence((prev) => ({ ...prev, [orgId]: val }));
+                          }}
+                          placeholder="1-10"
+                          className="w-16 px-2 py-1 border rounded text-xs text-center"
+                          title="Confidence (1-10)"
+                        />
+                        <span className="text-xs text-gray-400">conf.</span>
+                      </div>
+                      {isEnum && (
+                        <EnumOptionsEditor
+                          options={(orgSchemas[orgId] as { type: "enum"; options: string[] }).options}
+                          onChange={(opts) => updateEnumOptions(orgId, opts)}
+                        />
+                      )}
+                      <ScoreConfigEditor
+                        schema={orgSchemas[orgId] ?? null}
+                        onChange={(updated) => setOrgSchema(orgId, updated)}
+                      />
                     </div>
                   );
                 })}

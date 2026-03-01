@@ -14,6 +14,8 @@ import {
   healthConditions,
   dogs,
 } from "../db/schema.js";
+import type { ResultSchema } from "../db/schema.js";
+import { computeResultScores } from "../lib/scoring.js";
 
 const healthRoutes = new Hono<{ Bindings: Env }>();
 
@@ -119,6 +121,7 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
     .select({
       health_test_type_id: healthTestTypeOrgs.health_test_type_id,
       result_schema: healthTestTypeOrgs.result_schema,
+      confidence: healthTestTypeOrgs.confidence,
       organization: {
         id: organizations.id,
         name: organizations.name,
@@ -131,7 +134,7 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
     .innerJoin(organizations, eq(healthTestTypeOrgs.organization_id, organizations.id))
     .where(eq(organizations.is_active, true));
 
-  // Group orgs by test type, including result_schema
+  // Group orgs by test type, including result_schema and confidence
   const orgsByTestType = orgLinks.reduce(
     (acc, link) => {
       if (!acc[link.health_test_type_id]) {
@@ -140,10 +143,11 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
       acc[link.health_test_type_id].push({
         ...link.organization,
         result_schema: link.result_schema,
+        confidence: link.confidence,
       });
       return acc;
     },
-    {} as Record<string, Array<typeof orgLinks[0]["organization"] & { result_schema: unknown }>>
+    {} as Record<string, Array<typeof orgLinks[0]["organization"] & { result_schema: unknown; confidence: number | null }>>
   );
 
   const result = testTypes.map((tt) => ({
@@ -230,11 +234,15 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
     )
     .limit(1);
 
+  const resultSchema = orgLink?.result_schema as ResultSchema | null;
+
   const computedResult = computeResultSummary(
     data.result,
     data.result_data,
-    orgLink?.result_schema as { type: string } | null
+    resultSchema
   );
+
+  const scores = computeResultScores(data.result, data.result_data, resultSchema);
 
   // Check if payment is required
   const feeConfig = club.settings as any;
@@ -276,6 +284,9 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       result: computedResult,
       result_data: data.result_data ?? null,
       result_detail: data.result_detail,
+      result_score: scores.result_score,
+      result_score_left: scores.result_score_left,
+      result_score_right: scores.result_score_right,
       test_date: data.test_date,
       expiration_date: data.expiration_date,
       certificate_number: data.certificate_number,
@@ -312,6 +323,9 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       result: dogHealthClearances.result,
       result_data: dogHealthClearances.result_data,
       result_detail: dogHealthClearances.result_detail,
+      result_score: dogHealthClearances.result_score,
+      result_score_left: dogHealthClearances.result_score_left,
+      result_score_right: dogHealthClearances.result_score_right,
       test_date: dogHealthClearances.test_date,
       expiration_date: dogHealthClearances.expiration_date,
       certificate_number: dogHealthClearances.certificate_number,
@@ -412,11 +426,17 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
 
     const resultData = data.result_data ?? clearance.result_data;
     const resultStr = data.result ?? clearance.result;
+    const patchSchema = orgLink?.result_schema as ResultSchema | null;
     updateData.result = computeResultSummary(
       resultStr,
       resultData as Record<string, unknown> | null,
-      orgLink?.result_schema as { type: string } | null
+      patchSchema
     );
+
+    const scores = computeResultScores(resultStr, resultData as Record<string, unknown> | null, patchSchema);
+    updateData.result_score = scores.result_score;
+    updateData.result_score_left = scores.result_score_left;
+    updateData.result_score_right = scores.result_score_right;
   }
 
   // Update clearance
@@ -505,29 +525,34 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
 
   const db = getDb(c.env);
 
-  // Get all test types for this club
-  const testTypes = await db
+  // Get all test type + org combinations for this club
+  const testTypeOrgs = await db
     .select({
-      id: healthTestTypes.id,
-      name: healthTestTypes.name,
-      short_name: healthTestTypes.short_name,
-      category: healthTestTypes.category,
+      test_type_id: healthTestTypes.id,
+      test_type_name: healthTestTypes.name,
+      test_type_short_name: healthTestTypes.short_name,
+      test_type_category: healthTestTypes.category,
+      org_id: organizations.id,
+      org_name: organizations.name,
     })
-    .from(healthTestTypes)
+    .from(healthTestTypeOrgs)
+    .innerJoin(healthTestTypes, eq(healthTestTypeOrgs.health_test_type_id, healthTestTypes.id))
+    .innerJoin(organizations, eq(healthTestTypeOrgs.organization_id, organizations.id))
     .where(and(eq(healthTestTypes.club_id, club.id), eq(healthTestTypes.is_active, true)))
-    .orderBy(healthTestTypes.sort_order, healthTestTypes.name);
+    .orderBy(healthTestTypes.sort_order, healthTestTypes.name, organizations.sort_order);
 
-  // For each test type, get result distribution
-  const statistics = await Promise.all(
-    testTypes.map(async (testType) => {
-      // Count total dogs tested for this test type
+  // For each test type + org, get result distribution
+  const perOrgStats = await Promise.all(
+    testTypeOrgs.map(async (row) => {
+      // Count total dogs tested for this test type + org
       const totalTested = await db
         .select({ count: count() })
         .from(dogHealthClearances)
         .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
         .where(
           and(
-            eq(dogHealthClearances.health_test_type_id, testType.id),
+            eq(dogHealthClearances.health_test_type_id, row.test_type_id),
+            eq(dogHealthClearances.organization_id, row.org_id),
             eq(dogHealthClearances.status, "approved"),
             eq(dogs.club_id, club.id),
             eq(dogs.status, "approved")
@@ -544,7 +569,8 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
         .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
         .where(
           and(
-            eq(dogHealthClearances.health_test_type_id, testType.id),
+            eq(dogHealthClearances.health_test_type_id, row.test_type_id),
+            eq(dogHealthClearances.organization_id, row.org_id),
             eq(dogHealthClearances.status, "approved"),
             eq(dogs.club_id, club.id),
             eq(dogs.status, "approved")
@@ -552,16 +578,44 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
         )
         .groupBy(dogHealthClearances.result);
 
-      return {
-        test_type: testType,
-        total_tested: totalTested[0]?.count || 0,
-        result_distribution: resultDistribution.map((r) => ({
-          result: r.result,
-          count: Number(r.count),
-        })),
-      };
+      return { row, totalTested: totalTested[0]?.count || 0, resultDistribution };
     })
   );
+
+  // Group by test type, nesting org results inside each
+  const testTypeMap = new Map<string, {
+    test_type: { id: string; name: string; short_name: string | null; category: string };
+    total_tested: number;
+    by_org: { organization: { id: string; name: string }; total_tested: number; result_distribution: { result: string; count: number }[] }[];
+  }>();
+
+  for (const { row, totalTested, resultDistribution } of perOrgStats) {
+    let entry = testTypeMap.get(row.test_type_id);
+    if (!entry) {
+      entry = {
+        test_type: {
+          id: row.test_type_id,
+          name: row.test_type_name,
+          short_name: row.test_type_short_name,
+          category: row.test_type_category,
+        },
+        total_tested: 0,
+        by_org: [],
+      };
+      testTypeMap.set(row.test_type_id, entry);
+    }
+    entry.total_tested += totalTested;
+    entry.by_org.push({
+      organization: { id: row.org_id, name: row.org_name },
+      total_tested: totalTested,
+      result_distribution: resultDistribution.map((r) => ({
+        result: r.result,
+        count: Number(r.count),
+      })),
+    });
+  }
+
+  const statistics = Array.from(testTypeMap.values());
 
   // Overall statistics
   const totalDogs = await db

@@ -50,6 +50,13 @@
       "when": 1772036305984,
       "tag": "0006_lame_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772388821906,
+      "tag": "0007_cheerful_silverclaw",
+      "breakpoints": true
     }
   ]
 }

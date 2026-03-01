@@ -6,6 +6,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 
+interface OrgStats {
+  organization: {
+    id: string;
+    name: string;
+  };
+  total_tested: number;
+  result_distribution: Array<{
+    result: string;
+    count: number;
+  }>;
+}
+
 interface TestTypeStats {
   test_type: {
     id: string;
@@ -14,10 +26,7 @@ interface TestTypeStats {
     category: string;
   };
   total_tested: number;
-  result_distribution: Array<{
-    result: string;
-    count: number;
-  }>;
+  by_org: OrgStats[];
 }
 
 interface HealthStats {
@@ -46,9 +55,40 @@ function StatCard({
   );
 }
 
+function ResultDistribution({
+  distribution,
+  totalTested,
+}: {
+  distribution: OrgStats["result_distribution"];
+  totalTested: number;
+}) {
+  return (
+    <div className="space-y-2">
+      {distribution.map((dist) => {
+        const percentage = totalTested > 0 ? ((dist.count / totalTested) * 100).toFixed(1) : "0";
+        return (
+          <div key={dist.result} className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-gray-700 font-medium">{dist.result}</span>
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-500 rounded-full transition-all"
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+            <div className="ml-3 text-gray-600 min-w-[60px] text-right">
+              {dist.count} ({percentage}%)
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function TestTypeCard({ stats }: { stats: TestTypeStats }) {
-  const totalTested = stats.total_tested;
-  const hasData = totalTested > 0;
+  const hasData = stats.total_tested > 0;
 
   return (
     <div className="p-6 bg-white border border-gray-200 rounded-lg">
@@ -61,30 +101,26 @@ function TestTypeCard({ stats }: { stats: TestTypeStats }) {
       </div>
 
       <div className="mb-4">
-        <div className="text-2xl font-bold text-gray-900">{totalTested}</div>
+        <div className="text-2xl font-bold text-gray-900">{stats.total_tested}</div>
         <div className="text-sm text-gray-500">dogs tested</div>
       </div>
 
       {hasData ? (
-        <div className="space-y-2">
-          <div className="text-sm font-medium text-gray-700 mb-2">Results</div>
-          {stats.result_distribution.map((dist) => {
-            const percentage = totalTested > 0 ? ((dist.count / totalTested) * 100).toFixed(1) : "0";
-
+        <div className="space-y-4">
+          {stats.by_org.map((orgStats) => {
+            if (orgStats.total_tested === 0) return null;
             return (
-              <div key={dist.result} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-gray-700 font-medium">{dist.result}</span>
-                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
+              <div key={orgStats.organization.id}>
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  {orgStats.organization.name}
+                  <span className="ml-1 text-gray-400 font-normal">
+                    ({orgStats.total_tested})
+                  </span>
                 </div>
-                <div className="ml-3 text-gray-600 min-w-[60px] text-right">
-                  {dist.count} ({percentage}%)
-                </div>
+                <ResultDistribution
+                  distribution={orgStats.result_distribution}
+                  totalTested={orgStats.total_tested}
+                />
               </div>
             );
           })}

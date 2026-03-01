@@ -88,16 +88,30 @@ async function seed() {
 
   // ─── Health Test Types ────────────────────────────────────────────────
 
-  // ─── Result Schema Presets ──────────────────────────────────────────
+  // ─── Result Schema Presets (with score_config) ─────────────────────
 
   const OFA_HIPS_SCHEMA: ResultSchema = {
     type: "enum",
     options: ["Excellent", "Good", "Fair", "Borderline", "Mild", "Moderate", "Severe"],
+    score_config: {
+      score_map: { "Excellent": 100, "Good": 90, "Fair": 70, "Borderline": 50, "Mild": 30, "Moderate": 15, "Severe": 0 },
+    },
   };
 
   const PENNHIP_SCHEMA: ResultSchema = {
     type: "numeric_lr",
     fields: [{ label: "Distraction Index", key: "di", min: 0, max: 1, step: 0.01 }],
+    score_config: {
+      field: "di",
+      ranges: [
+        { max: 0.30, score: 100 },
+        { max: 0.40, score: 80 },
+        { max: 0.50, score: 60 },
+        { max: 0.60, score: 40 },
+        { max: 0.70, score: 20 },
+        { max: 1.00, score: 0 },
+      ],
+    },
   };
 
   const BVA_HIPS_SCHEMA: ResultSchema = {
@@ -113,20 +127,92 @@ async function seed() {
       { label: "Femoral head/neck exostosis", key: "femoral_head_neck_exostosis", max: 6 },
       { label: "Femoral head re-contouring", key: "femoral_head_recontouring", max: 6 },
     ],
+    score_config: {
+      ranges: [
+        { max: 5, score: 100 },
+        { max: 10, score: 90 },
+        { max: 15, score: 75 },
+        { max: 25, score: 50 },
+        { max: 35, score: 25 },
+        { max: 53, score: 0 },
+      ],
+    },
   };
 
   const SV_HIPS_SCHEMA: ResultSchema = {
     type: "enum",
     options: ["Normal (a1)", "Fast Normal (a2)", "Noch Zugelassen (a3)", "Leicht (a4)", "Mittel (a5)", "Schwer (a6)"],
+    score_config: {
+      score_map: {
+        "Normal (a1)": 100, "Fast Normal (a2)": 85, "Noch Zugelassen (a3)": 60,
+        "Leicht (a4)": 35, "Mittel (a5)": 15, "Schwer (a6)": 0,
+      },
+    },
   };
 
   const OFA_ELBOWS_SCHEMA: ResultSchema = {
     type: "enum",
     options: ["Normal", "DJD1", "DJD2", "DJD3"],
+    score_config: {
+      score_map: { "Normal": 100, "DJD1": 66, "DJD2": 33, "DJD3": 0 },
+    },
   };
 
   const BVA_ELBOWS_SCHEMA: ResultSchema = {
     type: "elbow_lr",
+    score_config: {
+      score_map: { "0": 100, "1": 66, "2": 33, "3": 0 },
+    },
+  };
+
+  // ─── Shared enum schemas for simple pass/fail and genetic tests ───
+
+  const NORMAL_ABNORMAL_SCHEMA: ResultSchema = {
+    type: "enum",
+    options: ["Normal", "Abnormal"],
+    score_config: {
+      score_map: { "Normal": 100, "Abnormal": 0 },
+    },
+  };
+
+  const EYE_SCHEMA: ResultSchema = {
+    type: "enum",
+    options: ["Normal", "Normal w/Breeder Option", "Abnormal"],
+    score_config: {
+      score_map: { "Normal": 100, "Normal w/Breeder Option": 75, "Abnormal": 0 },
+    },
+  };
+
+  const GENETIC_CLEAR_CARRIER_AFFECTED: ResultSchema = {
+    type: "enum",
+    options: ["Clear", "Carrier", "Affected"],
+    score_config: {
+      score_map: { "Clear": 100, "Carrier": 50, "Affected": 0 },
+    },
+  };
+
+  const DM_SCHEMA: ResultSchema = {
+    type: "enum",
+    options: ["Normal/Clear", "Carrier", "At Risk/Affected"],
+    score_config: {
+      score_map: { "Normal/Clear": 100, "Carrier": 50, "At Risk/Affected": 0 },
+    },
+  };
+
+  const MDR1_SCHEMA: ResultSchema = {
+    type: "enum",
+    options: ["Normal/Normal", "Normal/Mutant", "Mutant/Mutant"],
+    score_config: {
+      score_map: { "Normal/Normal": 100, "Normal/Mutant": 50, "Mutant/Mutant": 0 },
+    },
+  };
+
+  const DENTITION_SCHEMA: ResultSchema = {
+    type: "enum",
+    options: ["Full", "Missing Teeth"],
+    score_config: {
+      score_map: { "Full": 100, "Missing Teeth": 30 },
+    },
   };
 
   // ─── Test Type Definitions ────────────────────────────────────────
@@ -139,7 +225,7 @@ async function seed() {
     is_required_for_chic: boolean;
     description: string;
     sort_order: number;
-    grading_orgs: Array<{ name: string; result_schema: ResultSchema | null }>;
+    grading_orgs: Array<{ name: string; result_schema: ResultSchema | null; confidence: number | null }>;
   }> = [
     {
       name: "Hip Dysplasia",
@@ -150,10 +236,10 @@ async function seed() {
       description: "Hip joint evaluation. OFA uses radiographic grading; PennHIP uses distraction index measurement; BVA/KC uses point scoring.",
       sort_order: 1,
       grading_orgs: [
-        { name: "OFA", result_schema: OFA_HIPS_SCHEMA },
-        { name: "PennHIP", result_schema: PENNHIP_SCHEMA },
-        { name: "BVA/KC", result_schema: BVA_HIPS_SCHEMA },
-        { name: "SV", result_schema: SV_HIPS_SCHEMA },
+        { name: "OFA", result_schema: OFA_HIPS_SCHEMA, confidence: 4 },
+        { name: "PennHIP", result_schema: PENNHIP_SCHEMA, confidence: 9 },
+        { name: "BVA/KC", result_schema: BVA_HIPS_SCHEMA, confidence: 8 },
+        { name: "SV", result_schema: SV_HIPS_SCHEMA, confidence: 7 },
       ],
     },
     {
@@ -165,8 +251,8 @@ async function seed() {
       description: "Elbow joint evaluation for degenerative joint disease.",
       sort_order: 2,
       grading_orgs: [
-        { name: "OFA", result_schema: OFA_ELBOWS_SCHEMA },
-        { name: "BVA/KC", result_schema: BVA_ELBOWS_SCHEMA },
+        { name: "OFA", result_schema: OFA_ELBOWS_SCHEMA, confidence: 4 },
+        { name: "BVA/KC", result_schema: BVA_ELBOWS_SCHEMA, confidence: 8 },
       ],
     },
     {
@@ -177,7 +263,7 @@ async function seed() {
       is_required_for_chic: false,
       description: "Kneecap evaluation for luxation tendency.",
       sort_order: 3,
-      grading_orgs: [{ name: "OFA", result_schema: null }],
+      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 7 }],
     },
     {
       name: "Cardiac",
@@ -187,7 +273,7 @@ async function seed() {
       is_required_for_chic: true,
       description: "Basic cardiac examination or echocardiogram by veterinary cardiologist.",
       sort_order: 4,
-      grading_orgs: [{ name: "OFA", result_schema: null }],
+      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 8 }],
     },
     {
       name: "Eye Examination",
@@ -198,8 +284,8 @@ async function seed() {
       description: "Companion Animal Eye Registry (CAER) exam by veterinary ophthalmologist.",
       sort_order: 5,
       grading_orgs: [
-        { name: "CAER", result_schema: null },
-        { name: "OFA", result_schema: null },
+        { name: "CAER", result_schema: EYE_SCHEMA, confidence: 8 },
+        { name: "OFA", result_schema: EYE_SCHEMA, confidence: 8 },
       ],
     },
     {
@@ -210,7 +296,7 @@ async function seed() {
       is_required_for_chic: false,
       description: "Thyroid function blood test (T4, free T4, TSH, TgAA).",
       sort_order: 6,
-      grading_orgs: [{ name: "OFA", result_schema: null }],
+      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 8 }],
     },
     {
       name: "Degenerative Myelopathy (DM)",
@@ -221,11 +307,11 @@ async function seed() {
       description: "DNA test for SOD1 mutation. Progressive spinal cord disease, typical onset 8-14 years. Note: test reliability is limited.",
       sort_order: 7,
       grading_orgs: [
-        { name: "OFA", result_schema: null },
-        { name: "Embark", result_schema: null },
-        { name: "Animal Genetics", result_schema: null },
-        { name: "UC Davis VGL", result_schema: null },
-        { name: "Wisdom Panel", result_schema: null },
+        { name: "OFA", result_schema: DM_SCHEMA, confidence: 10 },
+        { name: "Embark", result_schema: DM_SCHEMA, confidence: 10 },
+        { name: "Animal Genetics", result_schema: DM_SCHEMA, confidence: 10 },
+        { name: "UC Davis VGL", result_schema: DM_SCHEMA, confidence: 10 },
+        { name: "Wisdom Panel", result_schema: DM_SCHEMA, confidence: 10 },
       ],
     },
     {
@@ -237,11 +323,11 @@ async function seed() {
       description: "DNA test for ABCB1 (MDR1) gene mutation. Affects ability to process certain drugs including ivermectin, loperamide, acepromazine.",
       sort_order: 8,
       grading_orgs: [
-        { name: "OFA", result_schema: null },
-        { name: "Embark", result_schema: null },
-        { name: "Animal Genetics", result_schema: null },
-        { name: "UC Davis VGL", result_schema: null },
-        { name: "Wisdom Panel", result_schema: null },
+        { name: "OFA", result_schema: MDR1_SCHEMA, confidence: 10 },
+        { name: "Embark", result_schema: MDR1_SCHEMA, confidence: 10 },
+        { name: "Animal Genetics", result_schema: MDR1_SCHEMA, confidence: 10 },
+        { name: "UC Davis VGL", result_schema: MDR1_SCHEMA, confidence: 10 },
+        { name: "Wisdom Panel", result_schema: MDR1_SCHEMA, confidence: 10 },
       ],
     },
     {
@@ -253,10 +339,10 @@ async function seed() {
       description: "DNA test for inherited bleeding disorder. Encouraged due to GSD ancestry.",
       sort_order: 9,
       grading_orgs: [
-        { name: "OFA", result_schema: null },
-        { name: "Embark", result_schema: null },
-        { name: "Animal Genetics", result_schema: null },
-        { name: "UC Davis VGL", result_schema: null },
+        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "UC Davis VGL", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
       ],
     },
     {
@@ -268,10 +354,10 @@ async function seed() {
       description: "DNA test for Factor VIII deficiency. Sex-linked bleeding disorder recommended due to GSD ancestry.",
       sort_order: 10,
       grading_orgs: [
-        { name: "OFA", result_schema: null },
-        { name: "Embark", result_schema: null },
-        { name: "Animal Genetics", result_schema: null },
-        { name: "UC Davis VGL", result_schema: null },
+        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "UC Davis VGL", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
       ],
     },
     {
@@ -283,9 +369,9 @@ async function seed() {
       description: "DNA test for immune system deficiency.",
       sort_order: 11,
       grading_orgs: [
-        { name: "OFA", result_schema: null },
-        { name: "Embark", result_schema: null },
-        { name: "Animal Genetics", result_schema: null },
+        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
       ],
     },
     {
@@ -296,7 +382,7 @@ async function seed() {
       is_required_for_chic: false,
       description: "Veterinary examination of teeth for completeness.",
       sort_order: 12,
-      grading_orgs: [{ name: "OFA", result_schema: null }],
+      grading_orgs: [{ name: "OFA", result_schema: DENTITION_SCHEMA, confidence: 7 }],
     },
   ];
 
@@ -313,7 +399,7 @@ async function seed() {
     if (!testType) continue; // already exists
     insertedCount++;
 
-    // Link grading organizations with result schemas
+    // Link grading organizations with result schemas and confidence
     const orgLinks = grading_orgs
       .map((org) => {
         const orgId = orgByName[org.name];
@@ -325,9 +411,10 @@ async function seed() {
           health_test_type_id: testType.id,
           organization_id: orgId,
           result_schema: org.result_schema,
+          confidence: org.confidence,
         };
       })
-      .filter(Boolean) as Array<{ health_test_type_id: string; organization_id: string; result_schema: ResultSchema | null }>;
+      .filter(Boolean) as Array<{ health_test_type_id: string; organization_id: string; result_schema: ResultSchema | null; confidence: number | null }>;
 
     if (orgLinks.length > 0) {
       await db.insert(healthTestTypeOrgs).values(orgLinks).onConflictDoNothing();

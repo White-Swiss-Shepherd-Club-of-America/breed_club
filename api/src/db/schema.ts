@@ -294,29 +294,53 @@ export const healthTestTypeOrgs = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     result_schema: jsonb("result_schema").$type<ResultSchema | null>(),
+    confidence: integer("confidence"), // 1-10 scale, how reliable is this test method
   },
   (t) => [primaryKey({ columns: [t.health_test_type_id, t.organization_id] })]
 );
 
 // ─── Result Schema Types ────────────────────────────────────────────────────
 
+// Score config types — define how result values map to 0-100 scores
+
+export type ScoreConfigEnum = {
+  score_map: Record<string, number>; // option string → 0-100
+};
+
+export type ScoreConfigNumericLR = {
+  field: string; // which field key to score on
+  ranges: Array<{ max: number; score: number }>; // sorted ascending by max
+};
+
+export type ScoreConfigPointScoreLR = {
+  ranges: Array<{ max: number; score: number }>; // per-side total → score
+};
+
+export type ScoreConfigElbowLR = {
+  score_map: Record<string, number>; // grade string → 0-100
+};
+
 export type ResultSchemaEnum = {
   type: "enum";
   options: string[];
+  score_config?: ScoreConfigEnum;
 };
 
 export type ResultSchemaNumericLR = {
   type: "numeric_lr";
   fields: { label: string; key: string; unit?: string; min?: number; max?: number; step?: number }[];
+  score_config?: ScoreConfigNumericLR;
 };
 
 export type ResultSchemaPointScoreLR = {
   type: "point_score_lr";
   subcategories: { label: string; key: string; max: number }[];
+  score_config?: ScoreConfigPointScoreLR;
 };
 
 export type ResultSchemaElbowLR = {
   type: "elbow_lr";
+  score_config?: ScoreConfigElbowLR;
 };
 
 export type ResultSchema =
@@ -343,6 +367,9 @@ export const dogHealthClearances = pgTable(
     result: varchar("result", { length: 100 }).notNull(),
     result_data: jsonb("result_data").$type<Record<string, unknown> | null>(),
     result_detail: text("result_detail"),
+    result_score: integer("result_score"), // 0-100, for single-result tests (enum)
+    result_score_left: integer("result_score_left"), // 0-100, for bilateral tests (L/R)
+    result_score_right: integer("result_score_right"), // 0-100, for bilateral tests (L/R)
     test_date: date("test_date").notNull(),
     expiration_date: date("expiration_date"),
     certificate_number: varchar("certificate_number", { length: 100 }),
