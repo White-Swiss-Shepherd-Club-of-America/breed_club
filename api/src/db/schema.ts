@@ -196,6 +196,7 @@ export const dogs = pgTable(
     is_public: boolean("is_public").notNull().default(false),
     is_historical: boolean("is_historical").notNull().default(false),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
+    health_rating: jsonb("health_rating").$type<HealthRating | null>(),
     submitted_by: uuid("submitted_by").references(() => members.id),
     approved_by: uuid("approved_by").references(() => members.id),
     approved_at: timestamp("approved_at", { withTimezone: true }),
@@ -273,7 +274,8 @@ export const healthTestTypes = pgTable(
     short_name: varchar("short_name", { length: 50 }).notNull(),
     category: varchar("category", { length: 30 }).notNull(),
     result_options: jsonb("result_options").notNull().$type<string[]>(),
-    is_required_for_chic: boolean("is_required_for_chic").notNull().default(false),
+    is_required: boolean("is_required").notNull().default(false),
+    rating_category: varchar("rating_category", { length: 30 }),
     description: text("description"),
     sort_order: integer("sort_order").notNull().default(0),
     is_active: boolean("is_active").notNull().default(true),
@@ -295,6 +297,7 @@ export const healthTestTypeOrgs = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     result_schema: jsonb("result_schema").$type<ResultSchema | null>(),
     confidence: integer("confidence"), // 1-10 scale, how reliable is this test method
+    thresholds: jsonb("thresholds").$type<RatingThresholds | null>(),
   },
   (t) => [primaryKey({ columns: [t.health_test_type_id, t.organization_id] })]
 );
@@ -348,6 +351,33 @@ export type ResultSchema =
   | ResultSchemaNumericLR
   | ResultSchemaPointScoreLR
   | ResultSchemaElbowLR;
+
+// ─── Rating Thresholds ───────────────────────────────────────────────────────
+
+// Defines how 0-100 scores map to rating levels per test+org combo
+export type RatingThresholds = {
+  auto_dq: number; // score <= this → Red (disqualified)
+  poor: number; // score <= this → Orange
+  fair: number; // score <= this → Yellow
+  good: number; // score <= this → Green
+  // score > good → Blue (excellent)
+};
+
+// ─── Cached Health Rating ────────────────────────────────────────────────────
+
+export type HealthRatingColor = "red" | "orange" | "yellow" | "green" | "blue";
+
+export type HealthRating = {
+  color: HealthRatingColor;
+  score: number; // 0-100 weighted score
+  saturation: number; // 0-100 testing completeness %
+  computed_at: string; // ISO timestamp
+  required_complete: boolean; // all is_required tests have approved clearances
+  auto_dq: boolean; // any test hit auto_dq threshold
+  category_scores: Record<string, { color: HealthRatingColor; score: number; test_count: number }>;
+  cert_version_id: string | null; // which cert version was used for evaluation
+  cert_version_name: string | null; // human-readable version name
+};
 
 // ─── Dog Health Clearances ──────────────────────────────────────────────────
 
@@ -460,6 +490,59 @@ export const litterPups = pgTable(
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index("idx_litter_pups_litter").on(t.litter_id)]
+);
+
+// ─── Payments ───────────────────────────────────────────────────────────────
+
+// ─── Health Rating Config ────────────────────────────────────────────────────
+
+export type ScoreThresholds = {
+  red: number; // overall score <= this → Red
+  orange: number; // overall score <= this → Orange
+  yellow: number; // overall score <= this → Yellow
+  green: number; // overall score <= this → Green
+  // overall score > green → Blue
+};
+
+export const healthRatingConfigs = pgTable("health_rating_configs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  club_id: uuid("club_id")
+    .notNull()
+    .references(() => clubs.id)
+    .unique(),
+  category_weights: jsonb("category_weights").notNull().$type<Record<string, number>>(),
+  // e.g. { hips: 20, genetics: 20, elbows: 15, vision: 12, spine: 10, cardiac: 8, patella: 5, dentition: 3, temperament: 5, other: 2 }
+  critical_categories: jsonb("critical_categories").notNull().$type<string[]>(),
+  // e.g. ["hips", "genetics", "elbows"]
+  score_thresholds: jsonb("score_thresholds").notNull().$type<ScoreThresholds>(),
+  // overall weighted score → color mapping
+  created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Health Cert Versions ────────────────────────────────────────────────────
+
+export const healthCertVersions = pgTable(
+  "health_cert_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    version_name: varchar("version_name", { length: 100 }).notNull(),
+    effective_date: date("effective_date").notNull(),
+    required_test_type_ids: jsonb("required_test_type_ids").notNull().$type<string[]>(),
+    category_weights: jsonb("category_weights").notNull().$type<Record<string, number>>(),
+    critical_categories: jsonb("critical_categories").notNull().$type<string[]>(),
+    score_thresholds: jsonb("score_thresholds").notNull().$type<ScoreThresholds>(),
+    notes: text("notes"),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_cert_versions_club_date").on(t.club_id, t.effective_date),
+  ]
 );
 
 // ─── Payments ───────────────────────────────────────────────────────────────

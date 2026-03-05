@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse } from "@breed-club/shared";
+import type { Dog, HealthRating, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -372,6 +372,25 @@ export function useRejectTransfer() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pendingTransfers"] });
       queryClient.invalidateQueries({ queryKey: ["dogs"] });
+    },
+  });
+}
+
+export function useRecalculateHealthRating() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (dogId: string) => {
+      const token = await getToken();
+      return api.post<{ health_rating: HealthRating | null }>(
+        `/admin/dogs/${dogId}/recalculate`,
+        {},
+        { token }
+      );
+    },
+    onSuccess: (_, dogId) => {
+      queryClient.invalidateQueries({ queryKey: ["dog", dogId] });
     },
   });
 }

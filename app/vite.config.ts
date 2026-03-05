@@ -18,6 +18,11 @@ export default defineConfig({
         target: "http://localhost:8787",
         changeOrigin: true,
       },
+      // SSR health stamp pages served by the API (no /api prefix)
+      "^/dogs/[^/]+/health": {
+        target: "http://localhost:8787",
+        changeOrigin: true,
+      },
     },
   },
 });

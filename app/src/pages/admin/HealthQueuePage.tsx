@@ -110,7 +110,7 @@ function ResultDataSummary({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-export function HealthQueuePage() {
+export function HealthQueuePanel() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -175,21 +175,12 @@ export function HealthQueuePage() {
   const meta = data?.meta;
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <div className="mb-6">
-        <Link to="/app/admin" className="text-sm text-purple-600 hover:underline">
-          ← Back to admin
-        </Link>
-      </div>
-
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Health Clearance Verification Queue</h1>
-        {meta && (
-          <div className="text-sm text-gray-600">
-            {meta.total} pending clearance{meta.total !== 1 ? "s" : ""}
-          </div>
-        )}
-      </div>
+    <div>
+      {meta && (
+        <div className="text-sm text-gray-600 mb-4">
+          {meta.total} pending clearance{meta.total !== 1 ? "s" : ""}
+        </div>
+      )}
 
       {isLoading && (
         <div className="bg-white rounded-lg shadow p-8 text-center">
@@ -463,6 +454,20 @@ export function HealthQueuePage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+export function HealthQueuePage() {
+  return (
+    <div className="max-w-7xl mx-auto p-6">
+      <div className="mb-6">
+        <Link to="/admin" className="text-sm text-purple-600 hover:underline">
+          ← Back to admin
+        </Link>
+      </div>
+      <h1 className="text-3xl font-bold mb-6">Health Clearance Verification Queue</h1>
+      <HealthQueuePanel />
     </div>
   );
 }

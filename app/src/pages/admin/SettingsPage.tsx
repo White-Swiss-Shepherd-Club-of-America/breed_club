@@ -1,6 +1,6 @@
 /**
- * Admin page for managing membership form fields.
- * Allows admins to add, edit, reorder, and deactivate custom form questions.
+ * Admin settings page.
+ * Currently manages membership form fields; future: branding, colors, etc.
  */
 
 import { useState } from "react";
@@ -61,7 +61,7 @@ function formStateToPayload(state: FormState) {
   };
 }
 
-export function FormFieldsPage() {
+export function SettingsPage() {
   const { data, isLoading } = useAdminFormFields();
   const createMutation = useCreateFormField();
   const updateMutation = useUpdateFormField();
@@ -149,7 +149,7 @@ export function FormFieldsPage() {
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Membership Form Fields</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
           <p className="text-sm text-gray-500 mt-1">
             Configure the questions shown on the membership application form.
           </p>

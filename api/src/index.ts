@@ -41,6 +41,9 @@ app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOStri
 // All /api/* routes get club context, optional auth, and member loading
 app.use("/api/*", clubContext, optionalAuth, loadMember);
 
+// Health stamp SSR pages also need club context (no auth required)
+app.use("/dogs/*", clubContext);
+
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 // Public endpoints (no auth required)

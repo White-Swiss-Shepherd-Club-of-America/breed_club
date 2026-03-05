@@ -10,7 +10,7 @@
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, sql } from "drizzle-orm";
-import { clubs, organizations, healthTestTypes, healthTestTypeOrgs, type ResultSchema } from "./schema.js";
+import { clubs, organizations, healthTestTypes, healthTestTypeOrgs, healthRatingConfigs, type ResultSchema, type RatingThresholds } from "./schema.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const CLUB_SLUG = process.env.CLUB_SLUG;
@@ -221,168 +221,181 @@ async function seed() {
     name: string;
     short_name: string;
     category: string;
+    rating_category: string;
     result_options: string[];
-    is_required_for_chic: boolean;
+    is_required: boolean;
     description: string;
     sort_order: number;
-    grading_orgs: Array<{ name: string; result_schema: ResultSchema | null; confidence: number | null }>;
+    grading_orgs: Array<{ name: string; result_schema: ResultSchema | null; confidence: number | null; thresholds: RatingThresholds | null }>;
   }> = [
     {
       name: "Hip Dysplasia",
       short_name: "Hips",
       category: "orthopedic",
+      rating_category: "hips",
       result_options: ["Excellent", "Good", "Fair", "Borderline", "Mild", "Moderate", "Severe"],
-      is_required_for_chic: true,
+      is_required: true,
       description: "Hip joint evaluation. OFA uses radiographic grading; PennHIP uses distraction index measurement; BVA/KC uses point scoring.",
       sort_order: 1,
       grading_orgs: [
-        { name: "OFA", result_schema: OFA_HIPS_SCHEMA, confidence: 4 },
-        { name: "PennHIP", result_schema: PENNHIP_SCHEMA, confidence: 9 },
-        { name: "BVA/KC", result_schema: BVA_HIPS_SCHEMA, confidence: 8 },
-        { name: "SV", result_schema: SV_HIPS_SCHEMA, confidence: 7 },
+        { name: "OFA", result_schema: OFA_HIPS_SCHEMA, confidence: 4, thresholds: { auto_dq: 15, poor: 30, fair: 50, good: 70 } },
+        { name: "PennHIP", result_schema: PENNHIP_SCHEMA, confidence: 9, thresholds: { auto_dq: 20, poor: 40, fair: 60, good: 80 } },
+        { name: "BVA/KC", result_schema: BVA_HIPS_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 25, fair: 50, good: 75 } },
+        { name: "SV", result_schema: SV_HIPS_SCHEMA, confidence: 7, thresholds: { auto_dq: 15, poor: 35, fair: 60, good: 85 } },
       ],
     },
     {
       name: "Elbow Dysplasia",
       short_name: "Elbows",
       category: "orthopedic",
+      rating_category: "elbows",
       result_options: ["Normal", "DJD1", "DJD2", "DJD3"],
-      is_required_for_chic: true,
+      is_required: true,
       description: "Elbow joint evaluation for degenerative joint disease.",
       sort_order: 2,
       grading_orgs: [
-        { name: "OFA", result_schema: OFA_ELBOWS_SCHEMA, confidence: 4 },
-        { name: "BVA/KC", result_schema: BVA_ELBOWS_SCHEMA, confidence: 8 },
+        { name: "OFA", result_schema: OFA_ELBOWS_SCHEMA, confidence: 4, thresholds: { auto_dq: 0, poor: 33, fair: 66, good: 90 } },
+        { name: "BVA/KC", result_schema: BVA_ELBOWS_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 33, fair: 66, good: 90 } },
       ],
     },
     {
       name: "Patellar Luxation",
       short_name: "Patellas",
       category: "orthopedic",
+      rating_category: "patella",
       result_options: ["Normal", "Abnormal"],
-      is_required_for_chic: false,
+      is_required: false,
       description: "Kneecap evaluation for luxation tendency.",
       sort_order: 3,
-      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 7 }],
+      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 7, thresholds: { auto_dq: 0, poor: 0, fair: 50, good: 90 } }],
     },
     {
       name: "Cardiac",
       short_name: "Cardiac",
       category: "cardiac",
+      rating_category: "cardiac",
       result_options: ["Normal", "Abnormal"],
-      is_required_for_chic: true,
+      is_required: true,
       description: "Basic cardiac examination or echocardiogram by veterinary cardiologist.",
       sort_order: 4,
-      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 8 }],
+      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 0, fair: 50, good: 90 } }],
     },
     {
       name: "Eye Examination",
       short_name: "Eyes",
       category: "vision",
+      rating_category: "vision",
       result_options: ["Normal", "Normal w/Breeder Option", "Abnormal"],
-      is_required_for_chic: true,
+      is_required: true,
       description: "Companion Animal Eye Registry (CAER) exam by veterinary ophthalmologist.",
       sort_order: 5,
       grading_orgs: [
-        { name: "CAER", result_schema: EYE_SCHEMA, confidence: 8 },
-        { name: "OFA", result_schema: EYE_SCHEMA, confidence: 8 },
+        { name: "CAER", result_schema: EYE_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 0, fair: 50, good: 90 } },
+        { name: "OFA", result_schema: EYE_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 0, fair: 50, good: 90 } },
       ],
     },
     {
       name: "Thyroid",
       short_name: "Thyroid",
       category: "thyroid",
+      rating_category: "other",
       result_options: ["Normal", "Abnormal"],
-      is_required_for_chic: false,
+      is_required: false,
       description: "Thyroid function blood test (T4, free T4, TSH, TgAA).",
       sort_order: 6,
-      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 8 }],
+      grading_orgs: [{ name: "OFA", result_schema: NORMAL_ABNORMAL_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 0, fair: 50, good: 90 } }],
     },
     {
       name: "Degenerative Myelopathy (DM)",
       short_name: "DM",
       category: "genetic",
+      rating_category: "genetics",
       result_options: ["Normal/Clear", "Carrier", "At Risk/Affected"],
-      is_required_for_chic: true,
+      is_required: true,
       description: "DNA test for SOD1 mutation. Progressive spinal cord disease, typical onset 8-14 years. Note: test reliability is limited.",
       sort_order: 7,
       grading_orgs: [
-        { name: "OFA", result_schema: DM_SCHEMA, confidence: 10 },
-        { name: "Embark", result_schema: DM_SCHEMA, confidence: 10 },
-        { name: "Animal Genetics", result_schema: DM_SCHEMA, confidence: 10 },
-        { name: "UC Davis VGL", result_schema: DM_SCHEMA, confidence: 10 },
-        { name: "Wisdom Panel", result_schema: DM_SCHEMA, confidence: 10 },
+        { name: "OFA", result_schema: DM_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Embark", result_schema: DM_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Animal Genetics", result_schema: DM_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "UC Davis VGL", result_schema: DM_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Wisdom Panel", result_schema: DM_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
       ],
     },
     {
       name: "Multi-Drug Resistance 1 (MDR1)",
       short_name: "MDR1",
       category: "genetic",
+      rating_category: "genetics",
       result_options: ["Normal/Normal", "Normal/Mutant", "Mutant/Mutant"],
-      is_required_for_chic: true,
+      is_required: true,
       description: "DNA test for ABCB1 (MDR1) gene mutation. Affects ability to process certain drugs including ivermectin, loperamide, acepromazine.",
       sort_order: 8,
       grading_orgs: [
-        { name: "OFA", result_schema: MDR1_SCHEMA, confidence: 10 },
-        { name: "Embark", result_schema: MDR1_SCHEMA, confidence: 10 },
-        { name: "Animal Genetics", result_schema: MDR1_SCHEMA, confidence: 10 },
-        { name: "UC Davis VGL", result_schema: MDR1_SCHEMA, confidence: 10 },
-        { name: "Wisdom Panel", result_schema: MDR1_SCHEMA, confidence: 10 },
+        { name: "OFA", result_schema: MDR1_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Embark", result_schema: MDR1_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Animal Genetics", result_schema: MDR1_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "UC Davis VGL", result_schema: MDR1_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Wisdom Panel", result_schema: MDR1_SCHEMA, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
       ],
     },
     {
       name: "Von Willebrand's Disease (vWD)",
       short_name: "vWD",
       category: "genetic",
+      rating_category: "genetics",
       result_options: ["Clear", "Carrier", "Affected"],
-      is_required_for_chic: false,
+      is_required: false,
       description: "DNA test for inherited bleeding disorder. Encouraged due to GSD ancestry.",
       sort_order: 9,
       grading_orgs: [
-        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "UC Davis VGL", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "UC Davis VGL", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
       ],
     },
     {
       name: "Hemophilia A",
       short_name: "Hemo A",
       category: "genetic",
+      rating_category: "genetics",
       result_options: ["Clear", "Carrier", "Affected"],
-      is_required_for_chic: false,
+      is_required: false,
       description: "DNA test for Factor VIII deficiency. Sex-linked bleeding disorder recommended due to GSD ancestry.",
       sort_order: 10,
       grading_orgs: [
-        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "UC Davis VGL", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "UC Davis VGL", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
       ],
     },
     {
       name: "Leukocyte Adhesion Deficiency (LAD)",
       short_name: "LAD",
       category: "genetic",
+      rating_category: "genetics",
       result_options: ["Clear", "Carrier", "Affected"],
-      is_required_for_chic: false,
+      is_required: false,
       description: "DNA test for immune system deficiency.",
       sort_order: 11,
       grading_orgs: [
-        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
-        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10 },
+        { name: "OFA", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Embark", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
+        { name: "Animal Genetics", result_schema: GENETIC_CLEAR_CARRIER_AFFECTED, confidence: 10, thresholds: { auto_dq: 0, poor: 0, fair: 25, good: 75 } },
       ],
     },
     {
       name: "Dentition",
       short_name: "Dentition",
       category: "dental",
+      rating_category: "dentition",
       result_options: ["Full", "Missing Teeth"],
-      is_required_for_chic: false,
+      is_required: false,
       description: "Veterinary examination of teeth for completeness.",
       sort_order: 12,
-      grading_orgs: [{ name: "OFA", result_schema: DENTITION_SCHEMA, confidence: 7 }],
+      grading_orgs: [{ name: "OFA", result_schema: DENTITION_SCHEMA, confidence: 7, thresholds: { auto_dq: 0, poor: 0, fair: 15, good: 80 } }],
     },
   ];
 
@@ -425,9 +438,10 @@ async function seed() {
           organization_id: orgId,
           result_schema: org.result_schema,
           confidence: org.confidence,
+          thresholds: org.thresholds,
         };
       })
-      .filter(Boolean) as Array<{ health_test_type_id: string; organization_id: string; result_schema: ResultSchema | null; confidence: number | null }>;
+      .filter(Boolean) as Array<{ health_test_type_id: string; organization_id: string; result_schema: ResultSchema | null; confidence: number | null; thresholds: RatingThresholds | null }>;
 
     if (orgLinks.length > 0) {
       await db
@@ -438,6 +452,7 @@ async function seed() {
           set: {
             result_schema: sql`EXCLUDED.result_schema`,
             confidence: sql`EXCLUDED.confidence`,
+            thresholds: sql`EXCLUDED.thresholds`,
           },
         });
     }
@@ -446,6 +461,37 @@ async function seed() {
   }
 
   console.log(`\nHealth test types: ${insertedCount} inserted, ${existingTestTypes.length} already existed`);
+
+  // ─── Health Rating Config ──────────────────────────────────────────
+
+  const [ratingConfig] = await db
+    .insert(healthRatingConfigs)
+    .values({
+      club_id: clubId,
+      category_weights: {
+        hips: 20,
+        genetics: 20,
+        elbows: 15,
+        vision: 12,
+        spine: 10,
+        cardiac: 8,
+        patella: 5,
+        dentition: 3,
+        temperament: 5,
+        other: 2,
+      },
+      critical_categories: ["hips", "genetics", "elbows"],
+      score_thresholds: { red: 20, orange: 40, yellow: 60, green: 95 },
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (ratingConfig) {
+    console.log("Health rating config: created");
+  } else {
+    console.log("Health rating config: already exists");
+  }
+
   console.log("Seed complete.");
   await client.end();
 }

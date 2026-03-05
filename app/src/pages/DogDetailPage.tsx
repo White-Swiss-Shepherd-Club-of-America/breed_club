@@ -5,7 +5,8 @@
 
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useTransferDog, useAdminUpdateDog } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useDogProgeny, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating } from "@/hooks/useDogs";
+import { RefreshCw } from "lucide-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
 import { PedigreeTree as PedigreeChart } from "@/components/PedigreeTree";
@@ -623,6 +624,7 @@ export function DogDetailPage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const adminUpdateMutation = useAdminUpdateDog();
+  const recalcMutation = useRecalculateHealthRating();
 
   if (isLoading) {
     return (
@@ -724,6 +726,17 @@ export function DogDetailPage() {
                   className="px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
                   Transfer Ownership
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  onClick={() => recalcMutation.mutate(dog.id)}
+                  disabled={recalcMutation.isPending}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  title="Force-recompute the health rating from current clearances and cert version"
+                >
+                  <RefreshCw className={`h-4 w-4 ${recalcMutation.isPending ? "animate-spin" : ""}`} />
+                  {recalcMutation.isPending ? "Recalculating…" : "Recalculate"}
                 </button>
               )}
               {canEdit && (

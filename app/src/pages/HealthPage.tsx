@@ -2,9 +2,8 @@
  * HealthPage - Submit and view health clearances for a dog
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useParams, Link } from "react-router-dom";
-import { PdfViewer } from "../components/PdfViewer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 import { api } from "../lib/api";
@@ -433,6 +432,7 @@ export function HealthPage() {
   const { data: dogData } = useDog(dogId);
   const canManage = dogData?.canManageClearances ?? false;
 
+  const [showForm, setShowForm] = useState(false);
   const [selectedTestType, setSelectedTestType] = useState<TestType | null>(null);
   const [selectedOrg, setSelectedOrg] = useState<GradingOrg | null>(null);
   const [selectedResult, setSelectedResult] = useState("");
@@ -510,6 +510,7 @@ export function HealthPage() {
     setCertificateFile(null);
     setUploading(false);
     setNotes("");
+    setShowForm(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -582,310 +583,285 @@ export function HealthPage() {
     {} as Record<string, Clearance[]>
   );
 
+  const dog = dogData?.dog;
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="mb-6">
-        <Link to={`/app/registry/${dogId}`} className="text-sm text-purple-600 hover:underline">
-          &larr; Back to dog profile
+    <div className="max-w-4xl mx-auto p-4">
+      {/* Compact header row */}
+      <div className="flex items-center gap-3 mb-4">
+        <Link to={`/dogs/${dogId}`} className="text-sm text-purple-600 hover:underline shrink-0">
+          &larr; Back
         </Link>
+        <h1 className="text-lg font-bold text-gray-900 truncate">
+          Health Clearances{dog ? ` — ${dog.registered_name || dog.call_name || ""}` : ""}
+        </h1>
+        {canManage && (
+          <button
+            onClick={() => setShowForm((f) => !f)}
+            className="ml-auto shrink-0 text-sm bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700"
+          >
+            {showForm ? "Cancel" : "+ Add Clearance"}
+          </button>
+        )}
       </div>
 
-      <h1 className="text-3xl font-bold mb-6">Health Clearances</h1>
-
-      {/* Submit Clearance Form */}
-      {canManage && (
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Submit New Clearance</h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Test Type Dropdown */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Test Type</label>
-            <select
-              value={selectedTestType?.id || ""}
-              onChange={(e) => {
-                const testType = testTypes.find((t) => t.id === e.target.value) || null;
-                setSelectedTestType(testType);
-                setSelectedOrg(null);
-                setSelectedResult("");
-                setResultData({});
-              }}
-              className="w-full px-3 py-2 border rounded-lg"
-              required
-            >
-              <option value="">Select test type...</option>
-              {testTypes.map((tt) => (
-                <option key={tt.id} value={tt.id}>
-                  {tt.name} ({tt.short_name})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Organization Dropdown (filtered by selected test type) */}
-          {selectedTestType && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Grading Organization</label>
-              <select
-                value={selectedOrg?.id || ""}
-                onChange={(e) => {
-                  const org =
-                    selectedTestType.organizations.find((o) => o.id === e.target.value) || null;
-                  setSelectedOrg(org);
-                  setSelectedResult("");
-                  setResultData({});
-                }}
-                className="w-full px-3 py-2 border rounded-lg"
-                required
-              >
-                <option value="">Select organization...</option>
-                {selectedTestType.organizations.map((org) => (
-                  <option key={org.id} value={org.id}>
-                    {org.name}
-                  </option>
-                ))}
-              </select>
+      {/* Collapsible submission form */}
+      {canManage && showForm && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {/* Test Type + Org side by side */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Test Type *</label>
+                <select
+                  value={selectedTestType?.id || ""}
+                  onChange={(e) => {
+                    const testType = testTypes.find((t) => t.id === e.target.value) || null;
+                    setSelectedTestType(testType);
+                    setSelectedOrg(null);
+                    setSelectedResult("");
+                    setResultData({});
+                  }}
+                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                  required
+                >
+                  <option value="">Select test type...</option>
+                  {testTypes.map((tt) => (
+                    <option key={tt.id} value={tt.id}>
+                      {tt.name} ({tt.short_name})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Organization *</label>
+                <select
+                  value={selectedOrg?.id || ""}
+                  onChange={(e) => {
+                    const org =
+                      selectedTestType?.organizations.find((o) => o.id === e.target.value) || null;
+                    setSelectedOrg(org);
+                    setSelectedResult("");
+                    setResultData({});
+                  }}
+                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                  required
+                  disabled={!selectedTestType}
+                >
+                  <option value="">Select org...</option>
+                  {selectedTestType?.organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          )}
 
-          {/* Dynamic Result Form */}
-          {selectedOrg && (
-            <>
-              {/* Enum dropdown (OFA-style or fallback) */}
-              {!isStructuredSchema && enumOptions.length > 0 && (
-                <EnumResultForm
-                  options={enumOptions}
-                  value={selectedResult}
-                  onChange={setSelectedResult}
-                />
-              )}
-
-              {/* Numeric L/R (PennHIP-style) */}
-              {activeSchema?.type === "numeric_lr" && (
-                <NumericLRForm
-                  schema={activeSchema}
-                  value={resultData}
-                  onChange={setResultData}
-                />
-              )}
-
-              {/* Point score L/R (ANKC/BVA-style) */}
-              {activeSchema?.type === "point_score_lr" && (
-                <PointScoreLRForm
-                  schema={activeSchema}
-                  value={resultData}
-                  onChange={setResultData}
-                />
-              )}
-
-              {/* Elbow L/R (ANKC-style) */}
-              {activeSchema?.type === "elbow_lr" && (
-                <ElbowLRForm value={resultData} onChange={setResultData} />
-              )}
-            </>
-          )}
-
-          {/* Test Date (required) */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Test Date *</label>
-              <input
-                type="date"
-                value={testDate}
-                onChange={(e) => setTestDate(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Certificate Number</label>
-              <input
-                type="text"
-                value={certificateNumber}
-                onChange={(e) => setCertificateNumber(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-                placeholder="e.g., OFA123456"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Certificate (PDF or Image)</label>
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              onChange={(e) => {
-                setCertificateFile(e.target.files?.[0] || null);
-                if (e.target.files?.[0]) setCertificateUrl("");
-              }}
-              className="w-full px-3 py-2 border rounded-lg"
-            />
-            {certificateFile && (
-              <p className="text-sm text-gray-500 mt-1">
-                {certificateFile.name} ({(certificateFile.size / 1024).toFixed(0)} KB)
-              </p>
+            {/* Dynamic result form */}
+            {selectedOrg && (
+              <>
+                {!isStructuredSchema && enumOptions.length > 0 && (
+                  <EnumResultForm
+                    options={enumOptions}
+                    value={selectedResult}
+                    onChange={setSelectedResult}
+                  />
+                )}
+                {activeSchema?.type === "numeric_lr" && (
+                  <NumericLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
+                )}
+                {activeSchema?.type === "point_score_lr" && (
+                  <PointScoreLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
+                )}
+                {activeSchema?.type === "elbow_lr" && (
+                  <ElbowLRForm value={resultData} onChange={setResultData} />
+                )}
+              </>
             )}
-            {!certificateFile && (
-              <div className="mt-2">
-                <label className="block text-xs text-gray-500 mb-1">Or paste a certificate URL</label>
+
+            {/* Test Date + Cert # */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Test Date *</label>
                 <input
-                  type="url"
-                  value={certificateUrl}
-                  onChange={(e) => setCertificateUrl(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
-                  placeholder="https://..."
+                  type="date"
+                  value={testDate}
+                  onChange={(e) => setTestDate(e.target.value)}
+                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                  required
                 />
               </div>
-            )}
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Certificate #</label>
+                <input
+                  type="text"
+                  value={certificateNumber}
+                  onChange={(e) => setCertificateNumber(e.target.value)}
+                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                  placeholder="e.g., OFA123456"
+                />
+              </div>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
+            {/* Certificate file / URL — compact row */}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-xs font-medium text-gray-600 shrink-0">Certificate:</span>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={(e) => {
+                  setCertificateFile(e.target.files?.[0] || null);
+                  if (e.target.files?.[0]) setCertificateUrl("");
+                }}
+                className="text-sm"
+              />
+              {certificateFile ? (
+                <span className="text-xs text-gray-500">
+                  {certificateFile.name} ({(certificateFile.size / 1024).toFixed(0)} KB)
+                </span>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-400">or URL:</span>
+                  <input
+                    type="url"
+                    value={certificateUrl}
+                    onChange={(e) => setCertificateUrl(e.target.value)}
+                    className="px-2 py-1 border rounded text-sm flex-1 min-w-32"
+                    placeholder="https://..."
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Notes — 1 row */}
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg"
-              rows={3}
-              placeholder="Additional notes or details..."
+              className="w-full px-2 py-1.5 border rounded-lg text-sm"
+              rows={1}
+              placeholder="Notes (optional)"
             />
-          </div>
 
-          <button
-            type="submit"
-            disabled={
-              submitClearance.isPending ||
-              uploading ||
-              !selectedTestType ||
-              !selectedOrg ||
-              !testDate ||
-              (!isStructuredSchema && !selectedResult)
-            }
-            className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading ? "Uploading certificate..." : submitClearance.isPending ? "Submitting..." : "Submit Clearance"}
-          </button>
-
-          {submitClearance.isError && (
-            <div className="text-red-600 text-sm">
-              Error submitting clearance. Please try again.
+            {/* Submit row */}
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={
+                  submitClearance.isPending ||
+                  uploading ||
+                  !selectedTestType ||
+                  !selectedOrg ||
+                  !testDate ||
+                  (!isStructuredSchema && !selectedResult)
+                }
+                className="bg-purple-600 text-white py-1.5 px-4 rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploading
+                  ? "Uploading…"
+                  : submitClearance.isPending
+                    ? "Submitting…"
+                    : "Submit Clearance"}
+              </button>
+              {submitClearance.isError && (
+                <span className="text-red-600 text-sm">Error submitting. Please try again.</span>
+              )}
             </div>
-          )}
-          {submitClearance.isSuccess && (
-            <div className="text-green-600 text-sm">
-              Clearance submitted successfully! Awaiting verification.
-            </div>
-          )}
-        </form>
-      </div>
+          </form>
+        </div>
       )}
 
-      {/* Existing Clearances */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Existing Clearances</h2>
-
-        {clearancesLoading && <p className="text-gray-500">Loading clearances...</p>}
-
-        {!clearancesLoading && clearances.length === 0 && (
-          <p className="text-gray-500">No clearances submitted yet.</p>
+      {/* Clearances — compact table */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        {clearancesLoading && (
+          <p className="text-gray-500 text-sm p-4">Loading clearances…</p>
         )}
-
+        {!clearancesLoading && clearances.length === 0 && (
+          <p className="text-gray-500 text-sm p-4">No clearances submitted yet.</p>
+        )}
         {!clearancesLoading && clearances.length > 0 && (
-          <div className="space-y-6">
-            {Object.entries(clearancesByCategory).map(([category, items]) => (
-              <div key={category}>
-                <h3 className="text-lg font-semibold mb-3 text-gray-700 border-b pb-2">
-                  {category}
-                </h3>
-                <div className="space-y-3">
-                  {items.map((clearance) => (
-                    <div
-                      key={clearance.id}
-                      className={`p-4 border-l-4 rounded ${
-                        clearance.status === "approved"
-                          ? "border-green-500 bg-green-50"
-                          : clearance.status === "rejected"
-                            ? "border-red-500 bg-red-50"
-                            : "border-yellow-500 bg-yellow-50"
-                      }`}
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Test</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Result</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Score</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Org</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Cert</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(clearancesByCategory).map(([category, items]) => (
+                <Fragment key={category}>
+                  <tr className="bg-gray-50 border-t border-gray-200">
+                    <td
+                      colSpan={7}
+                      className="py-1 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide"
                     >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h4 className="font-semibold">{clearance.test_type.name}</h4>
-                          <p className="text-sm text-gray-600">
-                            {clearance.organization.name} &bull; {clearance.result}
-                          </p>
-                          {clearance.result_data && (
-                            <ResultDataDisplay resultData={clearance.result_data} />
-                          )}
-                          {(clearance.result_score != null || clearance.result_score_left != null) && (
-                            <p className="text-sm font-medium text-purple-700 mt-1">
-                              {clearance.result_score != null && `Score: ${clearance.result_score}/100`}
-                              {clearance.result_score_left != null && clearance.result_score_right != null &&
-                                `Score: L=${clearance.result_score_left}, R=${clearance.result_score_right}`}
-                            </p>
-                          )}
-                          {clearance.test_date && (
-                            <p className="text-sm text-gray-600 mt-1">
-                              Test Date: {new Date(clearance.test_date).toLocaleDateString()}
-                            </p>
-                          )}
-                          {clearance.certificate_number && (
-                            <p className="text-sm text-gray-600">
-                              Certificate: {clearance.certificate_number}
-                            </p>
-                          )}
-                          {clearance.certificate_url && (() => {
-                            const url = clearance.certificate_url.startsWith("http")
-                              ? clearance.certificate_url
-                              : `${import.meta.env.VITE_API_URL || "/api"}/uploads/certificate/${clearance.certificate_url}`;
-                            const isImage = /\.(jpg|jpeg|png)$/i.test(clearance.certificate_url);
-                            return isImage ? (
-                              <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-2">
-                                <img
-                                  src={url}
-                                  alt="Certificate"
-                                  className="max-w-sm max-h-48 rounded border object-contain"
-                                />
-                              </a>
-                            ) : (
-                              <div className="mt-2">
-                                <PdfViewer url={url} />
-                                <a
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-purple-600 hover:underline mt-1 inline-block"
-                                >
-                                  Open in new tab &rarr;
-                                </a>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                        <div className="text-sm">
-                          {clearance.status === "approved" && clearance.verified_at && (
-                            <span className="px-2 py-1 bg-green-200 text-green-800 rounded">
-                              Verified
-                            </span>
-                          )}
-                          {clearance.status === "pending" && (
-                            <span className="px-2 py-1 bg-yellow-200 text-yellow-800 rounded">
-                              Pending
-                            </span>
-                          )}
-                          {clearance.status === "rejected" && (
-                            <span className="px-2 py-1 bg-red-200 text-red-800 rounded">
-                              Rejected
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+                      {category}
+                    </td>
+                  </tr>
+                  {items.map((c) => {
+                    const certUrl = c.certificate_url
+                      ? c.certificate_url.startsWith("http")
+                        ? c.certificate_url
+                        : `${import.meta.env.VITE_API_URL || "/api"}/uploads/certificate/${c.certificate_url}`
+                      : null;
+                    const scoreDisplay =
+                      c.result_score != null
+                        ? `${c.result_score}`
+                        : c.result_score_left != null && c.result_score_right != null
+                          ? `L${c.result_score_left}/R${c.result_score_right}`
+                          : "";
+                    return (
+                      <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
+                        <td className="py-1.5 px-3 font-medium">{c.test_type.short_name}</td>
+                        <td className="py-1.5 px-3">{c.result}</td>
+                        <td className="py-1.5 px-3 text-purple-700 text-xs font-medium">{scoreDisplay}</td>
+                        <td className="py-1.5 px-3 text-gray-500 text-xs">{c.organization.name}</td>
+                        <td className="py-1.5 px-3 text-gray-500 text-xs">
+                          {c.test_date ? new Date(c.test_date).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              c.status === "approved"
+                                ? "bg-green-100 text-green-800"
+                                : c.status === "rejected"
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                            }`}
+                          >
+                            {c.status === "approved"
+                              ? "Verified"
+                              : c.status === "rejected"
+                                ? "Rejected"
+                                : "Pending"}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-3">
+                          {certUrl ? (
+                            <a
+                              href={certUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-purple-600 hover:underline text-xs"
+                            >
+                              View
+                            </a>
+                          ) : c.certificate_number ? (
+                            <span className="text-gray-500 text-xs">{c.certificate_number}</span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

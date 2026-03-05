@@ -7,7 +7,7 @@ import { useApplicationQueue, useReviewApplication } from "@/hooks/useApplicatio
 import type { MembershipApplication } from "@breed-club/shared";
 import { Check, X, RotateCcw } from "lucide-react";
 
-export function ApplicationsPage() {
+export function ApplicationsPanel() {
   const [statusFilter, setStatusFilter] = useState("submitted");
   const [page, setPage] = useState(1);
   const { data, isLoading } = useApplicationQueue(statusFilter, page);
@@ -33,8 +33,7 @@ export function ApplicationsPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Membership Applications</h1>
+    <div>
 
       {/* Status filter tabs */}
       <div className="flex gap-2 mb-6">
@@ -208,6 +207,15 @@ export function ApplicationsPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+export function ApplicationsPage() {
+  return (
+    <div className="max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Membership Applications</h1>
+      <ApplicationsPanel />
     </div>
   );
 }

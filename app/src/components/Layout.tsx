@@ -2,6 +2,7 @@
  * Main app layout with navigation sidebar.
  */
 
+import { useState, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { SignedIn, SignedOut, UserButton, SignInButton } from "@clerk/clerk-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
@@ -18,12 +19,21 @@ import {
   BarChart3,
   HeartPulse,
   Plus,
+  Menu,
+  X,
+  Building2,
 } from "lucide-react";
 
 export function Layout() {
   const { member } = useCurrentMember();
   const { data: clubData } = useClub();
   const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Close mobile sidebar on navigation
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   const club = clubData?.club;
   const isAdmin = member?.tier === "admin";
@@ -46,11 +56,10 @@ export function Layout() {
   const adminItems = [
     { to: "/admin", label: "Admin Dashboard", icon: Shield, show: isAdmin },
     { to: "/admin/members", label: "Members", icon: Users, show: isAdmin },
-    { to: "/admin/applications", label: "Applications", icon: ClipboardCheck, show: canApproveMembers },
-    { to: "/admin/dogs/pending", label: "Dog Approvals", icon: PawPrint, show: canApproveClearances },
-    { to: "/admin/health/pending", label: "Health Queue", icon: ClipboardCheck, show: canApproveClearances },
-    { to: "/admin/health-tests", label: "Health Tests", icon: HeartPulse, show: isAdmin },
-    { to: "/admin/form-fields", label: "Form Fields", icon: ClipboardCheck, show: isAdmin },
+    { to: "/admin/approvals", label: "Approvals", icon: ClipboardCheck, show: canApproveClearances || canApproveMembers },
+    { to: "/admin/health-tests", label: "Health", icon: HeartPulse, show: isAdmin },
+    { to: "/admin/organizations", label: "Organizations", icon: Building2, show: isAdmin },
+    { to: "/admin/settings", label: "Settings", icon: Settings, show: isAdmin },
   ];
 
   return (
@@ -61,6 +70,15 @@ export function Layout() {
         style={{ borderTopColor: club?.primary_color || "#655e7a", borderTopWidth: "3px" }}
       >
         <div className="flex items-center gap-3">
+          <SignedIn>
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="md:hidden p-1 -ml-1 text-gray-600 hover:text-gray-900"
+              aria-label="Toggle menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          </SignedIn>
           {club?.logo_url && (
             <img src={club.logo_url} alt={club.name} className="h-8 w-8 rounded" />
           )}
@@ -87,7 +105,33 @@ export function Layout() {
       <div className="flex">
         {/* Sidebar */}
         <SignedIn>
-          <aside className="w-56 bg-white border-r border-gray-200 min-h-[calc(100vh-57px)] p-4">
+          {/* Mobile backdrop */}
+          {sidebarOpen && (
+            <div
+              className="fixed inset-0 bg-black/50 z-40 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
+
+          <aside
+            className={`
+              fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-gray-200 p-4 transition-transform duration-200 ease-in-out
+              ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+              md:static md:translate-x-0 md:z-auto md:w-56 md:min-h-[calc(100vh-57px)]
+            `}
+          >
+            {/* Mobile close button */}
+            <div className="flex items-center justify-between mb-4 md:hidden">
+              <span className="font-semibold text-sm text-gray-900">Menu</span>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-1 text-gray-600 hover:text-gray-900"
+                aria-label="Close menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
             <nav className="space-y-1">
               {navItems
                 .filter((item) => item.show)

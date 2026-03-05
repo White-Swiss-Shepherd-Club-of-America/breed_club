@@ -137,6 +137,7 @@ export interface Dog {
   is_public: boolean;
   is_historical: boolean;
   status: DogStatus;
+  health_rating: HealthRating | null;
   submitted_by: string | null;
   approved_by: string | null;
   approved_at: string | null;
@@ -176,9 +177,66 @@ export interface DogRegistration {
   organization?: Organization;
 }
 
+// --- Rating Types ---
+
+export type RatingThresholds = {
+  auto_dq: number; // score <= this → Red (disqualified)
+  poor: number; // score <= this → Orange
+  fair: number; // score <= this → Yellow
+  good: number; // score <= this → Green
+  // score > good → Blue (excellent)
+};
+
+export type HealthRatingColor = "red" | "orange" | "yellow" | "green" | "blue";
+
+export type ScoreThresholds = {
+  red: number;
+  orange: number;
+  yellow: number;
+  green: number;
+};
+
+export type HealthRating = {
+  color: HealthRatingColor;
+  score: number;
+  saturation: number;
+  computed_at: string;
+  required_complete: boolean;
+  auto_dq: boolean;
+  category_scores: Record<string, { color: HealthRatingColor; score: number; test_count: number }>;
+  cert_version_id: string | null;
+  cert_version_name: string | null;
+};
+
+export interface HealthRatingConfig {
+  id: string;
+  club_id: string;
+  category_weights: Record<string, number>;
+  critical_categories: string[];
+  score_thresholds: ScoreThresholds;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HealthCertVersion {
+  id: string;
+  club_id: string;
+  version_name: string;
+  effective_date: string;
+  required_test_type_ids: string[];
+  category_weights: Record<string, number>;
+  critical_categories: string[];
+  score_thresholds: ScoreThresholds;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface GradingOrg extends Organization {
   result_schema: ResultSchema | null;
   confidence: number | null;
+  thresholds: RatingThresholds | null;
 }
 
 export interface HealthTestType {
@@ -188,7 +246,8 @@ export interface HealthTestType {
   short_name: string;
   category: HealthCategory;
   result_options: string[];
-  is_required_for_chic: boolean;
+  is_required: boolean;
+  rating_category: string | null;
   description: string | null;
   sort_order: number;
   is_active: boolean;
@@ -404,7 +463,7 @@ export interface HealthStampData {
   dog: Pick<Dog, "id" | "registered_name" | "call_name" | "photo_url" | "sex" | "date_of_birth">;
   club: Pick<Club, "name" | "logo_url" | "primary_color">;
   clearances: Array<{
-    test_type: Pick<HealthTestType, "name" | "short_name" | "category" | "is_required_for_chic">;
+    test_type: Pick<HealthTestType, "name" | "short_name" | "category" | "is_required">;
     result: string | null; // null = not tested
     organization: Pick<Organization, "name"> | null;
     test_date: string | null;

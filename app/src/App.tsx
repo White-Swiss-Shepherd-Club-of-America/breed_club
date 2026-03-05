@@ -11,11 +11,9 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { DirectoryPage } from "@/pages/DirectoryPage";
 import { AdminDashboard } from "@/pages/admin/AdminDashboard";
 import { MembersPage } from "@/pages/admin/MembersPage";
-import { ApplicationsPage } from "@/pages/admin/ApplicationsPage";
-import { DogQueuePage } from "@/pages/admin/DogQueuePage";
-import { HealthQueuePage } from "@/pages/admin/HealthQueuePage";
 import { HealthTestsPage } from "@/pages/admin/HealthTestsPage";
-import { TransferQueuePage } from "@/pages/admin/TransferQueuePage";
+import { ApprovalsPage } from "@/pages/admin/ApprovalsPage";
+import { OrganizationsPage } from "@/pages/admin/OrganizationsPage";
 import { RegistryPage } from "@/pages/RegistryPage";
 import { DogCreatePage } from "@/pages/DogCreatePage";
 import { DogDetailPage } from "@/pages/DogDetailPage";
@@ -29,7 +27,7 @@ import { PublicApplyPage } from "@/pages/PublicApplyPage";
 import { HealthStatsPage } from "@/pages/HealthStatsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { EmbedApplyPage } from "@/pages/EmbedApplyPage";
-import { FormFieldsPage } from "@/pages/admin/FormFieldsPage";
+import { SettingsPage } from "@/pages/admin/SettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -109,34 +107,10 @@ export function App() {
                 }
               />
               <Route
-                path="/admin/applications"
+                path="/admin/approvals"
                 element={
-                  <ProtectedRoute minTier="member" flag="can_approve_members">
-                    <ApplicationsPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin/dogs/pending"
-                element={
-                  <ProtectedRoute minTier="member" flag="can_approve_clearances">
-                    <DogQueuePage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin/health/pending"
-                element={
-                  <ProtectedRoute minTier="member" flag="can_approve_clearances">
-                    <HealthQueuePage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin/transfers/pending"
-                element={
-                  <ProtectedRoute minTier="member" flag="can_approve_clearances">
-                    <TransferQueuePage />
+                  <ProtectedRoute minTier="member">
+                    <ApprovalsPage />
                   </ProtectedRoute>
                 }
               />
@@ -149,10 +123,18 @@ export function App() {
                 }
               />
               <Route
-                path="/admin/form-fields"
+                path="/admin/organizations"
                 element={
                   <ProtectedRoute minTier="admin">
-                    <FormFieldsPage />
+                    <OrganizationsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/settings"
+                element={
+                  <ProtectedRoute minTier="admin">
+                    <SettingsPage />
                   </ProtectedRoute>
                 }
               />

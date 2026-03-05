@@ -32,14 +32,18 @@ import {
   dogs,
   dogHealthClearances,
   dogOwnershipTransfers,
+  healthCertVersions,
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
+import { recomputeHealthRating } from "../lib/rating.js";
 import {
   updateMemberSchema,
   updateDogSchema,
   createOrganizationSchema,
   createHealthTestTypeSchema,
+  createCertVersionSchema,
+  updateCertVersionSchema,
   paginationSchema,
 } from "@breed-club/shared/validation.js";
 
@@ -312,6 +316,27 @@ adminRoutes.post("/dogs/:id/reject", requirePermission("clearances:approve"), as
   });
 
   return c.json({ dog: updated });
+});
+
+/**
+ * POST /dogs/:id/recalculate — force-recompute a dog's health rating.
+ */
+adminRoutes.post("/dogs/:id/recalculate", requirePermission("clearances:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) {
+    throw notFound("Dog");
+  }
+
+  const rating = await recomputeHealthRating(db, id);
+
+  return c.json({ health_rating: rating });
 });
 
 /**
@@ -783,6 +808,9 @@ adminRoutes.post("/clearances/:id/approve", requirePermission("clearances:approv
     where: eq(dogHealthClearances.id, id),
   });
 
+  // Recompute health rating after approval (async, don't block response)
+  recomputeHealthRating(db, clearance.dog_id).catch(() => {});
+
   return c.json({ clearance: updated });
 });
 
@@ -829,6 +857,9 @@ adminRoutes.post("/clearances/:id/reject", requirePermission("clearances:approve
   const updated = await db.query.dogHealthClearances.findFirst({
     where: eq(dogHealthClearances.id, id),
   });
+
+  // Recompute health rating after rejection (async, don't block response)
+  recomputeHealthRating(db, clearance.dog_id).catch(() => {});
 
   return c.json({ clearance: updated });
 });
@@ -1134,6 +1165,87 @@ adminRoutes.post("/transfers/:id/reject", requirePermission("dogs:approve"), asy
     .returning();
 
   return c.json({ transfer: updated });
+});
+
+// ─── Health Cert Versions ──────────────────────────────────────────────────
+
+/**
+ * GET /cert-versions — list all cert versions for this club.
+ */
+adminRoutes.get("/cert-versions", requireTier("admin"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const data = await db.query.healthCertVersions.findMany({
+    where: eq(healthCertVersions.club_id, clubId),
+    orderBy: (v, { desc }) => [desc(v.effective_date)],
+  });
+
+  return c.json({ data });
+});
+
+/**
+ * POST /cert-versions — create a new cert version.
+ */
+adminRoutes.post("/cert-versions", requirePermission("test_types:manage"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const body = await c.req.json();
+  const data = createCertVersionSchema.parse(body);
+
+  const [version] = await db
+    .insert(healthCertVersions)
+    .values({ ...data, club_id: clubId })
+    .returning();
+
+  return c.json({ cert_version: version }, 201);
+});
+
+/**
+ * PATCH /cert-versions/:id — update a cert version.
+ */
+adminRoutes.patch("/cert-versions/:id", requirePermission("test_types:manage"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const existing = await db.query.healthCertVersions.findFirst({
+    where: and(eq(healthCertVersions.id, id), eq(healthCertVersions.club_id, clubId)),
+  });
+  if (!existing) throw notFound("Cert version");
+
+  const body = await c.req.json();
+  const data = updateCertVersionSchema.parse(body);
+
+  const [updated] = await db
+    .update(healthCertVersions)
+    .set({ ...data, updated_at: new Date() })
+    .where(eq(healthCertVersions.id, id))
+    .returning();
+
+  return c.json({ cert_version: updated });
+});
+
+/**
+ * DELETE /cert-versions/:id — soft-delete a cert version (set is_active=false).
+ */
+adminRoutes.delete("/cert-versions/:id", requirePermission("test_types:manage"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const existing = await db.query.healthCertVersions.findFirst({
+    where: and(eq(healthCertVersions.id, id), eq(healthCertVersions.club_id, clubId)),
+  });
+  if (!existing) throw notFound("Cert version");
+
+  await db
+    .update(healthCertVersions)
+    .set({ is_active: false, updated_at: new Date() })
+    .where(eq(healthCertVersions.id, id));
+
+  return c.json({ success: true });
 });
 
 export { adminRoutes };

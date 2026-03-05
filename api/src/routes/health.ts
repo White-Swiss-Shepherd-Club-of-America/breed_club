@@ -16,6 +16,7 @@ import {
 } from "../db/schema.js";
 import type { ResultSchema } from "../db/schema.js";
 import { computeResultScores } from "../lib/scoring.js";
+import { recomputeHealthRating } from "../lib/rating.js";
 
 const healthRoutes = new Hono<{ Bindings: Env }>();
 
@@ -105,7 +106,8 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
       short_name: healthTestTypes.short_name,
       category: healthTestTypes.category,
       result_options: healthTestTypes.result_options,
-      is_required_for_chic: healthTestTypes.is_required_for_chic,
+      is_required: healthTestTypes.is_required,
+      rating_category: healthTestTypes.rating_category,
       description: healthTestTypes.description,
       sort_order: healthTestTypes.sort_order,
       is_active: healthTestTypes.is_active,
@@ -122,6 +124,7 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
       health_test_type_id: healthTestTypeOrgs.health_test_type_id,
       result_schema: healthTestTypeOrgs.result_schema,
       confidence: healthTestTypeOrgs.confidence,
+      thresholds: healthTestTypeOrgs.thresholds,
       organization: {
         id: organizations.id,
         name: organizations.name,
@@ -144,10 +147,11 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
         ...link.organization,
         result_schema: link.result_schema,
         confidence: link.confidence,
+        thresholds: link.thresholds,
       });
       return acc;
     },
-    {} as Record<string, Array<typeof orgLinks[0]["organization"] & { result_schema: unknown; confidence: number | null }>>
+    {} as Record<string, Array<typeof orgLinks[0]["organization"] & { result_schema: unknown; confidence: number | null; thresholds: unknown }>>
   );
 
   const result = testTypes.map((tt) => ({
@@ -296,6 +300,9 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       submitted_by: member.id,
     })
     .returning();
+
+  // Recompute health rating (async, don't block response)
+  recomputeHealthRating(db, dogId).catch(() => {});
 
   return c.json({ clearance }, 201);
 });
@@ -449,6 +456,9 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
     })
     .where(eq(dogHealthClearances.id, clearanceId))
     .returning();
+
+  // Recompute health rating (async, don't block response)
+  recomputeHealthRating(db, dogId).catch(() => {});
 
   return c.json({ clearance: updated });
 });

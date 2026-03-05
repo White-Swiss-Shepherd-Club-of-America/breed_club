@@ -262,7 +262,8 @@ export const createHealthTestTypeSchema = z.object({
   short_name: z.string().min(1).max(50),
   category: z.enum(["orthopedic", "cardiac", "genetic", "vision", "thyroid", "dental", "other"]),
   result_options: z.array(z.string().min(1)).min(1),
-  is_required_for_chic: z.boolean().default(false),
+  is_required: z.boolean().default(false),
+  rating_category: z.string().max(30).nullish(),
   description: z.string().max(2000).nullish(),
   sort_order: z.number().int().default(0),
   grading_org_ids: z.array(uuidSchema).optional(),
@@ -270,8 +271,35 @@ export const createHealthTestTypeSchema = z.object({
     organization_id: uuidSchema,
     result_schema: resultSchemaValidator.nullish(),
     confidence: z.number().int().min(1).max(10).nullish(),
+    thresholds: z.object({
+      auto_dq: z.number().int().min(0).max(100),
+      poor: z.number().int().min(0).max(100),
+      fair: z.number().int().min(0).max(100),
+      good: z.number().int().min(0).max(100),
+    }).nullish(),
   })).optional(),
 });
+
+// --- Health Cert Versions (admin) ---
+
+export const scoreThresholdsSchema = z.object({
+  red: z.number().int().min(0).max(100),
+  orange: z.number().int().min(0).max(100),
+  yellow: z.number().int().min(0).max(100),
+  green: z.number().int().min(0).max(100),
+});
+
+export const createCertVersionSchema = z.object({
+  version_name: z.string().min(1).max(100),
+  effective_date: z.string().date(),
+  required_test_type_ids: z.array(uuidSchema),
+  category_weights: z.record(z.string(), z.number().min(0)),
+  critical_categories: z.array(z.string()),
+  score_thresholds: scoreThresholdsSchema,
+  notes: z.string().max(2000).nullish(),
+});
+
+export const updateCertVersionSchema = createCertVersionSchema.partial();
 
 // --- Litters ---
 

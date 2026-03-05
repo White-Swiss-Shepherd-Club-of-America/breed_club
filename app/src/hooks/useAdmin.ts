@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Member, Organization, HealthTestType, PaginatedResponse } from "@breed-club/shared";
+import type { Member, Organization, HealthTestType, HealthCertVersion, PaginatedResponse } from "@breed-club/shared";
 
 export function useAdminMembers(page = 1) {
   const { getToken } = useAuth();
@@ -183,6 +183,65 @@ export function useDeleteOrganization() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminOrganizations"] });
+    },
+  });
+}
+
+// ─── Cert Versions ──────────────────────────────────────────────────────────
+
+export function useCertVersions() {
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ["adminCertVersions"],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<{ data: HealthCertVersion[] }>("/admin/cert-versions", { token });
+    },
+  });
+}
+
+export function useCreateCertVersion() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const token = await getToken();
+      return api.post<{ cert_version: HealthCertVersion }>("/admin/cert-versions", data, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminCertVersions"] });
+    },
+  });
+}
+
+export function useUpdateCertVersion() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: string } & Record<string, unknown>) => {
+      const token = await getToken();
+      return api.patch<{ cert_version: HealthCertVersion }>(`/admin/cert-versions/${id}`, data, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminCertVersions"] });
+    },
+  });
+}
+
+export function useDeleteCertVersion() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.delete(`/admin/cert-versions/${id}`, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminCertVersions"] });
     },
   });
 }

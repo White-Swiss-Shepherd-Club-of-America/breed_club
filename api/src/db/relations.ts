@@ -15,17 +15,24 @@ import {
   healthConditions,
   litters,
   litterPups,
+  healthRatingConfigs,
+  healthCertVersions,
   payments,
 } from "./schema.js";
 
 // ─── Club relations ─────────────────────────────────────────────────────────
 
-export const clubsRelations = relations(clubs, ({ many }) => ({
+export const clubsRelations = relations(clubs, ({ one, many }) => ({
   contacts: many(contacts),
   members: many(members),
   organizations: many(organizations),
   dogs: many(dogs),
   healthTestTypes: many(healthTestTypes),
+  healthRatingConfig: one(healthRatingConfigs, {
+    fields: [clubs.id],
+    references: [healthRatingConfigs.club_id],
+  }),
+  healthCertVersions: many(healthCertVersions),
   litters: many(litters),
   membershipApplications: many(membershipApplications),
   membershipFormFields: many(membershipFormFields),
@@ -241,6 +248,18 @@ export const litterPupsRelations = relations(litterPups, ({ one }) => ({
   litter: one(litters, { fields: [litterPups.litter_id], references: [litters.id] }),
   dog: one(dogs, { fields: [litterPups.dog_id], references: [dogs.id] }),
   buyer: one(contacts, { fields: [litterPups.buyer_contact_id], references: [contacts.id] }),
+}));
+
+// ─── Health Rating Config relations ──────────────────────────────────────────
+
+export const healthRatingConfigsRelations = relations(healthRatingConfigs, ({ one }) => ({
+  club: one(clubs, { fields: [healthRatingConfigs.club_id], references: [clubs.id] }),
+}));
+
+// ─── Health Cert Version relations ───────────────────────────────────────────
+
+export const healthCertVersionsRelations = relations(healthCertVersions, ({ one }) => ({
+  club: one(clubs, { fields: [healthCertVersions.club_id], references: [clubs.id] }),
 }));
 
 // ─── Payment relations ──────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import { ApiError } from "../lib/errors.js";
 import { payments, dogs, dogHealthClearances, clubs, dogRegistrations } from "../db/schema.js";
 import { createPaymentSessionSchema } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
+import { recomputeHealthRating } from "../lib/rating.js";
 
 type Variables = {
   clubId: string;
@@ -271,6 +272,9 @@ paymentRoutes.post("/webhook", async (c) => {
       });
 
       console.log(`Health clearance created after payment for dog: ${clearanceData.dog_id}`);
+
+      // Recompute health rating (async, don't block webhook response)
+      recomputeHealthRating(db, clearanceData.dog_id).catch(() => {});
     }
 
     console.log(`Payment completed: ${payment.id}, amount: ${payment.amount_cents}¢`);

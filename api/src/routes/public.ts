@@ -225,6 +225,7 @@ publicRoutes.get("/dogs/:dog_id/health", async (c) => {
       sex: true,
       date_of_birth: true,
       status: true,
+      health_rating: true,
     },
   });
 
@@ -283,6 +284,7 @@ publicRoutes.get("/dogs/:dog_id/health", async (c) => {
 
   return c.json({
     dog,
+    health_rating: dog.health_rating ?? null,
     clearances: testResults,
     summary: {
       total_tests: allTestTypes.length,

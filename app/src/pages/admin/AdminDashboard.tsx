@@ -5,7 +5,7 @@
 import { Link } from "react-router-dom";
 import { useApplicationQueue } from "@/hooks/useApplications";
 import { useAdminMembers } from "@/hooks/useAdmin";
-import { Users, ClipboardCheck, Settings, Heart, Dog, ArrowRightLeft } from "lucide-react";
+import { Users, ClipboardCheck, Settings, Heart, Dog, ArrowRightLeft, Shield } from "lucide-react";
 
 export function AdminDashboard() {
   const { data: appQueue } = useApplicationQueue("submitted");
@@ -40,14 +40,16 @@ export function AdminDashboard() {
           <p className="text-sm text-gray-500">Pending review</p>
         </Link>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <Settings className="h-8 w-8 text-gray-400 mb-3" />
-          <h3 className="font-semibold text-gray-900">Settings</h3>
+        <Link
+          to="/admin/cert-versions"
+          className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
+        >
+          <Shield className="h-8 w-8 text-blue-400 mb-3" />
+          <h3 className="font-semibold text-gray-900">Cert Versions</h3>
           <p className="mt-1 text-sm text-gray-500">
-            Club configuration, test types, organizations
+            Health testing standard versions
           </p>
-          <p className="mt-2 text-xs text-gray-400">Coming soon</p>
-        </div>
+        </Link>
       </div>
 
       <h2 className="text-lg font-semibold text-gray-900 mb-4">Approval Queues</h2>

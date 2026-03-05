@@ -111,7 +111,7 @@ function TransferCard({
   );
 }
 
-export function TransferQueuePage() {
+export function TransferQueuePanel() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = usePendingTransfers(page);
   const approveMutation = useApproveTransfer();
@@ -133,18 +133,7 @@ export function TransferQueuePage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <Link to="/admin" className="text-sm text-purple-600 hover:underline">
-          ← Back to admin
-        </Link>
-      </div>
-
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Ownership Transfer Queue</h1>
-        <p className="text-gray-600 mt-1">Review and approve pending dog ownership transfers.</p>
-      </div>
-
+    <div>
       {isLoading ? (
         <div className="text-center py-12 text-gray-600">Loading...</div>
       ) : transfers.length === 0 ? (
@@ -185,6 +174,23 @@ export function TransferQueuePage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+export function TransferQueuePage() {
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6">
+        <Link to="/admin" className="text-sm text-purple-600 hover:underline">
+          ← Back to admin
+        </Link>
+      </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Ownership Transfer Queue</h1>
+        <p className="text-gray-600 mt-1">Review and approve pending dog ownership transfers.</p>
+      </div>
+      <TransferQueuePanel />
     </div>
   );
 }

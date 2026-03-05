@@ -179,7 +179,7 @@ function DogCard({ dog, onApprove, onReject }: { dog: Dog; onApprove: () => void
   );
 }
 
-export function DogQueuePage() {
+export function DogQueuePanel() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = usePendingDogs(page);
   const approveMutation = useApproveDog();
@@ -199,12 +199,7 @@ export function DogQueuePage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Dog Approval Queue</h1>
-        <p className="text-gray-600 mt-1">Review and approve pending dog registrations.</p>
-      </div>
-
+    <div>
       {isLoading ? (
         <div className="text-center py-12 text-gray-600">Loading...</div>
       ) : dogs.length === 0 ? (
@@ -240,6 +235,18 @@ export function DogQueuePage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+export function DogQueuePage() {
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Dog Approval Queue</h1>
+        <p className="text-gray-600 mt-1">Review and approve pending dog registrations.</p>
+      </div>
+      <DogQueuePanel />
     </div>
   );
 }
