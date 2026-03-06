@@ -36,7 +36,7 @@ import {
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
-import { recomputeHealthRating } from "../lib/rating.js";
+import { recomputeHealthRating, recomputeAllClubRatings } from "../lib/rating.js";
 import {
   updateMemberSchema,
   updateDogSchema,
@@ -1199,6 +1199,9 @@ adminRoutes.post("/cert-versions", requirePermission("test_types:manage"), async
     .values({ ...data, club_id: clubId })
     .returning();
 
+  // Recompute all dog ratings so the new cert version takes effect
+  recomputeAllClubRatings(db, clubId).catch(() => {});
+
   return c.json({ cert_version: version }, 201);
 });
 
@@ -1224,6 +1227,9 @@ adminRoutes.patch("/cert-versions/:id", requirePermission("test_types:manage"), 
     .where(eq(healthCertVersions.id, id))
     .returning();
 
+  // Recompute all dog ratings so updated cert version takes effect
+  recomputeAllClubRatings(db, clubId).catch(() => {});
+
   return c.json({ cert_version: updated });
 });
 
@@ -1244,6 +1250,9 @@ adminRoutes.delete("/cert-versions/:id", requirePermission("test_types:manage"),
     .update(healthCertVersions)
     .set({ is_active: false, updated_at: new Date() })
     .where(eq(healthCertVersions.id, id));
+
+  // Recompute all dog ratings so deactivation takes effect
+  recomputeAllClubRatings(db, clubId).catch(() => {});
 
   return c.json({ success: true });
 });

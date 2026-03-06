@@ -124,24 +124,40 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
     .innerJoin(organizations, eq(dogHealthClearances.organization_id, organizations.id))
     .where(and(eq(dogHealthClearances.dog_id, dogId), eq(dogHealthClearances.status, "approved")));
 
-  // Build clearance map by test type
-  const clearanceMap = new Map(
-    clearances.map((c) => [c.health_test_type_id, c])
-  );
+  // Build clearance map by test type (grouping multiple clearances per type)
+  const clearanceMap = new Map<string, typeof clearances>();
+  for (const c of clearances) {
+    const arr = clearanceMap.get(c.health_test_type_id) || [];
+    arr.push(c);
+    clearanceMap.set(c.health_test_type_id, arr);
+  }
 
   // Build test results array scoped to the cert version (or all tests if no cert version)
-  const testResults = displayTestTypes.map((testType) => {
-    const clearance = clearanceMap.get(testType.id);
-    return {
+  // A test type with multiple clearances (e.g., Hips via PennHIP and OFA) produces multiple rows
+  const testResults = displayTestTypes.flatMap((testType) => {
+    const typeClearances = clearanceMap.get(testType.id);
+    if (!typeClearances || typeClearances.length === 0) {
+      return [{
+        test_type: testType.name,
+        short_name: testType.short_name,
+        category: testType.category,
+        result: "Not tested",
+        test_date: null,
+        organization: null,
+        verified: false,
+        certificate_url: null,
+      }];
+    }
+    return typeClearances.map((c) => ({
       test_type: testType.name,
       short_name: testType.short_name,
       category: testType.category,
-      result: clearance?.result || "Not tested",
-      test_date: clearance?.test_date || null,
-      organization: clearance?.organization_name || null,
-      verified: !!clearance?.verified_at,
-      certificate_url: clearance?.certificate_url || null,
-    };
+      result: c.result || "Not tested",
+      test_date: c.test_date || null,
+      organization: c.organization_name || null,
+      verified: !!c.verified_at,
+      certificate_url: c.certificate_url || null,
+    }));
   });
 
   // Generate OG image URL (if dog has photo)
@@ -152,8 +168,13 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
   const pageDescription = `View verified health clearances for ${dog.registered_name}, a ${club.breed_name} registered with ${club.name}.`;
   const pageUrl = `${c.env.APP_URL}/dogs/${dogId}/health`;
 
-  // Count verified clearances
-  const verifiedCount = testResults.filter((t) => t.verified).length;
+  // Count verified test types (a test type is verified if ANY clearance for it has verified_at)
+  const verifiedTestTypes = new Set(
+    clearances
+      .filter((c) => c.verified_at && (!certVersionTestIds || certVersionTestIds.has(c.health_test_type_id)))
+      .map((c) => c.health_test_type_id)
+  );
+  const verifiedCount = verifiedTestTypes.size;
   const totalTests = displayTestTypes.length;
 
   // Health rating data

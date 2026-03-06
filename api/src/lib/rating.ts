@@ -509,3 +509,23 @@ export async function recomputeHealthRating(
 
   return rating;
 }
+
+/**
+ * Recompute health ratings for all dogs in a club.
+ * Called when cert versions are created/updated/deleted so cached ratings stay current.
+ */
+export async function recomputeAllClubRatings(
+  db: Database,
+  clubId: string
+): Promise<number> {
+  const clubDogs = await db
+    .select({ id: dogs.id })
+    .from(dogs)
+    .where(eq(dogs.club_id, clubId));
+
+  for (const dog of clubDogs) {
+    await recomputeHealthRating(db, dog.id);
+  }
+
+  return clubDogs.length;
+}
