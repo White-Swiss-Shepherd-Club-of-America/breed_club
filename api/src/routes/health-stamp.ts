@@ -423,8 +423,13 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
               }
               const isVerified = test.verified;
               const isNotTested = test.result === "Not tested";
-              const certLink = test.certificate_url
-                ? `<a href="${test.certificate_url}" target="_blank" class="cert-link">View</a>`
+              const certHref = test.certificate_url
+                ? test.certificate_url.startsWith("http")
+                  ? test.certificate_url
+                  : `/api/uploads/certificate/${test.certificate_url}`
+                : null;
+              const certLink = certHref
+                ? `<a href="${certHref}" target="_blank" class="cert-link">View</a>`
                 : isVerified ? '<span class="verified-check">✓</span>' : "";
               acc.push(
                 `<tr class="test-row${isNotTested ? " not-tested" : ""}">` +
