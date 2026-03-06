@@ -286,13 +286,14 @@ function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearanc
       {/* Health Stamp */}
       {dog.status === "approved" && (
         <div className="flex items-center gap-4">
-          <Link
-            to={`/dogs/${dog.id}/health`}
+          <a
+            href={`${(import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')}/dogs/${dog.id}/health`}
             target="_blank"
+            rel="noopener noreferrer"
             className="text-sm text-purple-600 hover:text-purple-700 font-medium"
           >
             View Public Health Stamp &rarr;
-          </Link>
+          </a>
           {canManageClearances && (
             <Link
               to={`/health/${dog.id}`}
