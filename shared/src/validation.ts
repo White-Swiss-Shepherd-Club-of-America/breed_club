@@ -60,6 +60,7 @@ export const createDogSchema = z.object({
   color: z.string().max(100).nullish(),
   coat_type: z.string().max(50).nullish(),
   notes: z.string().max(5000).nullish(),
+  photo_url: z.string().max(500).nullish(),
   sire_id: parentRefSchema,
   dam_id: parentRefSchema,
   pedigree: pedigreeTreeSchema,

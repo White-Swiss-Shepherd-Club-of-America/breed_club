@@ -3,15 +3,19 @@
  * Tabs: Overview, Pedigree, Health Records, Progeny.
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useDog, useDogPedigree, useDogProgeny, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating } from "@/hooks/useDogs";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ExternalLink, Camera, Plus } from "lucide-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
 import { PedigreeTree as PedigreeChart } from "@/components/PedigreeTree";
 import { CertificateModal } from "@/components/CertificateModal";
-import type { Dog, DogRegistration, DogHealthClearance, Contact } from "@breed-club/shared";
+import { useAuth } from "@clerk/clerk-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { ratingToHex, ratingBgClass, effectiveScore, scoreToColor, RATING_COLORS, formatAge } from "@/lib/health-colors";
+import type { Dog, DogRegistration, DogHealthClearance, Contact, HealthRating } from "@breed-club/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -19,10 +23,22 @@ function getCertificateUrl(urlOrKey: string): string {
   return urlOrKey.startsWith("http") ? urlOrKey : `${API_BASE}/uploads/certificate/${urlOrKey}`;
 }
 
+function getPhotoUrl(urlOrKey: string): string {
+  return urlOrKey.startsWith("http") ? urlOrKey : `${API_BASE}/uploads/photo/${urlOrKey}`;
+}
+
+function getHealthStampUrl(dogId: string): string {
+  return `${(import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')}/dogs/${dogId}/health`;
+}
+
+function getBadgeSvgUrl(dogId: string): string {
+  return `${(import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')}/dogs/${dogId}/badge.svg`;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabId = "overview" | "pedigree" | "health" | "progeny";
-type SortField = "category" | "test_name" | "date" | "result" | "status";
+type SortField = "category" | "test_name" | "date" | "result" | "status" | "age";
 type SortOrder = "asc" | "desc";
 
 const TABS: { id: TabId; label: string }[] = [
@@ -31,6 +47,32 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "health", label: "Health Records" },
   { id: "progeny", label: "Progeny" },
 ];
+
+// ─── Small Health Dot ────────────────────────────────────────────────────────
+
+function HealthDot({ rating }: { rating: HealthRating | null | undefined }) {
+  const color = ratingToHex(rating);
+  return (
+    <span
+      className="inline-block w-3 h-3 rounded-full border border-white/50 flex-shrink-0"
+      style={{ backgroundColor: color }}
+      title={rating ? `Score: ${rating.score}` : "Not rated"}
+    />
+  );
+}
+
+function HealthPill({ rating }: { rating: HealthRating | null | undefined }) {
+  if (!rating) {
+    return <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">N/A</span>;
+  }
+  return (
+    <span
+      className={`text-xs px-1.5 py-0.5 rounded font-medium ${ratingBgClass(rating)}`}
+    >
+      {rating.score}
+    </span>
+  );
+}
 
 // ─── Transfer Dialog ──────────────────────────────────────────────────────────
 
@@ -168,67 +210,130 @@ function TransferDialog({
   );
 }
 
+// ─── Deceased Dialog ──────────────────────────────────────────────────────────
+
+function DeceasedDialog({
+  dogId,
+  onClose,
+  onSuccess,
+}: {
+  dogId: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [deathDate, setDeathDate] = useState("");
+  const adminUpdateMutation = useAdminUpdateDog();
+
+  const handleSubmit = async () => {
+    try {
+      await adminUpdateMutation.mutateAsync({
+        id: dogId,
+        date_of_death: deathDate || undefined,
+      });
+      onSuccess();
+    } catch {
+      // error handled by mutation state
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 space-y-4">
+        <h3 className="text-lg font-semibold text-gray-900">Mark as Deceased</h3>
+        <p className="text-sm text-gray-600">
+          Record this dog as deceased. The date is optional if unknown.
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Date of Death</label>
+          <input
+            type="date"
+            value={deathDate}
+            onChange={(e) => setDeathDate(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          />
+        </div>
+        {adminUpdateMutation.isError && (
+          <p className="text-sm text-red-600">Failed to update. Please try again.</p>
+        )}
+        <div className="flex gap-3 justify-end">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={adminUpdateMutation.isPending}
+            className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+          >
+            {adminUpdateMutation.isPending ? "Saving..." : "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearances: boolean }) {
+function OverviewTab({ dog }: { dog: Dog }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+    <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
       {/* Metadata Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {dog.sex && (
           <div>
-            <span className="text-sm text-gray-500">Sex</span>
-            <p className="font-medium capitalize">{dog.sex}</p>
+            <span className="text-xs text-gray-500">Sex</span>
+            <p className="font-medium text-sm capitalize">{dog.sex}</p>
           </div>
         )}
         {dog.date_of_birth && (
           <div>
-            <span className="text-sm text-gray-500">Date of Birth</span>
-            <p className="font-medium">{new Date(dog.date_of_birth).toLocaleDateString()}</p>
+            <span className="text-xs text-gray-500">Date of Birth</span>
+            <p className="font-medium text-sm">{new Date(dog.date_of_birth).toLocaleDateString()}</p>
           </div>
         )}
         {dog.date_of_death && (
           <div>
-            <span className="text-sm text-gray-500">Date of Death</span>
-            <p className="font-medium">{new Date(dog.date_of_death).toLocaleDateString()}</p>
+            <span className="text-xs text-gray-500">Date of Death</span>
+            <p className="font-medium text-sm">{new Date(dog.date_of_death).toLocaleDateString()}</p>
           </div>
         )}
         {dog.color && (
           <div>
-            <span className="text-sm text-gray-500">Color</span>
-            <p className="font-medium">{dog.color}</p>
+            <span className="text-xs text-gray-500">Color</span>
+            <p className="font-medium text-sm">{dog.color}</p>
           </div>
         )}
         {dog.coat_type && (
           <div>
-            <span className="text-sm text-gray-500">Coat Type</span>
-            <p className="font-medium">{dog.coat_type}</p>
+            <span className="text-xs text-gray-500">Coat Type</span>
+            <p className="font-medium text-sm">{dog.coat_type}</p>
           </div>
         )}
         {dog.microchip_number && (
           <div>
-            <span className="text-sm text-gray-500">Microchip</span>
-            <p className="font-medium">{dog.microchip_number}</p>
+            <span className="text-xs text-gray-500">Microchip</span>
+            <p className="font-medium text-sm">{dog.microchip_number}</p>
           </div>
         )}
       </div>
 
       {/* Owner & Breeder */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         {dog.owner && (
-          <div className="p-4 border border-gray-200 rounded-lg">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Owner</h3>
-            <p className="font-medium">{dog.owner.full_name}</p>
-            {dog.owner.kennel_name && <p className="text-sm text-gray-600">{dog.owner.kennel_name}</p>}
-            {dog.owner.email && <p className="text-sm text-gray-600">{dog.owner.email}</p>}
+          <div className="p-3 border border-gray-200 rounded-lg">
+            <h3 className="text-xs font-semibold text-gray-500 mb-1">Owner</h3>
+            <p className="font-medium text-sm">{dog.owner.full_name}</p>
+            {dog.owner.kennel_name && <p className="text-xs text-gray-600">{dog.owner.kennel_name}</p>}
+            {dog.owner.email && <p className="text-xs text-gray-500">{dog.owner.email}</p>}
           </div>
         )}
         {dog.breeder && (
-          <div className="p-4 border border-gray-200 rounded-lg">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Breeder</h3>
-            <p className="font-medium">{dog.breeder.full_name}</p>
-            {dog.breeder.kennel_name && <p className="text-sm text-gray-600">{dog.breeder.kennel_name}</p>}
-            {dog.breeder.email && <p className="text-sm text-gray-600">{dog.breeder.email}</p>}
+          <div className="p-3 border border-gray-200 rounded-lg">
+            <h3 className="text-xs font-semibold text-gray-500 mb-1">Breeder</h3>
+            <p className="font-medium text-sm">{dog.breeder.full_name}</p>
+            {dog.breeder.kennel_name && <p className="text-xs text-gray-600">{dog.breeder.kennel_name}</p>}
+            {dog.breeder.email && <p className="text-xs text-gray-500">{dog.breeder.email}</p>}
           </div>
         )}
       </div>
@@ -236,21 +341,16 @@ function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearanc
       {/* Registrations */}
       {dog.registrations && dog.registrations.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">External Registrations</h3>
-          <div className="space-y-2">
+          <h3 className="text-xs font-semibold text-gray-500 mb-1">External Registrations</h3>
+          <div className="space-y-1">
             {dog.registrations.map((reg: DogRegistration) => (
-              <div key={reg.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+              <div key={reg.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
                 <div>
                   <span className="font-medium">{reg.organization?.name}</span>
-                  <span className="ml-3 text-gray-600">#{reg.registration_number}</span>
+                  <span className="ml-2 text-gray-600">#{reg.registration_number}</span>
                 </div>
                 {reg.registration_url && (
-                  <a
-                    href={reg.registration_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-gray-700 hover:text-gray-900 underline"
-                  >
+                  <a href={reg.registration_url} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-700 hover:text-gray-900 underline">
                     View
                   </a>
                 )}
@@ -260,60 +360,62 @@ function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearanc
         </div>
       )}
 
-      {/* Parents */}
+      {/* Parents with health dots */}
       {(dog.sire || dog.dam) && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Parents</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <h3 className="text-xs font-semibold text-gray-500 mb-1">Parents</h3>
+          <div className="grid grid-cols-2 gap-3">
             {dog.sire && (
-              <Link to={`/dogs/${dog.sire.id}`} className="p-4 border border-gray-200 rounded-lg hover:shadow transition">
-                <h4 className="text-sm text-gray-500 mb-1">Sire</h4>
-                <p className="font-medium">{dog.sire.registered_name}</p>
-                {dog.sire.call_name && <p className="text-sm text-gray-600">&ldquo;{dog.sire.call_name}&rdquo;</p>}
+              <Link to={`/dogs/${dog.sire.id}`} className="p-3 border border-gray-200 rounded-lg hover:shadow transition">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <h4 className="text-xs text-gray-500">Sire</h4>
+                  <HealthDot rating={dog.sire.health_rating} />
+                </div>
+                <p className="font-medium text-sm">{dog.sire.registered_name}</p>
+                {dog.sire.call_name && <p className="text-xs text-gray-600">&ldquo;{dog.sire.call_name}&rdquo;</p>}
               </Link>
             )}
             {dog.dam && (
-              <Link to={`/dogs/${dog.dam.id}`} className="p-4 border border-gray-200 rounded-lg hover:shadow transition">
-                <h4 className="text-sm text-gray-500 mb-1">Dam</h4>
-                <p className="font-medium">{dog.dam.registered_name}</p>
-                {dog.dam.call_name && <p className="text-sm text-gray-600">&ldquo;{dog.dam.call_name}&rdquo;</p>}
+              <Link to={`/dogs/${dog.dam.id}`} className="p-3 border border-gray-200 rounded-lg hover:shadow transition">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <h4 className="text-xs text-gray-500">Dam</h4>
+                  <HealthDot rating={dog.dam.health_rating} />
+                </div>
+                <p className="font-medium text-sm">{dog.dam.registered_name}</p>
+                {dog.dam.call_name && <p className="text-xs text-gray-600">&ldquo;{dog.dam.call_name}&rdquo;</p>}
               </Link>
             )}
           </div>
         </div>
       )}
 
-      {/* Health Stamp */}
+      {/* Health Badge */}
       {dog.status === "approved" && (
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <a
-            href={`${(import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')}/dogs/${dog.id}/health`}
+            href={getHealthStampUrl(dog.id)}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+            className="flex items-center gap-2 hover:opacity-80 transition"
+            title="View Public Health Report"
           >
-            View Public Health Stamp &rarr;
+            <img
+              src={getBadgeSvgUrl(dog.id)}
+              alt="Health Badge"
+              className="h-20"
+            />
+            <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
           </a>
-          {canManageClearances && (
-            <Link
-              to={`/health/${dog.id}`}
-              className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-            >
-              Manage Clearances &rarr;
-            </Link>
-          )}
         </div>
       )}
 
       {/* Notes */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Notes</h3>
-        {dog.notes ? (
+      {dog.notes && (
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 mb-1">Notes</h3>
           <p className="text-sm text-gray-600 whitespace-pre-wrap">{dog.notes}</p>
-        ) : (
-          <p className="text-sm text-gray-400 italic">No notes.</p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -325,7 +427,7 @@ function PedigreeTab({ dogId }: { dogId: string }) {
   const { data, isLoading } = useDogPedigree(dogId, depth);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Pedigree</h2>
         <select
@@ -386,15 +488,18 @@ function getTestType(c: DogHealthClearance) {
 function HealthRecordsTab({
   dog,
   canManageClearances,
+  canEdit,
 }: {
   dog: Dog;
   canManageClearances: boolean;
+  canEdit: boolean;
 }) {
   const [sortField, setSortField] = useState<SortField>("category");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [viewingCert, setViewingCert] = useState<string | null>(null);
 
   const clearances = dog.health_clearances || dog.healthClearances || [];
+  const showAddClearance = (canManageClearances || canEdit) && !dog.is_historical;
 
   const sorted = [...clearances].sort((a, b) => {
     let cmp = 0;
@@ -411,11 +516,17 @@ function HealthRecordsTab({
         cmp = (a.test_date || "").localeCompare(b.test_date || "");
         break;
       case "result":
-        cmp = a.result.localeCompare(b.result);
+        cmp = (effectiveScore(a) ?? -1) - (effectiveScore(b) ?? -1);
         break;
       case "status":
         cmp = a.status.localeCompare(b.status);
         break;
+      case "age": {
+        const ageA = dog.date_of_birth && a.test_date ? new Date(a.test_date).getTime() - new Date(dog.date_of_birth).getTime() : -1;
+        const ageB = dog.date_of_birth && b.test_date ? new Date(b.test_date).getTime() - new Date(dog.date_of_birth).getTime() : -1;
+        cmp = ageA - ageB;
+        break;
+      }
     }
     return sortOrder === "asc" ? cmp : -cmp;
   });
@@ -430,15 +541,16 @@ function HealthRecordsTab({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Health Records</h2>
-        {canManageClearances && (
+        {showAddClearance && (
           <Link
             to={`/health/${dog.id}`}
-            className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
           >
-            Manage Clearances &rarr;
+            <Plus className="h-3.5 w-3.5" />
+            Add Clearance
           </Link>
         )}
       </div>
@@ -453,6 +565,7 @@ function HealthRecordsTab({
                 <SortableHeader field="result" label="Result" current={sortField} order={sortOrder} onSort={toggleSort} />
                 <th className="text-left py-2 px-2 font-medium text-gray-500">Org</th>
                 <SortableHeader field="date" label="Date" current={sortField} order={sortOrder} onSort={toggleSort} />
+                <SortableHeader field="age" label="Age" current={sortField} order={sortOrder} onSort={toggleSort} />
                 <SortableHeader field="status" label="Status" current={sortField} order={sortOrder} onSort={toggleSort} />
                 <th className="text-left py-2 px-2 font-medium text-gray-500">Cert</th>
               </tr>
@@ -460,16 +573,34 @@ function HealthRecordsTab({
             <tbody>
               {sorted.map((c) => {
                 const testType = getTestType(c);
+                const score = effectiveScore(c);
+                const color = score != null ? scoreToColor(score) : null;
+                const bgStyle = color ? { backgroundColor: RATING_COLORS[color] + "20" } : {};
                 return (
                   <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-2 px-2 text-gray-600 capitalize">
                       {testType?.category || "\u2014"}
                     </td>
                     <td className="py-2 px-2 font-medium">{testType?.name || "\u2014"}</td>
-                    <td className="py-2 px-2">{c.result}</td>
+                    <td className="py-2 px-2 rounded" style={bgStyle}>
+                      <span className="flex items-center gap-1.5">
+                        {color && (
+                          <span
+                            className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: RATING_COLORS[color] }}
+                          />
+                        )}
+                        {c.result}
+                      </span>
+                    </td>
                     <td className="py-2 px-2 text-gray-600">{c.organization?.name || "\u2014"}</td>
                     <td className="py-2 px-2 text-gray-600">
                       {c.test_date ? new Date(c.test_date).toLocaleDateString() : "\u2014"}
+                    </td>
+                    <td className="py-2 px-2 text-gray-600">
+                      {dog.date_of_birth && c.test_date
+                        ? formatAge(dog.date_of_birth, c.test_date)
+                        : "\u2014"}
                     </td>
                     <td className="py-2 px-2">
                       {c.status === "approved" ? (
@@ -521,7 +652,7 @@ function ProgenyTab({ dogId }: { dogId: string }) {
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">
           Progeny
@@ -556,7 +687,7 @@ function ProgenyTab({ dogId }: { dogId: string }) {
 
       {data &&
         data.generations.map((gen) => (
-          <div key={gen.generation} className="mb-6 last:mb-0">
+          <div key={gen.generation} className="mb-4 last:mb-0">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">
               Generation {gen.generation}
               <span className="ml-1 text-gray-400 font-normal">
@@ -571,6 +702,7 @@ function ProgenyTab({ dogId }: { dogId: string }) {
                     <th className="text-left py-2 px-2 font-medium text-gray-500">Sex</th>
                     <th className="text-left py-2 px-2 font-medium text-gray-500">DOB</th>
                     <th className="text-left py-2 px-2 font-medium text-gray-500">Color</th>
+                    <th className="text-left py-2 px-2 font-medium text-gray-500">Health</th>
                     <th className="text-left py-2 px-2 font-medium text-gray-500">Owner</th>
                   </tr>
                 </thead>
@@ -601,6 +733,9 @@ function ProgenyTab({ dogId }: { dogId: string }) {
                       <td className="py-2 px-2 text-gray-600">
                         {progeny.color || "\u2014"}
                       </td>
+                      <td className="py-2 px-2">
+                        <HealthPill rating={progeny.health_rating} />
+                      </td>
                       <td className="py-2 px-2 text-gray-600">
                         {progeny.owner?.full_name || "\u2014"}
                       </td>
@@ -621,9 +756,14 @@ export function DogDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, error } = useDog(id);
   const { member } = useCurrentMember();
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
   const canEdit = member?.tier === "admin" || member?.can_approve_clearances;
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [showDeceasedDialog, setShowDeceasedDialog] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const adminUpdateMutation = useAdminUpdateDog();
   const recalcMutation = useRecalculateHealthRating();
 
@@ -651,101 +791,152 @@ export function DogDetailPage() {
   }
 
   const { dog } = data;
+  const canUploadPhoto = canEdit || data.canManageClearances;
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const token = await getToken();
+      const result = await api.upload<{ key: string }>("/uploads/photo", file, { token });
+      await api.patch(`/dogs/${dog.id}/photo`, { photo_url: result.key }, { token });
+      queryClient.invalidateQueries({ queryKey: ["dog", dog.id] });
+    } catch {
+      // silently handle
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto">
       {/* Back link */}
-      <div className="mb-6">
+      <div className="mb-4">
         <Link to="/registry" className="text-gray-600 hover:text-gray-900 text-sm">
           &larr; Back to Registry
         </Link>
       </div>
 
       {/* Header - always visible */}
-      <div className="flex items-start gap-6 mb-6">
-        {dog.photo_url && (
-          <img
-            src={dog.photo_url}
-            alt={dog.registered_name}
-            className="w-32 h-32 object-cover rounded-lg"
-          />
-        )}
-        <div className="flex-1">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{dog.registered_name}</h1>
+      <div className="flex items-start gap-4 mb-4">
+        {/* Photo / Placeholder */}
+        <div className="relative flex-shrink-0">
+          {dog.photo_url ? (
+            <img
+              src={getPhotoUrl(dog.photo_url)}
+              alt={dog.registered_name}
+              className="w-28 h-28 object-cover rounded-lg"
+            />
+          ) : (
+            <div className="w-28 h-28 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Camera className="h-8 w-8 text-gray-300" />
+            </div>
+          )}
+          {canUploadPhoto && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png"
+                onChange={handlePhotoUpload}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="absolute bottom-1 right-1 p-1 bg-white/90 rounded-full shadow text-gray-600 hover:text-gray-900 disabled:opacity-50"
+                title={dog.photo_url ? "Change photo" : "Add photo"}
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-gray-900 truncate">{dog.registered_name}</h1>
               {dog.call_name && (
-                <p className="text-xl text-gray-600 mt-1">&ldquo;{dog.call_name}&rdquo;</p>
+                <p className="text-lg text-gray-600">&ldquo;{dog.call_name}&rdquo;</p>
               )}
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
                 {dog.status === "pending" && (
-                  <span className="px-3 py-1 text-sm font-medium text-yellow-700 bg-yellow-100 rounded">
+                  <span className="px-2 py-0.5 text-xs font-medium text-yellow-700 bg-yellow-100 rounded">
                     Pending Approval
                   </span>
                 )}
                 {dog.status === "rejected" && (
-                  <span className="px-3 py-1 text-sm font-medium text-red-700 bg-red-100 rounded">
+                  <span className="px-2 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded">
                     Rejected
                   </span>
                 )}
                 {dog.is_historical && (
-                  <span className="px-3 py-1 text-sm font-medium text-blue-700 bg-blue-100 rounded">
-                    Historical / Pedigree Only
+                  <span className="px-2 py-0.5 text-xs font-medium text-blue-700 bg-blue-100 rounded">
+                    Historical
+                  </span>
+                )}
+                {dog.date_of_death && (
+                  <span className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded">
+                    Deceased{dog.date_of_death ? ` (${new Date(dog.date_of_death).toLocaleDateString()})` : ""}
                   </span>
                 )}
                 {data.pendingTransfer && (
-                  <span className="px-3 py-1 text-sm font-medium text-orange-700 bg-orange-100 rounded">
+                  <span className="px-2 py-0.5 text-xs font-medium text-orange-700 bg-orange-100 rounded">
                     Transfer Pending &rarr; {data.pendingTransfer.toOwner?.full_name}
                   </span>
                 )}
               </div>
             </div>
-            <div className="flex gap-2 flex-shrink-0">
+            <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
               {canEdit && dog.is_historical && (
                 <button
                   onClick={async () => {
-                    if (
-                      confirm(
-                        "Convert this historical dog to a full registry dog? You should fill in owner, DOB, and other details via Edit."
-                      )
-                    ) {
-                      await adminUpdateMutation.mutateAsync({
-                        id: dog.id,
-                        is_historical: false,
-                      });
+                    if (confirm("Convert this historical dog to a full registry dog?")) {
+                      await adminUpdateMutation.mutateAsync({ id: dog.id, is_historical: false });
                     }
                   }}
                   disabled={adminUpdateMutation.isPending}
-                  className="px-4 py-2 text-sm border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+                  className="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 disabled:opacity-50"
                 >
-                  {adminUpdateMutation.isPending ? "Converting..." : "Convert to Registry Dog"}
+                  Convert to Registry
+                </button>
+              )}
+              {canEdit && !dog.date_of_death && (
+                <button
+                  onClick={() => setShowDeceasedDialog(true)}
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"
+                >
+                  Mark Deceased
                 </button>
               )}
               {data.canManageClearances && !data.pendingTransfer && (
                 <button
                   onClick={() => setShowTransferDialog(true)}
-                  className="px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
-                  Transfer Ownership
+                  Transfer
                 </button>
               )}
               {canEdit && (
                 <button
                   onClick={() => recalcMutation.mutate(dog.id)}
                   disabled={recalcMutation.isPending}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                  title="Force-recompute the health rating from current clearances and cert version"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  title="Recalculate health rating"
                 >
-                  <RefreshCw className={`h-4 w-4 ${recalcMutation.isPending ? "animate-spin" : ""}`} />
-                  {recalcMutation.isPending ? "Recalculating…" : "Recalculate"}
+                  <RefreshCw className={`h-3.5 w-3.5 ${recalcMutation.isPending ? "animate-spin" : ""}`} />
+                  {recalcMutation.isPending ? "..." : "Recalculate"}
                 </button>
               )}
               {canEdit && (
                 <Link
                   to={`/dogs/${id}/edit`}
-                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                  className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-800"
                 >
-                  Edit Dog
+                  Edit
                 </Link>
               )}
             </div>
@@ -754,12 +945,12 @@ export function DogDetailPage() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
+      <div className="flex gap-1 border-b border-gray-200 mb-4">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2.5 text-sm font-medium transition ${
+            className={`px-4 py-2 text-sm font-medium transition ${
               activeTab === tab.id
                 ? "border-b-2 border-gray-900 text-gray-900"
                 : "text-gray-500 hover:text-gray-700"
@@ -772,24 +963,24 @@ export function DogDetailPage() {
 
       {/* Tab Content */}
       {activeTab === "overview" && (
-        <OverviewTab dog={dog} canManageClearances={!!data.canManageClearances} />
+        <OverviewTab dog={dog} />
       )}
       {activeTab === "pedigree" && id && dog.status === "approved" && (
         <PedigreeTab dogId={id} />
       )}
       {activeTab === "pedigree" && dog.status !== "approved" && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-gray-500 text-sm">Pedigree is available after the dog is approved.</p>
         </div>
       )}
       {activeTab === "health" && (
-        <HealthRecordsTab dog={dog} canManageClearances={!!data.canManageClearances} />
+        <HealthRecordsTab dog={dog} canManageClearances={!!data.canManageClearances} canEdit={!!canEdit} />
       )}
       {activeTab === "progeny" && id && dog.status === "approved" && (
         <ProgenyTab dogId={id} />
       )}
       {activeTab === "progeny" && dog.status !== "approved" && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-gray-500 text-sm">Progeny is available after the dog is approved.</p>
         </div>
       )}
@@ -800,6 +991,15 @@ export function DogDetailPage() {
           dogId={id}
           onClose={() => setShowTransferDialog(false)}
           onSuccess={() => setShowTransferDialog(false)}
+        />
+      )}
+
+      {/* Deceased Dialog */}
+      {showDeceasedDialog && id && (
+        <DeceasedDialog
+          dogId={id}
+          onClose={() => setShowDeceasedDialog(false)}
+          onSuccess={() => setShowDeceasedDialog(false)}
         />
       )}
     </div>

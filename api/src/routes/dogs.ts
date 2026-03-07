@@ -560,6 +560,48 @@ dogRoutes.post("/:id/registrations", requireTier("certificate"), async (c) => {
 });
 
 /**
+ * PATCH /:id/photo — update dog photo.
+ * Allowed for admin, clearance approvers, or the dog's owner.
+ */
+dogRoutes.patch("/:id/photo", requireTier("certificate"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const club = c.get("club");
+  const id = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) {
+    throw notFound("Dog");
+  }
+
+  if (!isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>)) {
+    throw forbidden("Only the owner or an admin can update the photo");
+  }
+
+  const body = await c.req.json();
+  const { photo_url } = body;
+
+  if (typeof photo_url !== "string" || !photo_url) {
+    throw badRequest("photo_url is required");
+  }
+
+  await db
+    .update(dogs)
+    .set({ photo_url, updated_at: new Date() })
+    .where(eq(dogs.id, id));
+
+  return c.json({ ok: true });
+});
+
+/**
  * GET /:id/pedigree — fetch pedigree tree (sire/dam ancestry).
  * Returns up to 3 generations by default (depth=3).
  */
@@ -591,6 +633,7 @@ dogRoutes.get("/:id/pedigree", requireTier("certificate"), async (c) => {
         date_of_birth: true,
         sire_id: true,
         dam_id: true,
+        health_rating: true,
       },
     });
 
@@ -661,6 +704,7 @@ dogRoutes.get("/:id/progeny", requireTier("member"), async (c) => {
         sex: true,
         date_of_birth: true,
         color: true,
+        health_rating: true,
       },
       with: {
         owner: {

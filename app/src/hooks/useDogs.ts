@@ -25,6 +25,7 @@ interface PedigreeDogData {
   date_of_birth?: string;
   sire_id?: string;
   dam_id?: string;
+  health_rating?: HealthRating | null;
   sire?: PedigreeDogData | null;
   dam?: PedigreeDogData | null;
 }
@@ -221,6 +222,7 @@ export function useAdminUpdateDog() {
       breeder_id?: string | null;
       is_public?: boolean;
       is_historical?: boolean;
+      photo_url?: string;
     }) => {
       const token = await getToken();
       return api.patch<DogResponse>(`/admin/dogs/${id}`, data, { token });

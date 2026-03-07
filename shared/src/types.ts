@@ -426,6 +426,7 @@ export interface DogProgenyEntry {
   sex: string | null;
   date_of_birth: string | null;
   color: string | null;
+  health_rating: HealthRating | null;
   owner?: Pick<Contact, "id" | "full_name" | "kennel_name">;
 }
 
