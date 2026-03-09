@@ -29,3 +29,8 @@ Thumbs.db
 
 # Drizzle
 drizzle/meta/
+
+# Local dev
+docker-compose.override.yml
+.dev.vars.local
+.dev.vars.supabase
