@@ -2,12 +2,15 @@
  * Member dashboard — overview of the member's status, dogs, and applications.
  */
 
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useMyApplications } from "@/hooks/useApplications";
 import { useDogs } from "@/hooks/useDogs";
 import { hasTier } from "@breed-club/shared/roles.js";
 import { PawPrint, FileText, UserPlus, Award } from "lucide-react";
+import { ratingBgClass } from "@/lib/health-colors";
+import { formatDate } from "@/lib/utils";
 import type { Dog } from "@breed-club/shared";
 
 const TIER_LABELS: Record<string, string> = {
@@ -138,9 +141,45 @@ export function DashboardPage() {
   );
 }
 
+type DogSortField = "registered_name" | "call_name" | "sex" | "dob" | "health";
+type SortOrder = "asc" | "desc";
+
 function MyDogsSection() {
-  const { data, isLoading } = useDogs(1, undefined, undefined, true);
+  const { data, isLoading } = useDogs({ ownedOnly: true });
   const dogs = data?.data ?? [];
+  const [sortField, setSortField] = useState<DogSortField>("dob");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
+  const toggleSort = (field: DogSortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortOrder(field === "dob" ? "desc" : "asc");
+    }
+  };
+
+  const sorted = [...dogs].sort((a: Dog, b: Dog) => {
+    let cmp = 0;
+    switch (sortField) {
+      case "registered_name":
+        cmp = (a.registered_name || "").localeCompare(b.registered_name || "");
+        break;
+      case "call_name":
+        cmp = (a.call_name || "").localeCompare(b.call_name || "");
+        break;
+      case "sex":
+        cmp = (a.sex || "").localeCompare(b.sex || "");
+        break;
+      case "dob":
+        cmp = (a.date_of_birth || "").localeCompare(b.date_of_birth || "");
+        break;
+      case "health":
+        cmp = (a.health_rating?.score ?? -1) - (b.health_rating?.score ?? -1);
+        break;
+    }
+    return sortOrder === "asc" ? cmp : -cmp;
+  });
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
@@ -165,36 +204,92 @@ function MyDogsSection() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="pb-2 font-medium">Registered Name</th>
-                <th className="pb-2 font-medium">Call Name</th>
-                <th className="pb-2 font-medium hidden sm:table-cell">Sex</th>
-                <th className="pb-2 font-medium hidden sm:table-cell">DOB</th>
-                <th className="pb-2 font-medium text-right">Status</th>
+                <DogSortHeader field="registered_name" label="Registered Name" current={sortField} order={sortOrder} onSort={toggleSort} />
+                <DogSortHeader field="call_name" label="Call Name" current={sortField} order={sortOrder} onSort={toggleSort} />
+                <DogSortHeader field="sex" label="Sex" current={sortField} order={sortOrder} onSort={toggleSort} className="hidden sm:table-cell" />
+                <DogSortHeader field="dob" label="DOB" current={sortField} order={sortOrder} onSort={toggleSort} className="hidden sm:table-cell" />
+                <DogSortHeader field="health" label="Health" current={sortField} order={sortOrder} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {dogs.map((dog: Dog) => (
-                <tr key={dog.id} className="hover:bg-gray-50">
-                  <td className="py-2">
-                    <Link to={`/dogs/${dog.id}`} className="text-gray-900 font-medium hover:underline">
-                      {dog.registered_name}
-                    </Link>
-                  </td>
-                  <td className="py-2 text-gray-600">{dog.call_name || "—"}</td>
-                  <td className="py-2 text-gray-600 capitalize hidden sm:table-cell">{dog.sex || "—"}</td>
-                  <td className="py-2 text-gray-600 hidden sm:table-cell">
-                    {dog.date_of_birth ? new Date(dog.date_of_birth).toLocaleDateString() : "—"}
-                  </td>
-                  <td className="py-2 text-right">
-                    <DogStatusBadge status={dog.status} />
-                  </td>
-                </tr>
-              ))}
+              {sorted.map((dog: Dog) => {
+                const isDeceased = !!(dog.is_deceased || dog.date_of_death);
+                const rowBg =
+                  dog.sex === "male"
+                    ? "bg-blue-50 hover:bg-blue-100"
+                    : dog.sex === "female"
+                      ? "bg-pink-50 hover:bg-pink-100"
+                      : "hover:bg-gray-50";
+
+                return (
+                  <tr key={dog.id} className={rowBg}>
+                    <td className="py-2">
+                      <Link
+                        to={`/dogs/${dog.id}`}
+                        className={`text-gray-900 font-medium hover:underline ${isDeceased ? "line-through" : ""}`}
+                      >
+                        {dog.registered_name}
+                      </Link>
+                      {dog.status === "pending" && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">
+                          Pending
+                        </span>
+                      )}
+                    </td>
+                    <td className={`py-2 text-gray-600 ${isDeceased ? "line-through" : ""}`}>
+                      {dog.call_name || "—"}
+                    </td>
+                    <td className={`py-2 text-gray-600 capitalize hidden sm:table-cell ${isDeceased ? "line-through" : ""}`}>
+                      {dog.sex || "—"}
+                    </td>
+                    <td className={`py-2 text-gray-600 hidden sm:table-cell ${isDeceased ? "line-through" : ""}`}>
+                      {formatDate(dog.date_of_birth)}
+                    </td>
+                    <td className="py-2">
+                      {dog.health_rating ? (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ratingBgClass(dog.health_rating)}`}>
+                          {dog.health_rating.score}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+function DogSortHeader({
+  field,
+  label,
+  current,
+  order,
+  onSort,
+  className,
+}: {
+  field: DogSortField;
+  label: string;
+  current: DogSortField;
+  order: SortOrder;
+  onSort: (field: DogSortField) => void;
+  className?: string;
+}) {
+  return (
+    <th
+      className={`pb-2 font-medium cursor-pointer hover:text-gray-700 select-none ${className || ""}`}
+      onClick={() => onSort(field)}
+    >
+      {label}
+      {current === field && (
+        <span className="ml-1">{order === "asc" ? "↑" : "↓"}</span>
+      )}
+    </th>
   );
 }
 

@@ -4,6 +4,7 @@
  */
 
 import { usePublicAnnouncements } from "@/hooks/useLitters";
+import { formatDate } from "@/lib/utils";
 
 export function AnnouncementsPage() {
   const { data, isLoading, error } = usePublicAnnouncements();
@@ -67,13 +68,13 @@ export function AnnouncementsPage() {
                   {litter.expected_date && (
                     <p>
                       <span className="font-medium">Expected:</span>{" "}
-                      {new Date(litter.expected_date).toLocaleDateString()}
+                      {formatDate(litter.expected_date)}
                     </p>
                   )}
                   {litter.whelp_date && (
                     <p>
                       <span className="font-medium">Whelped:</span>{" "}
-                      {new Date(litter.whelp_date).toLocaleDateString()}
+                      {formatDate(litter.whelp_date)}
                     </p>
                   )}
                   {totalPups > 0 && (

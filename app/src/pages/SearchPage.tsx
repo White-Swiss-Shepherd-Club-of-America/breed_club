@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 import type { Dog } from "@breed-club/shared";
+import { formatDate } from "@/lib/utils";
 
 interface SearchFilters {
   q: string;
@@ -31,7 +32,7 @@ function DogCard({ dog }: { dog: Dog }) {
           {dog.call_name && <p className="text-sm text-gray-600">"{dog.call_name}"</p>}
           <div className="mt-2 flex flex-wrap gap-2 text-sm text-gray-700">
             {dog.sex && <span className="capitalize">{dog.sex}</span>}
-            {dog.date_of_birth && <span>Born {new Date(dog.date_of_birth).toLocaleDateString()}</span>}
+            {dog.date_of_birth && <span>Born {formatDate(dog.date_of_birth)}</span>}
             {dog.color && <span>{dog.color}</span>}
           </div>
           <div className="mt-2 text-xs text-gray-500">

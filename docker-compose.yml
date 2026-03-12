@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: breed-club-pg
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: breed_club
       POSTGRES_USER: postgres

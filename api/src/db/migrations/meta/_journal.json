@@ -71,6 +71,13 @@
       "when": 1772674614519,
       "tag": "0009_spooky_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1773250145618,
+      "tag": "0010_add_is_deceased",
+      "breakpoints": true
     }
   ]
 }

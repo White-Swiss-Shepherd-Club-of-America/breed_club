@@ -11,7 +11,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, or, desc, sql, ilike, inArray } from "drizzle-orm";
+import { eq, and, or, desc, asc, gte, lte, sql, ilike, inArray, isNotNull } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -266,6 +266,34 @@ dogRoutes.get("/search", requireTier("member"), async (c) => {
 });
 
 /**
+ * GET /filter-options — distinct coat_type and color values for filter dropdowns.
+ */
+dogRoutes.get("/filter-options", requireTier("member"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const approvedInClub = and(eq(dogs.club_id, clubId), eq(dogs.status, "approved"));
+
+  const [coatTypes, colors] = await Promise.all([
+    db
+      .selectDistinct({ value: dogs.coat_type })
+      .from(dogs)
+      .where(and(approvedInClub, isNotNull(dogs.coat_type)))
+      .orderBy(asc(dogs.coat_type)),
+    db
+      .selectDistinct({ value: dogs.color })
+      .from(dogs)
+      .where(and(approvedInClub, isNotNull(dogs.color)))
+      .orderBy(asc(dogs.color)),
+  ]);
+
+  return c.json({
+    coat_types: coatTypes.map((r) => r.value).filter(Boolean),
+    colors: colors.map((r) => r.value).filter(Boolean),
+  });
+});
+
+/**
  * GET / — list dogs.
  * - Certificate tier: own dogs only (where submitted_by = member.id)
  * - Member+ tier: all approved dogs
@@ -290,23 +318,103 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
     conditions.push(eq(dogs.sex, sex));
   }
 
-  // RBAC: certificate tier sees only own dogs, member+ sees all approved dogs
+  // --- Advanced filters ---
+
+  const healthScoreMinParam = c.req.query("health_score_min");
+  const healthScoreMaxParam = c.req.query("health_score_max");
+  const dobFrom = c.req.query("dob_from");
+  const dobTo = c.req.query("dob_to");
+  const breederSearch = c.req.query("breeder");
+  const ownerSearch = c.req.query("owner");
+  const coatType = c.req.query("coat_type");
+  const color = c.req.query("color");
+
+  if (healthScoreMinParam) {
+    const min = parseFloat(healthScoreMinParam);
+    if (!isNaN(min)) {
+      conditions.push(sql`(${dogs.health_rating}->>'score')::numeric >= ${min}`);
+    }
+  }
+  if (healthScoreMaxParam) {
+    const max = parseFloat(healthScoreMaxParam);
+    if (!isNaN(max)) {
+      conditions.push(sql`(${dogs.health_rating}->>'score')::numeric < ${max}`);
+    }
+  }
+  if (dobFrom) {
+    conditions.push(gte(dogs.date_of_birth, dobFrom));
+  }
+  if (dobTo) {
+    conditions.push(lte(dogs.date_of_birth, dobTo));
+  }
+  if (breederSearch) {
+    // Convert glob-style wildcards (* → %, ? → _); wrap in % if no wildcards given
+    const hasWildcard = /[*?%_]/.test(breederSearch);
+    const term = breederSearch.replace(/\*/g, "%").replace(/\?/g, "_");
+    const ilikeTerm = hasWildcard ? term : `%${term}%`;
+    conditions.push(
+      sql`${dogs.breeder_id} IN (SELECT id FROM contacts WHERE club_id = ${clubId} AND (full_name ILIKE ${ilikeTerm} OR kennel_name ILIKE ${ilikeTerm}))`
+    );
+  }
+  if (ownerSearch) {
+    const hasWildcard = /[*?%_]/.test(ownerSearch);
+    const term = ownerSearch.replace(/\*/g, "%").replace(/\?/g, "_");
+    const ilikeTerm = hasWildcard ? term : `%${term}%`;
+    conditions.push(
+      sql`${dogs.owner_id} IN (SELECT id FROM contacts WHERE club_id = ${clubId} AND (full_name ILIKE ${ilikeTerm} OR kennel_name ILIKE ${ilikeTerm}))`
+    );
+  }
+  if (coatType) {
+    conditions.push(eq(dogs.coat_type, coatType));
+  }
+  if (color) {
+    conditions.push(eq(dogs.color, color));
+  }
+
+  // --- Server-side sorting ---
+
+  const ALLOWED_SORT_KEYS = ["registered_name", "sex", "date_of_birth", "health_score", "breeder"] as const;
+  const sortByParam = c.req.query("sort_by") || "";
+  const sortBy = (ALLOWED_SORT_KEYS as readonly string[]).includes(sortByParam) ? sortByParam : "registered_name";
+  const sortDirParam = c.req.query("sort_dir");
+  const sortDirection = sortDirParam === "desc" ? "DESC" : "ASC";
+
+  let orderByClause;
+  switch (sortBy) {
+    case "health_score":
+      orderByClause = sql`(${dogs.health_rating}->>'score')::numeric ${sql.raw(sortDirection)} NULLS LAST`;
+      break;
+    case "breeder":
+      orderByClause = sql`(SELECT ${contacts.full_name} FROM ${contacts} WHERE ${contacts.id} = ${dogs.breeder_id}) ${sql.raw(sortDirection)} NULLS LAST`;
+      break;
+    case "sex":
+      orderByClause = sortDirection === "ASC" ? asc(dogs.sex) : desc(dogs.sex);
+      break;
+    case "date_of_birth":
+      orderByClause = sortDirection === "ASC"
+        ? sql`${dogs.date_of_birth} ASC NULLS LAST`
+        : sql`${dogs.date_of_birth} DESC NULLS LAST`;
+      break;
+    default:
+      orderByClause = sortDirection === "ASC" ? asc(dogs.registered_name) : desc(dogs.registered_name);
+  }
+
+  // RBAC: ownedOnly takes priority (dashboard "My Dogs"), then tier-based access
   const ownedOnly = c.req.query("owned_only") === "true";
 
-  if (auth?.tier === "certificate") {
-    conditions.push(eq(dogs.submitted_by, auth.member!.id));
-  } else if (ownedOnly && auth?.tier !== "admin" && !auth?.member?.can_approve_clearances) {
-    // Filter to dogs the user owns (for health select page etc.)
-    conditions.push(eq(dogs.status, "approved"));
-    if (!includeHistorical) {
-      conditions.push(eq(dogs.is_historical, false));
-    }
+  if (ownedOnly) {
+    // Dashboard / health-select: show only dogs the user owns or submitted, regardless of tier
     conditions.push(
       or(
         eq(dogs.owner_id, auth!.contactId),
         eq(dogs.submitted_by, auth!.memberId)
       )!
     );
+    if (!includeHistorical) {
+      conditions.push(eq(dogs.is_historical, false));
+    }
+  } else if (auth?.tier === "certificate") {
+    conditions.push(eq(dogs.submitted_by, auth.member!.id));
   } else {
     // member+ tier: all approved dogs, plus their own pending submissions
     conditions.push(
@@ -340,7 +448,7 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
       },
       limit: query.limit,
       offset: (query.page - 1) * query.limit,
-      orderBy: [desc(dogs.created_at)],
+      orderBy: [orderByClause],
     }),
     db.select({ count: sql<number>`count(*)` }).from(dogs).where(where),
   ]);

@@ -15,6 +15,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ratingToHex, ratingBgClass, effectiveScore, scoreToColor, RATING_COLORS, formatAge } from "@/lib/health-colors";
+import { formatDate } from "@/lib/utils";
 import type { Dog, DogRegistration, DogHealthClearance, Contact, HealthRating } from "@breed-club/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
@@ -228,6 +229,7 @@ function DeceasedDialog({
     try {
       await adminUpdateMutation.mutateAsync({
         id: dogId,
+        is_deceased: true,
         date_of_death: deathDate || undefined,
       });
       onSuccess();
@@ -289,13 +291,15 @@ function OverviewTab({ dog }: { dog: Dog }) {
         {dog.date_of_birth && (
           <div>
             <span className="text-xs text-gray-500">Date of Birth</span>
-            <p className="font-medium text-sm">{new Date(dog.date_of_birth).toLocaleDateString()}</p>
+            <p className="font-medium text-sm">{formatDate(dog.date_of_birth)}</p>
           </div>
         )}
-        {dog.date_of_death && (
+        {(dog.is_deceased || dog.date_of_death) && (
           <div>
             <span className="text-xs text-gray-500">Date of Death</span>
-            <p className="font-medium text-sm">{new Date(dog.date_of_death).toLocaleDateString()}</p>
+            <p className="font-medium text-sm">
+              {dog.date_of_death ? formatDate(dog.date_of_death) : "Unknown"}
+            </p>
           </div>
         )}
         {dog.color && (
@@ -595,7 +599,7 @@ function HealthRecordsTab({
                     </td>
                     <td className="py-2 px-2 text-gray-600">{c.organization?.name || "\u2014"}</td>
                     <td className="py-2 px-2 text-gray-600">
-                      {c.test_date ? new Date(c.test_date).toLocaleDateString() : "\u2014"}
+                      {formatDate(c.test_date)}
                     </td>
                     <td className="py-2 px-2 text-gray-600">
                       {dog.date_of_birth && c.test_date
@@ -726,9 +730,7 @@ function ProgenyTab({ dogId }: { dogId: string }) {
                         {progeny.sex || "\u2014"}
                       </td>
                       <td className="py-2 px-2 text-gray-600">
-                        {progeny.date_of_birth
-                          ? new Date(progeny.date_of_birth).toLocaleDateString()
-                          : "\u2014"}
+                        {formatDate(progeny.date_of_birth)}
                       </td>
                       <td className="py-2 px-2 text-gray-600">
                         {progeny.color || "\u2014"}
@@ -878,9 +880,9 @@ export function DogDetailPage() {
                     Historical
                   </span>
                 )}
-                {dog.date_of_death && (
+                {(dog.is_deceased || dog.date_of_death) && (
                   <span className="px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-200 rounded">
-                    Deceased{dog.date_of_death ? ` (${new Date(dog.date_of_death).toLocaleDateString()})` : ""}
+                    Deceased{dog.date_of_death ? ` (${formatDate(dog.date_of_death)})` : ""}
                   </span>
                 )}
                 {data.pendingTransfer && (
@@ -904,7 +906,7 @@ export function DogDetailPage() {
                   Convert to Registry
                 </button>
               )}
-              {canEdit && !dog.date_of_death && (
+              {canEdit && !dog.is_deceased && !dog.date_of_death && (
                 <button
                   onClick={() => setShowDeceasedDialog(true)}
                   className="px-3 py-1.5 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50"

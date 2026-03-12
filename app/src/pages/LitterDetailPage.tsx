@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useLitter, useAddPup, useUpdatePup, useSellPup } from "@/hooks/useLitters";
 import type { LitterPup } from "@breed-club/shared";
+import { formatDate } from "@/lib/utils";
 
 function AddPupModal({
   litterId,
@@ -304,13 +305,13 @@ export function LitterDetailPage() {
             {litter.expected_date && (
               <div>
                 <dt className="font-medium text-gray-700">Expected Date</dt>
-                <dd className="text-gray-600">{new Date(litter.expected_date).toLocaleDateString()}</dd>
+                <dd className="text-gray-600">{formatDate(litter.expected_date)}</dd>
               </div>
             )}
             {litter.whelp_date && (
               <div>
                 <dt className="font-medium text-gray-700">Whelp Date</dt>
-                <dd className="text-gray-600">{new Date(litter.whelp_date).toLocaleDateString()}</dd>
+                <dd className="text-gray-600">{formatDate(litter.whelp_date)}</dd>
               </div>
             )}
             {litter.num_puppies_born !== null && (

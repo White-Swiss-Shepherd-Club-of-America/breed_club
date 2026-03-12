@@ -36,7 +36,7 @@ export function DogTypeahead({
   const [search, setSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [hasSelected, setHasSelected] = useState(!!value);
-  const { data: dogsData } = useDogs(1, search, sex, undefined, true);
+  const { data: dogsData } = useDogs({ search, sex, includeHistorical: true });
   const dogs = dogsData?.data || [];
 
   const selectedId = typeof value === "string" ? value : undefined;

@@ -13,6 +13,7 @@ import {
 } from "@/hooks/useAdmin";
 import type { HealthCertVersion, HealthTestType, ScoreThresholds } from "@breed-club/shared";
 import { Plus, Pencil, Trash2, X, Copy } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 
 const DEFAULT_WEIGHTS: Record<string, number> = {
   hips: 20,
@@ -198,7 +199,7 @@ export function CertVersionsPanel() {
                   )}
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  Effective from: {new Date(v.effective_date).toLocaleDateString()}
+                  Effective from: {formatDate(v.effective_date)}
                 </p>
                 <p className="text-sm text-gray-500">
                   {v.required_test_type_ids.length} required tests

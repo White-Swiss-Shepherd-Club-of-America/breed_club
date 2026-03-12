@@ -1,4 +1,7 @@
-LOCAL_DB_URL := postgresql://postgres:postgres@localhost:5432/breed_club
+-include .env
+export
+
+LOCAL_DB_URL := postgresql://postgres:postgres@localhost:5433/breed_club
 
 .PHONY: up down dev dev-all db-migrate db-setup db-seed db-sync db-reset use-local-db use-supabase-db
 
@@ -49,7 +52,7 @@ dev:                       ## Start API + App
 	npm run dev
 
 dev-all:                   ## Start Hugo + App + API (full local stack)
-	concurrently --names "hugo,app,api" --prefix-colors "magenta,cyan,yellow" \
+	npx --yes concurrently --names "hugo,app,api" --prefix-colors "magenta,cyan,yellow" \
 		"cd ../web && hugo server -D --environment local" \
 		"npm run dev:app" \
 		"npm run dev:api"

@@ -8,6 +8,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ratingToHex, RATING_COLORS, RATING_LABELS, type HealthRatingColor } from "@/lib/health-colors";
+import { dateYear } from "@/lib/utils";
 import type { HealthRating } from "@breed-club/shared";
 
 interface PedigreeDog {
@@ -267,7 +268,7 @@ function PedigreeCell({
         )}
         {dog.date_of_birth && (
           <div className="text-[10px] text-gray-500">
-            {new Date(dog.date_of_birth).getFullYear()}
+            {dateYear(dog.date_of_birth)}
           </div>
         )}
       </button>

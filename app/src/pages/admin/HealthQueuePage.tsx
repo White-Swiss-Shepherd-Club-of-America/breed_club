@@ -8,6 +8,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { PdfViewer } from "../../components/PdfViewer";
+import { formatDate } from "../../lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -265,7 +266,7 @@ export function HealthQueuePanel() {
                         <p className="text-sm font-medium text-gray-700">Test Date</p>
                         <p className="text-lg">
                           {clearance.test_date
-                            ? new Date(clearance.test_date).toLocaleDateString()
+                            ? formatDate(clearance.test_date)
                             : "Not provided"}
                         </p>
                       </div>

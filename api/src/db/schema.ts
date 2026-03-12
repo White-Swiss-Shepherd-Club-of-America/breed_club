@@ -195,6 +195,7 @@ export const dogs = pgTable(
     notes: text("notes"),
     is_public: boolean("is_public").notNull().default(false),
     is_historical: boolean("is_historical").notNull().default(false),
+    is_deceased: boolean("is_deceased").notNull().default(false),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     health_rating: jsonb("health_rating").$type<HealthRating | null>(),
     submitted_by: uuid("submitted_by").references(() => members.id),

@@ -136,6 +136,7 @@ export interface Dog {
   notes: string | null;
   is_public: boolean;
   is_historical: boolean;
+  is_deceased: boolean;
   status: DogStatus;
   health_rating: HealthRating | null;
   submitted_by: string | null;
@@ -436,6 +437,11 @@ export interface DogProgenyResponse {
     dogs: DogProgenyEntry[];
   }>;
   totalCount: number;
+}
+
+export interface DogFilterOptions {
+  coat_types: string[];
+  colors: string[];
 }
 
 // --- API Response Types ---

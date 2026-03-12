@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, HealthRating, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse } from "@breed-club/shared";
+import type { Dog, DogFilterOptions, HealthRating, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -38,25 +38,67 @@ interface PedigreeResponse {
   };
 }
 
-export function useDogs(page = 1, search?: string, sex?: "male" | "female", ownedOnly?: boolean, includeHistorical?: boolean) {
+export interface DogFilters {
+  page?: number;
+  search?: string;
+  sex?: "male" | "female";
+  ownedOnly?: boolean;
+  includeHistorical?: boolean;
+  healthScoreMin?: number;
+  healthScoreMax?: number;
+  dobFrom?: string;
+  dobTo?: string;
+  breeder?: string;
+  owner?: string;
+  coatType?: string;
+  color?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+}
+
+export function useDogs(filters: DogFilters = {}) {
   const { getToken, isSignedIn } = useAuth();
 
   return useQuery({
-    queryKey: ["dogs", page, search, sex, ownedOnly, includeHistorical],
+    queryKey: ["dogs", filters],
     queryFn: async () => {
       const token = await getToken();
       return api.get<PaginatedResponse<Dog>>("/dogs", {
         token,
         params: {
-          page,
-          search,
-          sex,
-          owned_only: ownedOnly ? "true" : undefined,
-          include_historical: includeHistorical ? "true" : undefined,
+          page: filters.page || 1,
+          search: filters.search,
+          sex: filters.sex,
+          owned_only: filters.ownedOnly ? "true" : undefined,
+          include_historical: filters.includeHistorical ? "true" : undefined,
+          health_score_min: filters.healthScoreMin,
+          health_score_max: filters.healthScoreMax,
+          dob_from: filters.dobFrom,
+          dob_to: filters.dobTo,
+          breeder: filters.breeder,
+          owner: filters.owner,
+          coat_type: filters.coatType,
+          color: filters.color,
+          sort_by: filters.sortBy,
+          sort_dir: filters.sortDir,
         },
       });
     },
     enabled: isSignedIn === true,
+  });
+}
+
+export function useDogFilterOptions() {
+  const { getToken, isSignedIn } = useAuth();
+
+  return useQuery({
+    queryKey: ["dogFilterOptions"],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<DogFilterOptions>("/dogs/filter-options", { token });
+    },
+    enabled: isSignedIn === true,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -222,6 +264,7 @@ export function useAdminUpdateDog() {
       breeder_id?: string | null;
       is_public?: boolean;
       is_historical?: boolean;
+      is_deceased?: boolean;
       photo_url?: string;
     }) => {
       const token = await getToken();

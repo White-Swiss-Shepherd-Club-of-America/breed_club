@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { usePendingDogs, useApproveDog, useRejectDog } from "@/hooks/useDogs";
 import type { Dog } from "@breed-club/shared";
+import { formatDate } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -47,7 +48,7 @@ function DogCard({ dog, onApprove, onReject }: { dog: Dog; onApprove: () => void
             {dog.date_of_birth && (
               <div>
                 <span className="text-gray-600">DOB:</span>{" "}
-                {new Date(dog.date_of_birth).toLocaleDateString()}
+                {formatDate(dog.date_of_birth)}
               </div>
             )}
             {dog.color && (

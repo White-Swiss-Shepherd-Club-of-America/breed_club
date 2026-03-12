@@ -11,7 +11,7 @@ import type { Dog } from "@breed-club/shared";
 export function HealthSelectPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const { data, isLoading } = useDogs(page, search || undefined, undefined, true);
+  const { data, isLoading } = useDogs({ page, search: search || undefined, ownedOnly: true });
   const dogs = data?.data || [];
   const meta = data?.meta;
 

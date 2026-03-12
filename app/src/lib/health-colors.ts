@@ -4,6 +4,7 @@
  */
 
 import type { HealthRating, DogHealthClearance } from "@breed-club/shared";
+import { parseLocalDate } from "./utils";
 
 export type HealthRatingColor = "red" | "orange" | "yellow" | "green" | "blue" | "gray";
 
@@ -79,8 +80,9 @@ export function clearanceColor(c: DogHealthClearance): HealthRatingColor {
 
 /** Format age difference as "Xy Zm". */
 export function formatAge(dob: string, testDate: string): string {
-  const birth = new Date(dob);
-  const test = new Date(testDate);
+  const birth = parseLocalDate(dob);
+  const test = parseLocalDate(testDate);
+  if (!birth || !test) return "\u2014";
   let years = test.getFullYear() - birth.getFullYear();
   let months = test.getMonth() - birth.getMonth();
   if (months < 0) {

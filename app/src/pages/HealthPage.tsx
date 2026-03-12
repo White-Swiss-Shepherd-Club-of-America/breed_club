@@ -9,6 +9,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { api } from "../lib/api";
 import { useDog } from "../hooks/useDogs";
 import type { ResultSchema } from "@breed-club/shared";
+import { formatDate } from "../lib/utils";
 
 interface TestType {
   id: string;
@@ -822,7 +823,7 @@ export function HealthPage() {
                         <td className="py-1.5 px-3 text-purple-700 text-xs font-medium">{scoreDisplay}</td>
                         <td className="py-1.5 px-3 text-gray-500 text-xs">{c.organization.name}</td>
                         <td className="py-1.5 px-3 text-gray-500 text-xs">
-                          {c.test_date ? new Date(c.test_date).toLocaleDateString() : "—"}
+                          {formatDate(c.test_date)}
                         </td>
                         <td className="py-1.5 px-3">
                           <span

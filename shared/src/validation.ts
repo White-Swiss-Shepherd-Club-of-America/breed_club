@@ -68,6 +68,7 @@ export const createDogSchema = z.object({
   breeder_id: uuidSchema.nullish(),
   is_public: z.boolean().default(false),
   is_historical: z.boolean().default(false),
+  is_deceased: z.boolean().default(false),
   // Inline registrations for convenience
   registrations: z
     .array(

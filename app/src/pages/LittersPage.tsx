@@ -5,6 +5,7 @@
 
 import { Link } from "react-router-dom";
 import { useLitters } from "@/hooks/useLitters";
+import { formatDate } from "@/lib/utils";
 
 export function LittersPage() {
   const { data, isLoading, error } = useLitters();
@@ -95,13 +96,13 @@ export function LittersPage() {
                   {litter.expected_date && (
                     <p>
                       <span className="font-medium">Expected:</span>{" "}
-                      {new Date(litter.expected_date).toLocaleDateString()}
+                      {formatDate(litter.expected_date)}
                     </p>
                   )}
                   {litter.whelp_date && (
                     <p>
                       <span className="font-medium">Whelped:</span>{" "}
-                      {new Date(litter.whelp_date).toLocaleDateString()}
+                      {formatDate(litter.whelp_date)}
                     </p>
                   )}
                   {totalPups > 0 && (
