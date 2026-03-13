@@ -41,6 +41,11 @@ app.get("/health", (c) =>
   c.json({ status: "ok", timestamp: new Date().toISOString(), version: c.env.BUILD_VERSION ?? pkg.version })
 );
 
+// Version endpoint — registered before /api/* middleware so it needs no DB/club context
+app.get("/api/version", (c) =>
+  c.json({ version: c.env.BUILD_VERSION ?? pkg.version })
+);
+
 // All /api/* routes get club context, optional auth, and member loading
 app.use("/api/*", clubContext, optionalAuth, loadMember);
 

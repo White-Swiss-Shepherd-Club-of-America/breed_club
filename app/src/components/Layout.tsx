@@ -35,7 +35,7 @@ export function Layout() {
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    fetch("/health")
+    fetch("/api/version")
       .then((r) => r.json())
       .then((data: { version?: string }) => setApiVersion(data.version ?? "?"))
       .catch(() => setApiVersion("?"));
