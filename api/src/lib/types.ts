@@ -19,6 +19,7 @@ export interface Env {
   RECAPTCHA_SECRET_KEY: string;
   ENVIRONMENT: "development" | "staging" | "production";
   CLUB_SLUG: string; // For single-club deployments, identifies which club
+  BUILD_VERSION?: string; // Injected at deploy time via --var; shows git tag/hash
   CERTIFICATES_BUCKET: R2Bucket;
 }
 

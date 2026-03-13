@@ -11,6 +11,7 @@ port = 8787
 [vars]
 ENVIRONMENT = "development"
 CLUB_SLUG = "wssca"
+BUILD_VERSION = "development"
 
 # Production environment
 [env.production]

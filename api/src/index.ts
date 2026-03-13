@@ -37,7 +37,9 @@ app.use(
 );
 
 // Health check (no DB, no auth — just a ping)
-app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString(), version: pkg.version }));
+app.get("/health", (c) =>
+  c.json({ status: "ok", timestamp: new Date().toISOString(), version: c.env.BUILD_VERSION ?? pkg.version })
+);
 
 // All /api/* routes get club context, optional auth, and member loading
 app.use("/api/*", clubContext, optionalAuth, loadMember);
