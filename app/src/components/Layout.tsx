@@ -2,7 +2,7 @@
  * Main app layout with navigation sidebar.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { SignedIn, SignedOut, UserButton, SignInButton } from "@clerk/clerk-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
@@ -29,6 +29,17 @@ export function Layout() {
   const { data: clubData } = useClub();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [apiVersion, setApiVersion] = useState<string>("...");
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetch("/health")
+      .then((r) => r.json())
+      .then((data: { version?: string }) => setApiVersion(data.version ?? "?"))
+      .catch(() => setApiVersion("?"));
+  }, []);
 
   // Close mobile sidebar on navigation
   useEffect(() => {
@@ -219,8 +230,13 @@ export function Layout() {
         </SignedIn>
 
         {/* Main content */}
-        <main className="flex-1 p-6">
-          <Outlet />
+        <main className="flex-1 p-6 flex flex-col min-h-[calc(100vh-57px)]">
+          <div className="flex-1">
+            <Outlet />
+          </div>
+          <footer className="mt-8 pt-2 border-t border-gray-100 text-center text-xs text-gray-400">
+            app v{__APP_VERSION__} · api v{apiVersion}
+          </footer>
         </main>
       </div>
     </div>

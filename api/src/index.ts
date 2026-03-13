@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Env } from "./lib/types.js";
+import pkg from "../package.json";
 import { clubContext } from "./middleware/club-context.js";
 import { optionalAuth } from "./middleware/auth.js";
 import { loadMember } from "./middleware/rbac.js";
@@ -36,7 +37,7 @@ app.use(
 );
 
 // Health check (no DB, no auth — just a ping)
-app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString(), version: pkg.version }));
 
 // All /api/* routes get club context, optional auth, and member loading
 app.use("/api/*", clubContext, optionalAuth, loadMember);
