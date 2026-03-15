@@ -269,9 +269,10 @@ function TestTypesTab() {
 
   return (
     <div>
-      {(showForm || editing) && (
+      {showForm && !editing && (
         <TestTypeForm
-          testType={editing}
+          key="new"
+          testType={null}
           organizations={organizations}
           onSave={handleSave}
           onCancel={() => {
@@ -280,6 +281,24 @@ function TestTypesTab() {
           }}
           isPending={createMutation.isPending || updateMutation.isPending}
         />
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto p-4">
+          <div className="w-full max-w-3xl my-8">
+            <TestTypeForm
+              key={editing.id}
+              testType={editing}
+              organizations={organizations}
+              onSave={handleSave}
+              onCancel={() => {
+                setShowForm(false);
+                setEditing(null);
+              }}
+              isPending={createMutation.isPending || updateMutation.isPending}
+            />
+          </div>
+        </div>
       )}
 
       {!showForm && !editing && (

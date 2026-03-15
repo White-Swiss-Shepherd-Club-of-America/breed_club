@@ -6,6 +6,7 @@ import { execSync } from "child_process";
 import pkg from "./package.json";
 
 const getVersion = (): string => {
+  if (process.env.BUILD_VERSION) return process.env.BUILD_VERSION;
   try {
     return execSync("git describe --tags --always --abbrev=7", { encoding: "utf8" }).trim();
   } catch {
