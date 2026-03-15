@@ -230,6 +230,46 @@ export function HealthTestsPage() {
   );
 }
 
+// ─── Sort Header ─────────────────────────────────────────────────────────────
+
+type TestTypeSortKey = "name" | "short_name" | "category" | "sort_order" | "is_required" | "is_active";
+type SortDir = "asc" | "desc";
+
+function SortHeader({
+  label,
+  sortKey,
+  currentSort,
+  currentDir,
+  onSort,
+}: {
+  label: string;
+  sortKey: TestTypeSortKey;
+  currentSort: TestTypeSortKey;
+  currentDir: SortDir;
+  onSort: (key: TestTypeSortKey) => void;
+}) {
+  const active = currentSort === sortKey;
+  return (
+    <th
+      className="px-4 py-3 text-left font-medium text-gray-600 cursor-pointer select-none hover:text-gray-900"
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active && (
+          <svg className="w-3 h-3" viewBox="0 0 12 12" fill="currentColor">
+            {currentDir === "asc" ? (
+              <path d="M6 2L10 8H2L6 2Z" />
+            ) : (
+              <path d="M6 10L2 4H10L6 10Z" />
+            )}
+          </svg>
+        )}
+      </span>
+    </th>
+  );
+}
+
 // ─── Test Types Tab ──────────────────────────────────────────────────────────
 
 function TestTypesTab() {
@@ -241,9 +281,43 @@ function TestTypesTab() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<HealthTestType | null>(null);
+  const [sortKey, setSortKey] = useState<TestTypeSortKey>("sort_order");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [categoryFilter, setCategoryFilter] = useState("");
 
   const testTypes = data?.data ?? [];
   const organizations = orgsData?.data ?? [];
+
+  const handleSort = (key: TestTypeSortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const filtered = categoryFilter
+    ? testTypes.filter((tt: HealthTestType) => tt.category === categoryFilter)
+    : testTypes;
+
+  const sorted = [...filtered].sort((a: HealthTestType, b: HealthTestType) => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    switch (sortKey) {
+      case "name":
+      case "short_name":
+      case "category":
+        return dir * (a[sortKey] ?? "").localeCompare(b[sortKey] ?? "");
+      case "sort_order":
+        return dir * ((a.sort_order ?? 0) - (b.sort_order ?? 0));
+      case "is_required":
+        return dir * (Number(a.is_required) - Number(b.is_required));
+      case "is_active":
+        return dir * (Number(a.is_active) - Number(b.is_active));
+      default:
+        return 0;
+    }
+  });
 
   const handleSave = async (formData: Record<string, unknown>) => {
     if (editing) {
@@ -302,13 +376,27 @@ function TestTypesTab() {
       )}
 
       {!showForm && !editing && (
-        <button
-          onClick={() => setShowForm(true)}
-          className="mb-4 flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 transition"
-        >
-          <Plus className="h-4 w-4" />
-          Add Test Type
-        </button>
+        <div className="mb-4 flex items-center gap-3">
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 transition"
+          >
+            <Plus className="h-4 w-4" />
+            Add Test Type
+          </button>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          >
+            <option value="">All Categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c.charAt(0).toUpperCase() + c.slice(1)}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
 
       {testTypes.length === 0 && !showForm && (
@@ -322,18 +410,18 @@ function TestTypesTab() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Short</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Category</th>
+                <SortHeader label="Name" sortKey="name" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Short" sortKey="short_name" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortHeader label="Category" sortKey="category" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Results</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Required</th>
+                <SortHeader label="Required" sortKey="is_required" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Grading Orgs</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Active</th>
+                <SortHeader label="Active" sortKey="is_active" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {testTypes.map((tt: HealthTestType) => (
+              {sorted.map((tt: HealthTestType) => (
                 <tr key={tt.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-900">{tt.name}</td>
                   <td className="px-4 py-3 text-gray-600">{tt.short_name}</td>
