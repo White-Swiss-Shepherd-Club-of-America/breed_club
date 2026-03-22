@@ -13,16 +13,21 @@ interface SendEmailParams {
 }
 
 export async function sendEmail(
-  { to, subject, html, from = "WSSCA <noreply@mail.wssca.org>" }: SendEmailParams,
-  apiKey: string
+  { to, subject, html, from }: SendEmailParams,
+  apiKey: string,
+  defaultFrom?: string
 ): Promise<void> {
+  const sender = from ?? defaultFrom;
+  if (!sender) {
+    throw new Error("No 'from' address provided and no EMAIL_FROM configured");
+  }
   const response = await fetch(RESEND_API_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to, subject, html }),
+    body: JSON.stringify({ from: sender, to, subject, html }),
   });
 
   if (!response.ok) {

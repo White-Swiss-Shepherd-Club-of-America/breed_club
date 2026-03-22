@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth, useUser, SignIn } from "@clerk/clerk-react";
+import { useAuth, useUser, SignUp } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 
 interface InvitationPreview {
@@ -133,9 +133,9 @@ export function AcceptInvitationPage() {
       ) : (
         <div>
           <p className="text-center text-sm text-gray-600 mb-4">
-            Sign in or create an account to accept this invitation.
+            Create an account to accept this invitation.
           </p>
-          <SignIn
+          <SignUp
             redirectUrl={window.location.href}
             appearance={{ elements: { rootBox: "w-full", card: "shadow-none border-0 p-0" } }}
           />

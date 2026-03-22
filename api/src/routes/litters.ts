@@ -102,23 +102,26 @@ litterRoutes.post("/", requireAuth, requireFlag("is_breeder"), async (c) => {
     const sire = await db.query.dogs.findFirst({ where: eq(dogs.id, litterData.sire_id!) });
 
     if (club && sire) {
-      const dashboardUrl = `https://${club.slug}.wssca.org/dashboard`;
-      sendEmail(
-        {
-          to: sireOwnerContact.email,
-          subject: `Sire Approval Request — ${sire.call_name || sire.registered_name}`,
-          html: sireApprovalRequestEmail({
-            sireOwnerName: sireOwnerContact.full_name,
-            sireName: sire.call_name || sire.registered_name,
-            breederName: breederContact.kennel_name || breederContact.full_name,
-            litterName: litterData.litter_name ?? null,
-            whelpDate: litterData.whelp_date ?? null,
-            dashboardUrl,
-            clubName: club.name,
-          }),
-        },
-        c.env.RESEND_API_KEY
-      ).catch((err) => console.error("Failed to send sire approval email:", err));
+      const dashboardUrl = `${c.env.APP_URL}/dashboard`;
+      c.executionCtx.waitUntil(
+        sendEmail(
+          {
+            to: sireOwnerContact.email,
+            subject: `Sire Approval Request — ${sire.call_name || sire.registered_name}`,
+            html: sireApprovalRequestEmail({
+              sireOwnerName: sireOwnerContact.full_name,
+              sireName: sire.call_name || sire.registered_name,
+              breederName: breederContact.kennel_name || breederContact.full_name,
+              litterName: litterData.litter_name ?? null,
+              whelpDate: litterData.whelp_date ?? null,
+              dashboardUrl,
+              clubName: club.name,
+            }),
+          },
+          c.env.RESEND_API_KEY,
+          c.env.EMAIL_FROM
+        ).catch((err) => console.error("Failed to send sire approval email:", err))
+      );
     }
   }
 

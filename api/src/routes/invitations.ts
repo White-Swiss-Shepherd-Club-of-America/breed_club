@@ -119,33 +119,23 @@ invitationRoutes.post("/send", requirePermission("members:approve"), async (c) =
   const club = c.get("club");
   const clubName = club.name;
 
-  // Trigger Clerk invitation (Clerk sends their own email + handles existing accounts)
-  fetch("https://api.clerk.com/v1/invitations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      email_address: email,
-      redirect_url: inviteUrl,
-    }),
-  }).catch((err) => console.warn("Clerk invitation API error:", err));
-
-  // Send our branded invitation email via Resend (belt-and-suspenders)
-  sendEmail(
-    {
-      to: email,
-      subject: `You're invited to join ${clubName}`,
-      html: invitationEmail({
-        inviteeName: application.applicant_name,
-        inviteUrl,
-        clubName,
-        tier: "member",
-      }),
-    },
-    c.env.RESEND_API_KEY
-  ).catch((err) => console.warn("Resend invitation email error:", err));
+  // Send branded invitation email via Resend
+  c.executionCtx.waitUntil(
+    sendEmail(
+      {
+        to: email,
+        subject: `You're invited to join ${clubName}`,
+        html: invitationEmail({
+          inviteeName: application.applicant_name,
+          inviteUrl,
+          clubName,
+          tier: "member",
+        }),
+      },
+      c.env.RESEND_API_KEY,
+      c.env.EMAIL_FROM
+    ).catch((err) => console.warn("Resend invitation email error:", err))
+  );
 
   return c.json({ invitation }, 201);
 });
@@ -198,28 +188,22 @@ invitationRoutes.post("/direct", requirePermission("members:approve"), async (c)
   const inviteUrl = `${appUrl}/accept-invitation?token=${token}`;
   const club = c.get("club");
 
-  fetch("https://api.clerk.com/v1/invitations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email_address: email, redirect_url: inviteUrl }),
-  }).catch((err) => console.warn("Clerk invitation API error:", err));
-
-  sendEmail(
-    {
-      to: email,
-      subject: `You're invited to join ${club.name}`,
-      html: invitationEmail({
-        inviteeName: name,
-        inviteUrl,
-        clubName: club.name,
-        tier,
-      }),
-    },
-    c.env.RESEND_API_KEY
-  ).catch((err) => console.warn("Resend invitation email error:", err));
+  c.executionCtx.waitUntil(
+    sendEmail(
+      {
+        to: email,
+        subject: `You're invited to join ${club.name}`,
+        html: invitationEmail({
+          inviteeName: name,
+          inviteUrl,
+          clubName: club.name,
+          tier,
+        }),
+      },
+      c.env.RESEND_API_KEY,
+      c.env.EMAIL_FROM
+    ).catch((err) => console.warn("Resend invitation email error:", err))
+  );
 
   return c.json({ invitation }, 201);
 });
@@ -392,22 +376,25 @@ invitationRoutes.post("/accept", requireAuth, async (c) => {
     .set({ status: "accepted", accepted_at: now, accepted_by: memberId })
     .where(eq(memberInvitations.id, invitation.id));
 
-  // Send welcome email (fire-and-forget)
+  // Send welcome email
   const clubName = invitation.club?.name ?? "the club";
   const appUrl = c.env.APP_URL;
-  sendEmail(
-    {
-      to: clerkEmail,
-      subject: `Welcome to ${clubName}!`,
-      html: welcomeEmail({
-        memberName: clerkName || clerkEmail,
-        tier: invitation.tier,
-        dashboardUrl: `${appUrl}/dashboard`,
-        clubName,
+  c.executionCtx.waitUntil(
+    sendEmail(
+      {
+        to: clerkEmail,
+        subject: `Welcome to ${clubName}!`,
+        html: welcomeEmail({
+          memberName: clerkName || clerkEmail,
+          tier: invitation.tier,
+          dashboardUrl: `${appUrl}/dashboard`,
+          clubName,
       }),
     },
-    c.env.RESEND_API_KEY
-  ).catch((err) => console.warn("Resend welcome email error:", err));
+    c.env.RESEND_API_KEY,
+    c.env.EMAIL_FROM
+  ).catch((err) => console.warn("Resend welcome email error:", err))
+  );
 
   const member = await db.query.members.findFirst({
     where: eq(members.id, memberId),

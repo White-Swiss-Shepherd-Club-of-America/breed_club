@@ -18,6 +18,7 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET: string;
   RECAPTCHA_SECRET_KEY: string;
   RESEND_API_KEY: string;
+  EMAIL_FROM: string; // e.g. "Club Name <noreply@mail.example.com>"
   APP_URL: string; // Frontend URL, e.g. https://app.wssca.org (no trailing slash)
   ENVIRONMENT: "development" | "staging" | "production";
   CLUB_SLUG: string; // For single-club deployments, identifies which club

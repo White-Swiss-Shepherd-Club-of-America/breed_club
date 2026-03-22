@@ -97,33 +97,36 @@ applicationRoutes.post("/", requireAuth, async (c) => {
   const appUrl = c.env.APP_URL;
   const adminUrl = `${appUrl}/admin/applications`;
 
-  db.query.members.findMany({
-    where: and(
-      eq(members.club_id, clubId),
-      or(eq(members.tier, "admin"), eq(members.can_approve_members, true))
-    ),
-    with: { contact: true },
-  }).then((approvers) => {
-    const emails = approvers
-      .map((m) => m.contact?.email)
-      .filter((e): e is string => Boolean(e));
+  c.executionCtx.waitUntil(
+    db.query.members.findMany({
+      where: and(
+        eq(members.club_id, clubId),
+        or(eq(members.tier, "admin"), eq(members.can_approve_members, true))
+      ),
+      with: { contact: true },
+    }).then((approvers) => {
+      const emails = approvers
+        .map((m) => m.contact?.email)
+        .filter((e): e is string => Boolean(e));
 
-    for (const email of emails) {
-      sendEmail(
-        {
-          to: email,
-          subject: `New application from ${data.applicant_name}`,
-          html: newApplicationEmail({
-            applicantName: data.applicant_name,
-            applicantEmail: data.applicant_email,
-            adminUrl,
-            clubName: club.name,
-          }),
-        },
-        c.env.RESEND_API_KEY
-      ).catch(() => {});
-    }
-  }).catch(() => {});
+      return Promise.all(emails.map((email) =>
+        sendEmail(
+          {
+            to: email,
+            subject: `New application from ${data.applicant_name}`,
+            html: newApplicationEmail({
+              applicantName: data.applicant_name,
+              applicantEmail: data.applicant_email,
+              adminUrl,
+              clubName: club.name,
+            }),
+          },
+          c.env.RESEND_API_KEY,
+          c.env.EMAIL_FROM
+        ).catch((err) => console.warn("Resend application notification error:", err))
+      ));
+    }).catch((err) => console.warn("Failed to notify approvers:", err))
+  );
 
   return c.json({ application }, 201);
 });
@@ -316,28 +319,22 @@ applicationRoutes.patch("/:id/review", requirePermission("members:approve"), asy
       const inviteUrl = `${appUrl}/accept-invitation?token=${token}`;
       const club = c.get("club");
 
-      fetch("https://api.clerk.com/v1/invitations", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email_address: email, redirect_url: inviteUrl }),
-      }).catch((err) => console.warn("Clerk invitation API error:", err));
-
-      sendEmail(
-        {
-          to: email,
-          subject: `You're invited to join ${club.name}`,
-          html: invitationEmail({
-            inviteeName: application.applicant_name,
-            inviteUrl,
-            clubName: club.name,
-            tier: "member",
-          }),
-        },
-        c.env.RESEND_API_KEY
-      ).catch((err) => console.warn("Resend invitation email error:", err));
+      c.executionCtx.waitUntil(
+        sendEmail(
+          {
+            to: email,
+            subject: `You're invited to join ${club.name}`,
+            html: invitationEmail({
+              inviteeName: application.applicant_name,
+              inviteUrl,
+              clubName: club.name,
+              tier: "member",
+            }),
+          },
+          c.env.RESEND_API_KEY,
+          c.env.EMAIL_FROM
+        ).catch((err) => console.warn("Resend invitation email error:", err))
+      );
     }
   }
 
