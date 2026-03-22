@@ -255,6 +255,13 @@ const resultSchemaValidator = z.discriminatedUnion("type", [
       score_map: z.record(z.string(), z.number().int().min(0).max(100)),
     }).optional(),
   }),
+  z.object({
+    type: z.literal("enum_lr"),
+    options: z.array(z.string().min(1)).min(1),
+    score_config: z.object({
+      score_map: z.record(z.string(), z.number().int().min(0).max(100)),
+    }).optional(),
+  }),
 ]);
 
 export { resultSchemaValidator };
@@ -309,10 +316,14 @@ export const createLitterSchema = z.object({
   sire_id: uuidSchema.nullish(),
   dam_id: uuidSchema.nullish(),
   whelp_date: z.string().date().nullish(),
-  expected_date: z.string().date().nullish(),
-  num_puppies_born: z.number().int().min(0).nullish(),
-  num_puppies_survived: z.number().int().min(0).nullish(),
-  status: z.enum(["planned", "expected", "born", "weaned", "closed"]).default("planned"),
+  litter_name: z.string().max(100).nullish(),
+  num_males: z.number().int().min(0).nullish(),
+  num_females: z.number().int().min(0).nullish(),
+  notes: z.string().max(2000).nullish(),
+});
+
+export const sireApprovalSchema = z.object({
+  status: z.enum(["approved", "rejected"]),
   notes: z.string().max(2000).nullish(),
 });
 
@@ -327,10 +338,14 @@ export const createLitterPupSchema = z.object({
 });
 
 export const sellPupSchema = z.object({
-  buyer_email: z.string().email(),
-  buyer_name: z.string().min(1).max(255),
+  buyer_contact_id: uuidSchema.optional(),
+  buyer_email: z.string().email().optional(),
+  buyer_name: z.string().min(1).max(255).optional(),
   registered_name: z.string().min(1).max(255),
-});
+}).refine(
+  (data) => data.buyer_contact_id || (data.buyer_email && data.buyer_name),
+  { message: "Provide either buyer_contact_id or both buyer_email and buyer_name" }
+);
 
 // --- Ownership Transfers ---
 

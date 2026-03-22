@@ -194,7 +194,7 @@ publicRoutes.get("/announcements", async (c) => {
         },
       },
     },
-    orderBy: (l, { desc }) => [desc(l.whelp_date), desc(l.expected_date)],
+    orderBy: (l, { desc }) => [desc(l.whelp_date), desc(l.created_at)],
   });
 
   // Only show litters with available or expected pups

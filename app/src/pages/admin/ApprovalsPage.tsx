@@ -8,13 +8,15 @@ import { ApplicationsPanel } from "./ApplicationsPage";
 import { DogQueuePanel } from "./DogQueuePage";
 import { HealthQueuePanel } from "./HealthQueuePage";
 import { TransferQueuePanel } from "./TransferQueuePage";
+import { LitterQueuePanel } from "./LitterQueuePage";
 
-type Tab = "applications" | "dogs" | "health" | "transfers";
+type Tab = "applications" | "dogs" | "health" | "litters" | "transfers";
 
 const TAB_DEFS: { key: Tab; label: string; permission: "members" | "clearances" }[] = [
   { key: "applications", label: "Applications", permission: "members" },
   { key: "dogs", label: "Dogs", permission: "clearances" },
   { key: "health", label: "Health", permission: "clearances" },
+  { key: "litters", label: "Litters", permission: "clearances" },
   { key: "transfers", label: "Transfers", permission: "clearances" },
 ];
 
@@ -54,6 +56,7 @@ export function ApprovalsPage() {
       {tab === "applications" && <ApplicationsPanel />}
       {tab === "dogs" && <DogQueuePanel />}
       {tab === "health" && <HealthQueuePanel />}
+      {tab === "litters" && <LitterQueuePanel />}
       {tab === "transfers" && <TransferQueuePanel />}
     </div>
   );

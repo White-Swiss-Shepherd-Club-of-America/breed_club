@@ -19,20 +19,12 @@ export function LittersPage() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Failed to load litters. Please try again.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-900">My Litters</h1>
         <Link
-          to="/app/litters/new"
+          to="/litters/new"
           className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition"
         >
           Register New Litter
@@ -43,7 +35,7 @@ export function LittersPage() {
         <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
           <p className="text-gray-600 mb-4">You haven't registered any litters yet.</p>
           <Link
-            to="/app/litters/new"
+            to="/litters/new"
             className="inline-block px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition"
           >
             Register Your First Litter
@@ -58,7 +50,7 @@ export function LittersPage() {
             return (
               <Link
                 key={litter.id}
-                to={`/app/litters/${litter.id}`}
+                to={`/litters/${litter.id}`}
                 className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition"
               >
                 <div className="mb-4">
@@ -68,7 +60,10 @@ export function LittersPage() {
                       {litter.dam?.call_name || litter.dam?.registered_name || "Unknown"}
                     </h3>
                   </div>
-                  <div className="flex items-center gap-2">
+                  {litter.litter_name && (
+                    <p className="text-sm text-gray-500 mb-2">Litter: {litter.litter_name}</p>
+                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span
                       className={`px-2 py-1 rounded text-xs font-medium ${
                         litter.approved
@@ -78,36 +73,30 @@ export function LittersPage() {
                     >
                       {litter.approved ? "Approved" : "Pending Approval"}
                     </span>
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${
-                        litter.status === "born"
-                          ? "bg-blue-100 text-blue-800"
-                          : litter.status === "expected"
-                          ? "bg-purple-100 text-purple-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {litter.status}
-                    </span>
+                    {litter.sire_approval_status === "pending" && (
+                      <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                        Awaiting Sire Approval
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 <div className="space-y-2 text-sm text-gray-600">
-                  {litter.expected_date && (
-                    <p>
-                      <span className="font-medium">Expected:</span>{" "}
-                      {formatDate(litter.expected_date)}
-                    </p>
-                  )}
                   {litter.whelp_date && (
                     <p>
                       <span className="font-medium">Whelped:</span>{" "}
                       {formatDate(litter.whelp_date)}
                     </p>
                   )}
+                  {(litter.num_males != null || litter.num_females != null) && (
+                    <p>
+                      <span className="font-medium">Pups:</span>{" "}
+                      {litter.num_males ?? 0} males, {litter.num_females ?? 0} females
+                    </p>
+                  )}
                   {totalPups > 0 && (
                     <p>
-                      <span className="font-medium">Pups:</span> {availablePups} available of{" "}
+                      <span className="font-medium">Registered:</span> {availablePups} available of{" "}
                       {totalPups} total
                     </p>
                   )}

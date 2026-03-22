@@ -906,6 +906,19 @@ export function DogDetailPage() {
                   Convert to Registry
                 </button>
               )}
+              {canEdit && !dog.is_historical && (
+                <button
+                  onClick={async () => {
+                    if (confirm("Mark this dog as historical? Historical dogs are excluded from active listings and health ratings.")) {
+                      await adminUpdateMutation.mutateAsync({ id: dog.id, is_historical: true });
+                    }
+                  }}
+                  disabled={adminUpdateMutation.isPending}
+                  className="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+                >
+                  Mark Historical
+                </button>
+              )}
               {canEdit && !dog.is_deceased && !dog.date_of_death && (
                 <button
                   onClick={() => setShowDeceasedDialog(true)}

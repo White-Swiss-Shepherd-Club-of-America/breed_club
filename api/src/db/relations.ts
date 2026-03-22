@@ -17,6 +17,7 @@ import {
   litterPups,
   healthRatingConfigs,
   healthCertVersions,
+  memberInvitations,
   payments,
 } from "./schema.js";
 
@@ -239,6 +240,11 @@ export const littersRelations = relations(litters, ({ one, many }) => ({
     references: [members.id],
     relationName: "litterApprover",
   }),
+  sireApprover: one(members, {
+    fields: [litters.sire_approval_by],
+    references: [members.id],
+    relationName: "litterSireApprover",
+  }),
   pups: many(litterPups),
 }));
 
@@ -260,6 +266,26 @@ export const healthRatingConfigsRelations = relations(healthRatingConfigs, ({ on
 
 export const healthCertVersionsRelations = relations(healthCertVersions, ({ one }) => ({
   club: one(clubs, { fields: [healthCertVersions.club_id], references: [clubs.id] }),
+}));
+
+// ─── Member Invitation relations ─────────────────────────────────────────────
+
+export const memberInvitationsRelations = relations(memberInvitations, ({ one }) => ({
+  club: one(clubs, { fields: [memberInvitations.club_id], references: [clubs.id] }),
+  invitedBy: one(members, {
+    fields: [memberInvitations.invited_by],
+    references: [members.id],
+    relationName: "invitationSender",
+  }),
+  application: one(membershipApplications, {
+    fields: [memberInvitations.application_id],
+    references: [membershipApplications.id],
+  }),
+  acceptedBy: one(members, {
+    fields: [memberInvitations.accepted_by],
+    references: [members.id],
+    relationName: "invitationAccepter",
+  }),
 }));
 
 // ─── Payment relations ──────────────────────────────────────────────────────

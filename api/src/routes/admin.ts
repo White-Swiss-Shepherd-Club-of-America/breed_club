@@ -33,6 +33,7 @@ import {
   dogHealthClearances,
   dogOwnershipTransfers,
   healthCertVersions,
+  litters,
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
@@ -1255,6 +1256,115 @@ adminRoutes.delete("/cert-versions/:id", requirePermission("test_types:manage"),
   recomputeAllClubRatings(db, clubId).catch(() => {});
 
   return c.json({ success: true });
+});
+
+// ─── Litters ──────────────────────────────────────────────────────────────
+
+/**
+ * GET /litters/pending — list litters awaiting club approval.
+ */
+adminRoutes.get("/litters/pending", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const query = paginationSchema.parse(c.req.query());
+
+  const where = and(
+    eq(litters.club_id, clubId),
+    eq(litters.approved, false),
+    // Only show litters where sire approval is done (or not required)
+    inArray(litters.sire_approval_status, ["not_required", "approved"]),
+  );
+
+  const [data, countResult] = await Promise.all([
+    db.query.litters.findMany({
+      where,
+      with: {
+        sire: { columns: { id: true, registered_name: true, call_name: true } },
+        dam: { columns: { id: true, registered_name: true, call_name: true } },
+        breeder: true,
+      },
+      limit: query.limit,
+      offset: (query.page - 1) * query.limit,
+      orderBy: (l, { desc }) => [desc(l.created_at)],
+    }),
+    db.select({ count: sql<number>`count(*)` }).from(litters).where(where),
+  ]);
+
+  const total = Number(countResult[0].count);
+
+  return c.json({
+    data,
+    meta: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      pages: Math.ceil(total / query.limit),
+    },
+  });
+});
+
+/**
+ * POST /litters/:id/approve — approve a pending litter.
+ */
+adminRoutes.post("/litters/:id/approve", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) throw forbidden("Member record required");
+
+  const litter = await db.query.litters.findFirst({
+    where: and(eq(litters.id, id), eq(litters.club_id, clubId)),
+  });
+
+  if (!litter) throw notFound("Litter");
+  if (litter.approved) throw badRequest("Litter is already approved");
+
+  const [updated] = await db
+    .update(litters)
+    .set({
+      approved: true,
+      approved_by: auth.member.id,
+      approved_at: new Date(),
+      updated_at: new Date(),
+    })
+    .where(eq(litters.id, id))
+    .returning();
+
+  return c.json({ litter: updated });
+});
+
+/**
+ * POST /litters/:id/reject — reject a pending litter (deletes it).
+ */
+adminRoutes.post("/litters/:id/reject", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) throw forbidden("Member record required");
+
+  const litter = await db.query.litters.findFirst({
+    where: and(eq(litters.id, id), eq(litters.club_id, clubId)),
+  });
+
+  if (!litter) throw notFound("Litter");
+  if (litter.approved) throw badRequest("Cannot reject an approved litter");
+
+  const [updated] = await db
+    .update(litters)
+    .set({
+      approved: false,
+      approved_by: auth.member.id,
+      approved_at: new Date(),
+      updated_at: new Date(),
+    })
+    .where(eq(litters.id, id))
+    .returning();
+
+  return c.json({ litter: updated });
 });
 
 export { adminRoutes };

@@ -68,10 +68,9 @@ export function useCreateLitter() {
       sire_id?: string;
       dam_id?: string;
       whelp_date?: string;
-      expected_date?: string;
-      num_puppies_born?: number;
-      num_puppies_survived?: number;
-      status?: "planned" | "expected" | "born" | "weaned" | "closed";
+      litter_name?: string;
+      num_males?: number;
+      num_females?: number;
       notes?: string;
     }) => {
       const token = await getToken();
@@ -92,10 +91,9 @@ export function useUpdateLitter(id: string) {
       sire_id?: string;
       dam_id?: string;
       whelp_date?: string;
-      expected_date?: string;
-      num_puppies_born?: number;
-      num_puppies_survived?: number;
-      status?: "planned" | "expected" | "born" | "weaned" | "closed";
+      litter_name?: string;
+      num_males?: number;
+      num_females?: number;
       notes?: string;
     }>) => {
       const token = await getToken();
@@ -104,6 +102,35 @@ export function useUpdateLitter(id: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["litters"] });
       queryClient.invalidateQueries({ queryKey: ["litter", id] });
+    },
+  });
+}
+
+export function useSireApprovals() {
+  const { getToken, isSignedIn } = useAuth();
+
+  return useQuery({
+    queryKey: ["sireApprovals"],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<LittersResponse>("/litters/sire-approvals", { token });
+    },
+    enabled: isSignedIn === true,
+  });
+}
+
+export function useRespondSireApproval(litterId: string) {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation({
+    mutationFn: async (data: { status: "approved" | "rejected"; notes?: string }) => {
+      const token = await getToken();
+      return api.post<Litter>(`/litters/${litterId}/sire-approve`, data, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sireApprovals"] });
+      queryClient.invalidateQueries({ queryKey: ["litters"] });
     },
   });
 }
@@ -159,8 +186,9 @@ export function useSellPup(litterId: string, pupId: string) {
 
   return useMutation({
     mutationFn: async (data: {
-      buyer_email: string;
-      buyer_name: string;
+      buyer_contact_id?: string;
+      buyer_email?: string;
+      buyer_name?: string;
       registered_name: string;
     }) => {
       const token = await getToken();
@@ -170,6 +198,53 @@ export function useSellPup(litterId: string, pupId: string) {
       queryClient.invalidateQueries({ queryKey: ["litter", litterId] });
       queryClient.invalidateQueries({ queryKey: ["litters"] });
       queryClient.invalidateQueries({ queryKey: ["dogs"] });
+    },
+  });
+}
+
+export function usePendingLitters(page = 1) {
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ["pendingLitters", page],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<{ data: Litter[]; meta: { page: number; limit: number; total: number; pages: number } }>("/admin/litters/pending", {
+        token,
+        params: { page },
+      });
+    },
+  });
+}
+
+export function useApproveLitter() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.post<{ litter: Litter }>(`/admin/litters/${id}/approve`, {}, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pendingLitters"] });
+      queryClient.invalidateQueries({ queryKey: ["litters"] });
+    },
+  });
+}
+
+export function useRejectLitter() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.post<{ litter: Litter }>(`/admin/litters/${id}/reject`, {}, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pendingLitters"] });
+      queryClient.invalidateQueries({ queryKey: ["litters"] });
     },
   });
 }

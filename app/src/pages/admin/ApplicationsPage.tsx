@@ -14,13 +14,15 @@ export function ApplicationsPanel() {
   const reviewMutation = useReviewApplication();
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
+  const [approvedEmail, setApprovedEmail] = useState<string | null>(null);
 
   const applications = data?.data ?? [];
   const meta = data?.meta;
 
   const handleReview = async (
     id: string,
-    status: "approved" | "rejected" | "needs_revision"
+    status: "approved" | "rejected" | "needs_revision",
+    applicantEmail: string
   ) => {
     await reviewMutation.mutateAsync({
       id,
@@ -30,10 +32,21 @@ export function ApplicationsPanel() {
     });
     setReviewingId(null);
     setReviewNotes("");
+    if (status === "approved") {
+      setApprovedEmail(applicantEmail);
+      setTimeout(() => setApprovedEmail(null), 5000);
+    }
   };
 
   return (
     <div>
+
+      {/* Approve success notification */}
+      {approvedEmail && (
+        <div className="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+          Approved — invitation email sent to <strong>{approvedEmail}</strong>
+        </div>
+      )}
 
       {/* Status filter tabs */}
       <div className="flex gap-2 mb-6">
@@ -127,7 +140,7 @@ export function ApplicationsPanel() {
             )}
 
             {/* Review actions */}
-            {statusFilter === "submitted" && (
+            {(statusFilter === "submitted" || statusFilter === "under_review") && (
               <div className="mt-4">
                 {reviewingId === app.id ? (
                   <div className="space-y-3">
@@ -140,21 +153,21 @@ export function ApplicationsPanel() {
                     />
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleReview(app.id, "approved")}
+                        onClick={() => handleReview(app.id, "approved", app.applicant_email)}
                         disabled={reviewMutation.isPending}
                         className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
                       >
                         <Check className="h-4 w-4" /> Approve
                       </button>
                       <button
-                        onClick={() => handleReview(app.id, "rejected")}
+                        onClick={() => handleReview(app.id, "rejected", app.applicant_email)}
                         disabled={reviewMutation.isPending}
                         className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50"
                       >
                         <X className="h-4 w-4" /> Reject
                       </button>
                       <button
-                        onClick={() => handleReview(app.id, "needs_revision")}
+                        onClick={() => handleReview(app.id, "needs_revision", app.applicant_email)}
                         disabled={reviewMutation.isPending}
                         className="flex items-center gap-1 px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50"
                       >
@@ -172,12 +185,14 @@ export function ApplicationsPanel() {
                     </div>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setReviewingId(app.id)}
-                    className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
-                  >
-                    Review
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setReviewingId(app.id)}
+                      className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                    >
+                      Review
+                    </button>
+                  </div>
                 )}
               </div>
             )}

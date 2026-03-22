@@ -56,14 +56,14 @@ export function hasTier(actual: Tier, required: Tier): boolean {
  */
 export const PERMISSIONS = {
   // Dogs
-  "dogs:create": { minTier: "certificate" as Tier },
-  "dogs:read_own": { minTier: "certificate" as Tier },
+  "dogs:create": { minTier: "non_member" as Tier },
+  "dogs:read_own": { minTier: "non_member" as Tier },
   "dogs:read_all": { minTier: "member" as Tier },
   "dogs:approve": { minTier: "member" as Tier, flag: "can_approve_clearances" as const },
 
   // Health clearances
-  "health:create": { minTier: "certificate" as Tier },
-  "health:read_own": { minTier: "certificate" as Tier },
+  "health:create": { minTier: "non_member" as Tier },
+  "health:read_own": { minTier: "non_member" as Tier },
   "health:read_all": { minTier: "member" as Tier },
   "health:verify": { minTier: "member" as Tier, flag: "can_approve_clearances" as const },
 

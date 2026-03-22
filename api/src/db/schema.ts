@@ -347,11 +347,18 @@ export type ResultSchemaElbowLR = {
   score_config?: ScoreConfigElbowLR;
 };
 
+export type ResultSchemaEnumLR = {
+  type: "enum_lr";
+  options: string[];
+  score_config?: ScoreConfigEnum;
+};
+
 export type ResultSchema =
   | ResultSchemaEnum
   | ResultSchemaNumericLR
   | ResultSchemaPointScoreLR
-  | ResultSchemaElbowLR;
+  | ResultSchemaElbowLR
+  | ResultSchemaEnumLR;
 
 // ─── Rating Thresholds ───────────────────────────────────────────────────────
 
@@ -454,13 +461,15 @@ export const litters = pgTable(
       .notNull()
       .references(() => contacts.id),
     whelp_date: date("whelp_date"),
-    expected_date: date("expected_date"),
-    num_puppies_born: integer("num_puppies_born"),
-    num_puppies_survived: integer("num_puppies_survived"),
-    status: varchar("status", { length: 20 }).notNull().default("planned"),
+    litter_name: varchar("litter_name", { length: 100 }),
+    num_males: integer("num_males"),
+    num_females: integer("num_females"),
     approved: boolean("approved").notNull().default(false),
     approved_by: uuid("approved_by").references(() => members.id),
     approved_at: timestamp("approved_at", { withTimezone: true }),
+    sire_approval_status: varchar("sire_approval_status", { length: 20 }).notNull().default("not_required"),
+    sire_approval_by: uuid("sire_approval_by").references(() => members.id),
+    sire_approval_at: timestamp("sire_approval_at", { withTimezone: true }),
     notes: text("notes"),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -543,6 +552,35 @@ export const healthCertVersions = pgTable(
   },
   (t) => [
     index("idx_cert_versions_club_date").on(t.club_id, t.effective_date),
+  ]
+);
+
+// ─── Member Invitations ──────────────────────────────────────────────────────
+
+export const memberInvitations = pgTable(
+  "member_invitations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    token: varchar("token", { length: 64 }).notNull().unique(),
+    email: varchar("email", { length: 255 }).notNull(),
+    tier: varchar("tier", { length: 20 }).notNull().default("member"),
+    invited_by: uuid("invited_by")
+      .notNull()
+      .references(() => members.id),
+    application_id: uuid("application_id").references(() => membershipApplications.id),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
+    accepted_at: timestamp("accepted_at", { withTimezone: true }),
+    accepted_by: uuid("accepted_by").references(() => members.id),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_member_invitations_token").on(t.token),
+    index("idx_member_invitations_club_status").on(t.club_id, t.status),
+    index("idx_member_invitations_email").on(t.club_id, t.email),
   ]
 );
 

@@ -27,6 +27,23 @@ export function useContacts(search?: string, page = 1) {
   });
 }
 
+export function useSearchContacts(query: string) {
+  const { getToken, isSignedIn } = useAuth();
+
+  return useQuery({
+    queryKey: ["contacts", "search", query],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<PaginatedResponse<Contact>>("/contacts", {
+        token,
+        params: { search: query, limit: 10 },
+      });
+    },
+    enabled: isSignedIn === true && query.length >= 2,
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useContact(id: string | undefined) {
   const { getToken, isSignedIn } = useAuth();
 

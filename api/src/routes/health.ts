@@ -76,6 +76,14 @@ function computeResultSummary(
       }
       return result;
     }
+    case "enum_lr": {
+      const left = resultData.left as { value?: string } | undefined;
+      const right = resultData.right as { value?: string } | undefined;
+      if (left && right) {
+        return `L: ${left.value ?? "?"}, R: ${right.value ?? "?"}`;
+      }
+      return result;
+    }
     default:
       return result;
   }

@@ -71,24 +71,60 @@ memberRoutes.post("/register", requireAuth, async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({}));
-  const { full_name, email } = body as { full_name?: string; email?: string };
+  let { full_name, email } = body as { full_name?: string; email?: string };
 
+  // If full_name not provided, fetch it from Clerk
   if (!full_name) {
-    throw badRequest("full_name is required for registration");
+    const clerkRes = await fetch(`https://api.clerk.com/v1/users/${clerkUserId}`, {
+      headers: { Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}` },
+    });
+    if (clerkRes.ok) {
+      const clerkUser = await clerkRes.json() as {
+        first_name?: string;
+        last_name?: string;
+        email_addresses?: { email_address: string }[];
+      };
+      const parts = [clerkUser.first_name, clerkUser.last_name].filter(Boolean);
+      full_name = parts.join(" ") || undefined;
+      if (!email) {
+        email = clerkUser.email_addresses?.[0]?.email_address;
+      }
+    }
   }
 
-  // Create contact + member in a transaction-like flow
-  // (Supabase doesn't support real transactions via HTTP pooler, but these are
-  //  sequential inserts — if the member insert fails, we have an orphan contact
-  //  which is fine as contacts are standalone entities anyway)
-  const [contact] = await db
-    .insert(contacts)
-    .values({
-      club_id: clubId,
-      full_name,
-      email: email || null,
-    })
-    .returning();
+  if (!full_name) {
+    throw badRequest("Could not determine full_name — provide it explicitly or complete your Clerk profile");
+  }
+
+  // Check for existing contact by email (e.g. created via sell-pup) that isn't linked to a member yet
+  let contact;
+  if (email) {
+    const existingContact = await db.query.contacts.findFirst({
+      where: and(eq(contacts.club_id, clubId), eq(contacts.email, email)),
+    });
+    if (existingContact && !existingContact.member_id) {
+      // Reuse existing unlinked contact, update name if needed
+      contact = existingContact;
+      if (full_name && full_name !== existingContact.full_name) {
+        await db
+          .update(contacts)
+          .set({ full_name, updated_at: new Date() })
+          .where(eq(contacts.id, existingContact.id));
+      }
+    }
+  }
+
+  // Create new contact if no reusable one found
+  if (!contact) {
+    [contact] = await db
+      .insert(contacts)
+      .values({
+        club_id: clubId,
+        full_name,
+        email: email || null,
+      })
+      .returning();
+  }
 
   const [member] = await db
     .insert(members)

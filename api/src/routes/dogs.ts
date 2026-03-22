@@ -162,7 +162,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
       ...dogData,
       sire_id: resolvedSireId,
       dam_id: resolvedDamId,
-      owner_id: dogData.owner_id ?? auth.contactId,
+      owner_id: dogData.owner_id ?? null,
       club_id: clubId,
       status: "pending",
       submitted_by: auth.member.id,
@@ -403,13 +403,8 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
   const ownedOnly = c.req.query("owned_only") === "true";
 
   if (ownedOnly) {
-    // Dashboard / health-select: show only dogs the user owns or submitted, regardless of tier
-    conditions.push(
-      or(
-        eq(dogs.owner_id, auth!.contactId),
-        eq(dogs.submitted_by, auth!.memberId)
-      )!
-    );
+    // Dashboard / health-select: show only dogs the user owns
+    conditions.push(eq(dogs.owner_id, auth!.contactId));
     if (!includeHistorical) {
       conditions.push(eq(dogs.is_historical, false));
     }

@@ -21,6 +21,7 @@ import { DogEditPage } from "@/pages/DogEditPage";
 import { HealthPage } from "@/pages/HealthPage";
 import { HealthSelectPage } from "@/pages/HealthSelectPage";
 import { LittersPage } from "@/pages/LittersPage";
+import { LitterCreatePage } from "@/pages/LitterCreatePage";
 import { LitterDetailPage } from "@/pages/LitterDetailPage";
 import { AnnouncementsPage } from "@/pages/AnnouncementsPage";
 import { PublicApplyPage } from "@/pages/PublicApplyPage";
@@ -28,6 +29,7 @@ import { HealthStatsPage } from "@/pages/HealthStatsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { EmbedApplyPage } from "@/pages/EmbedApplyPage";
 import { SettingsPage } from "@/pages/admin/SettingsPage";
+import { AcceptInvitationPage } from "@/pages/AcceptInvitationPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,6 +60,7 @@ export function App() {
               <Route path="/directory" element={<DirectoryPage />} />
               <Route path="/announcements" element={<AnnouncementsPage />} />
               <Route path="/public/apply" element={<PublicApplyPage />} />
+              <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
               <Route
                 path="/register"
                 element={
@@ -158,7 +161,7 @@ export function App() {
               <Route
                 path="/dogs/register"
                 element={
-                  <ProtectedRoute minTier="certificate">
+                  <ProtectedRoute minTier="non_member">
                     <DogCreatePage />
                   </ProtectedRoute>
                 }
@@ -166,7 +169,7 @@ export function App() {
               <Route
                 path="/dogs/:id"
                 element={
-                  <ProtectedRoute minTier="certificate">
+                  <ProtectedRoute minTier="non_member">
                     <DogDetailPage />
                   </ProtectedRoute>
                 }
@@ -182,7 +185,7 @@ export function App() {
               <Route
                 path="/health"
                 element={
-                  <ProtectedRoute minTier="certificate">
+                  <ProtectedRoute minTier="non_member">
                     <HealthSelectPage />
                   </ProtectedRoute>
                 }
@@ -190,7 +193,7 @@ export function App() {
               <Route
                 path="/health/:dogId"
                 element={
-                  <ProtectedRoute minTier="certificate">
+                  <ProtectedRoute minTier="non_member">
                     <HealthPage />
                   </ProtectedRoute>
                 }
@@ -200,6 +203,14 @@ export function App() {
                 element={
                   <ProtectedRoute minTier="certificate" flag="is_breeder">
                     <LittersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/litters/new"
+                element={
+                  <ProtectedRoute minTier="certificate" flag="is_breeder">
+                    <LitterCreatePage />
                   </ProtectedRoute>
                 }
               />

@@ -7,11 +7,12 @@ import { Link } from "react-router-dom";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useMyApplications } from "@/hooks/useApplications";
 import { useDogs } from "@/hooks/useDogs";
+import { useLitters, useSireApprovals, useRespondSireApproval } from "@/hooks/useLitters";
 import { hasTier } from "@breed-club/shared/roles.js";
-import { PawPrint, FileText, UserPlus, Award } from "lucide-react";
+import { PawPrint, FileText, UserPlus, Award, Baby } from "lucide-react";
 import { ratingBgClass } from "@/lib/health-colors";
 import { formatDate } from "@/lib/utils";
-import type { Dog } from "@breed-club/shared";
+import type { Dog, Litter } from "@breed-club/shared";
 
 const TIER_LABELS: Record<string, string> = {
   non_member: "Non-Member",
@@ -75,6 +76,16 @@ export function DashboardPage() {
         )}
       </div>
 
+      {/* Non-member info banner */}
+      {member.tier === "non_member" && (
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 mb-6">
+          <p className="text-sm text-blue-800">
+            <strong>Self-service account</strong> — You can register dogs and submit health clearances right away.
+            Apply for membership to access the full member directory and club features.
+          </p>
+        </div>
+      )}
+
       {/* Quick actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {member.tier === "non_member" && !pendingApp && (
@@ -108,10 +119,27 @@ export function DashboardPage() {
           <h3 className="font-semibold text-gray-900">Edit Profile</h3>
           <p className="mt-1 text-sm text-gray-600">Update your contact information</p>
         </Link>
+
+        {member.is_breeder && (
+          <Link
+            to="/litters"
+            className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
+          >
+            <Baby className="h-6 w-6 text-gray-400 mb-2" />
+            <h3 className="font-semibold text-gray-900">My Litters</h3>
+            <p className="mt-1 text-sm text-gray-600">Manage litters and register new ones</p>
+          </Link>
+        )}
       </div>
 
+      {/* Sire Approvals */}
+      <SireApprovalsSection />
+
       {/* My Dogs */}
-      {hasTier(member.tier, "certificate") && <MyDogsSection />}
+      {hasTier(member.tier, "non_member") && <MyDogsSection />}
+
+      {/* My Litters */}
+      {member.is_breeder && <MyLittersSection />}
 
       {/* Application history */}
       {applications.length > 0 && (
@@ -253,6 +281,152 @@ function MyDogsSection() {
                       ) : (
                         <span className="text-xs text-gray-400">—</span>
                       )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SireApprovalsSection() {
+  const { data, isLoading } = useSireApprovals();
+  const approvals = data?.data ?? [];
+
+  if (isLoading || approvals.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-orange-200 p-6 mb-6">
+      <h2 className="text-lg font-semibold text-gray-900 mb-4">Sire Approval Requests</h2>
+      <div className="space-y-3">
+        {approvals.map((litter) => (
+          <SireApprovalRow key={litter.id} litter={litter} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SireApprovalRow({ litter }: { litter: Litter }) {
+  const respond = useRespondSireApproval(litter.id);
+
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+      <div>
+        <p className="text-sm font-medium text-gray-900">
+          {litter.breeder?.kennel_name || litter.breeder?.full_name || "Unknown breeder"} registered a
+          litter using your sire{" "}
+          <strong>{litter.sire?.call_name || litter.sire?.registered_name || "Unknown"}</strong>
+        </p>
+        <p className="text-xs text-gray-500">
+          Dam: {litter.dam?.call_name || litter.dam?.registered_name || "Unknown"}
+          {litter.whelp_date && ` · Whelp: ${formatDate(litter.whelp_date)}`}
+        </p>
+      </div>
+      <div className="flex gap-2 ml-4 shrink-0">
+        <button
+          onClick={() => respond.mutate({ status: "approved" })}
+          disabled={respond.isPending}
+          className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+        >
+          Approve
+        </button>
+        <button
+          onClick={() => respond.mutate({ status: "rejected" })}
+          disabled={respond.isPending}
+          className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+        >
+          Reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MyLittersSection() {
+  const { data, isLoading } = useLitters();
+  const litters = data?.data ?? [];
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900">My Litters</h2>
+        <Link
+          to="/litters/new"
+          className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+        >
+          Register New Litter
+        </Link>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-gray-500">Loading...</p>
+      ) : litters.length === 0 ? (
+        <p className="text-sm text-gray-500">You haven't registered any litters yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-gray-500">
+                <th className="pb-2 font-medium">Litter</th>
+                <th className="pb-2 font-medium">Status</th>
+                <th className="pb-2 font-medium hidden sm:table-cell">Sire Approval</th>
+                <th className="pb-2 font-medium hidden sm:table-cell">Whelp Date</th>
+                <th className="pb-2 font-medium">Pups</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {litters.map((litter) => {
+                const label =
+                  litter.litter_name ||
+                  `${litter.sire?.call_name || litter.sire?.registered_name || "?"} x ${litter.dam?.call_name || litter.dam?.registered_name || "?"}`;
+
+                return (
+                  <tr key={litter.id} className="hover:bg-gray-50">
+                    <td className="py-2">
+                      <Link to={`/litters/${litter.id}`} className="text-gray-900 font-medium hover:underline">
+                        {label}
+                      </Link>
+                    </td>
+                    <td className="py-2">
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          litter.approved
+                            ? "bg-green-100 text-green-700"
+                            : "bg-yellow-100 text-yellow-700"
+                        }`}
+                      >
+                        {litter.approved ? "Approved" : "Pending"}
+                      </span>
+                    </td>
+                    <td className="py-2 hidden sm:table-cell">
+                      {litter.sire_approval_status === "pending" && (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                          Awaiting Sire Approval
+                        </span>
+                      )}
+                      {litter.sire_approval_status === "rejected" && (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                          Sire Rejected
+                        </span>
+                      )}
+                      {litter.sire_approval_status === "approved" && (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                          Sire Approved
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 text-gray-600 hidden sm:table-cell">
+                      {formatDate(litter.whelp_date)}
+                    </td>
+                    <td className="py-2 text-gray-600">
+                      {litter.num_males != null || litter.num_females != null
+                        ? `${litter.num_males ?? 0}M / ${litter.num_females ?? 0}F`
+                        : "—"}
                     </td>
                   </tr>
                 );

@@ -245,3 +245,14 @@ export function useDeleteCertVersion() {
     },
   });
 }
+
+export function useDirectInvite() {
+  const { getToken } = useAuth();
+
+  return useMutation({
+    mutationFn: async (data: { email: string; name?: string; tier: string }) => {
+      const token = await getToken();
+      return api.post<{ invitation: unknown }>("/invitations/direct", data, { token });
+    },
+  });
+}

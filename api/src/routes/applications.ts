@@ -9,20 +9,22 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, or, gt } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/rbac.js";
-import { membershipApplications, membershipFormFields, members, contacts } from "../db/schema.js";
+import { membershipApplications, membershipFormFields, members, contacts, memberInvitations } from "../db/schema.js";
 import { notFound, badRequest, conflict } from "../lib/errors.js";
 import { createApplicationSchema, paginationSchema } from "@breed-club/shared/validation.js";
 import { validateFormData } from "../lib/form-data.js";
+import { sendEmail, newApplicationEmail, invitationEmail } from "../lib/email.js";
 import { z } from "zod";
 
 type Variables = {
   clubId: string;
+  club: { id: string; name: string; settings: Record<string, unknown> | null };
   db: Database;
   clerkUserId: string | null;
   auth: AuthContext | null;
@@ -89,6 +91,39 @@ applicationRoutes.post("/", requireAuth, async (c) => {
       status: "submitted",
     })
     .returning();
+
+  // Notify all admins and member approvers (fire-and-forget)
+  const club = c.get("club");
+  const appUrl = c.env.APP_URL;
+  const adminUrl = `${appUrl}/admin/applications`;
+
+  db.query.members.findMany({
+    where: and(
+      eq(members.club_id, clubId),
+      or(eq(members.tier, "admin"), eq(members.can_approve_members, true))
+    ),
+    with: { contact: true },
+  }).then((approvers) => {
+    const emails = approvers
+      .map((m) => m.contact?.email)
+      .filter((e): e is string => Boolean(e));
+
+    for (const email of emails) {
+      sendEmail(
+        {
+          to: email,
+          subject: `New application from ${data.applicant_name}`,
+          html: newApplicationEmail({
+            applicantName: data.applicant_name,
+            applicantEmail: data.applicant_email,
+            adminUrl,
+            clubName: club.name,
+          }),
+        },
+        c.env.RESEND_API_KEY
+      ).catch(() => {});
+    }
+  }).catch(() => {});
 
   return c.json({ application }, 201);
 });
@@ -226,13 +261,7 @@ applicationRoutes.patch("/:id/review", requirePermission("members:approve"), asy
     })
     .where(eq(membershipApplications.id, id));
 
-  // If approved, we don't auto-create the member here — the applicant needs
-  // to sign up via Clerk first. The application just records approval.
-  // When they sign up (POST /register), the app can check for an approved
-  // application and auto-upgrade their tier.
-  //
-  // However, if we know their Clerk user already exists (they have a member
-  // record), we can upgrade them directly.
+  // If the applicant already has a member record, upgrade their tier directly.
   if (data.status === "approved" && application.member_id) {
     const tier = data.tier || "member";
     await db
@@ -244,6 +273,72 @@ applicationRoutes.patch("/:id/review", requirePermission("members:approve"), asy
         updated_at: new Date(),
       })
       .where(eq(members.id, application.member_id));
+  }
+
+  // On approval, send an invitation email so the applicant can create their account.
+  if (data.status === "approved") {
+    const email = application.applicant_email;
+    const now = new Date();
+
+    // Only create a new invitation if no unexpired pending one exists.
+    const existingInvite = await db.query.memberInvitations.findFirst({
+      where: and(
+        eq(memberInvitations.club_id, clubId),
+        eq(memberInvitations.email, email),
+        eq(memberInvitations.status, "pending"),
+        gt(memberInvitations.expires_at, now)
+      ),
+    });
+
+    if (!existingInvite) {
+      const bytes = new Uint8Array(48);
+      crypto.getRandomValues(bytes);
+      const token = btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "")
+        .slice(0, 64);
+
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      await db.insert(memberInvitations).values({
+        club_id: clubId,
+        token,
+        email,
+        tier: "member",
+        invited_by: auth.memberId,
+        application_id: id,
+        status: "pending",
+        expires_at: expiresAt,
+      });
+
+      const appUrl = c.env.APP_URL;
+      const inviteUrl = `${appUrl}/accept-invitation?token=${token}`;
+      const club = c.get("club");
+
+      fetch("https://api.clerk.com/v1/invitations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${c.env.CLERK_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email_address: email, redirect_url: inviteUrl }),
+      }).catch((err) => console.warn("Clerk invitation API error:", err));
+
+      sendEmail(
+        {
+          to: email,
+          subject: `You're invited to join ${club.name}`,
+          html: invitationEmail({
+            inviteeName: application.applicant_name,
+            inviteUrl,
+            clubName: club.name,
+            tier: "member",
+          }),
+        },
+        c.env.RESEND_API_KEY
+      ).catch((err) => console.warn("Resend invitation email error:", err));
+    }
   }
 
   const updated = await db.query.membershipApplications.findFirst({

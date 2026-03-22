@@ -78,6 +78,20 @@
       "when": 1773250145618,
       "tag": "0010_add_is_deceased",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1773350000000,
+      "tag": "0011_member_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1774300000000,
+      "tag": "0012_litter_registration",
+      "breakpoints": true
     }
   ]
 }

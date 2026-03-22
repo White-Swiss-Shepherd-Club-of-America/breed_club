@@ -33,3 +33,5 @@ bucket_name = "breed-club-certificates"
 # SUPABASE_SERVICE_KEY
 # STRIPE_SECRET_KEY
 # STRIPE_WEBHOOK_SECRET
+# RESEND_API_KEY
+# APP_URL

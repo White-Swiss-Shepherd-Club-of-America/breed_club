@@ -11,7 +11,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -23,14 +23,17 @@ import {
   contacts,
   dogs,
   members,
+  clubs,
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import {
   createLitterSchema,
   createLitterPupSchema,
   sellPupSchema,
+  sireApprovalSchema,
   paginationSchema,
 } from "@breed-club/shared/validation.js";
+import { sendEmail, sireApprovalRequestEmail } from "../lib/email.js";
 
 type Variables = {
   clubId: string;
@@ -67,8 +70,21 @@ litterRoutes.post("/", requireAuth, requireFlag("is_breeder"), async (c) => {
     throw badRequest("Breeder contact record not found");
   }
 
-  // Auto-approve for verified breeders
-  const autoApprove = auth.member.verified_breeder;
+  // Determine sire approval status
+  let sireApprovalStatus = "not_required";
+  let sireOwnerContact: typeof breederContact | null = null;
+
+  if (litterData.sire_id) {
+    const sire = await db.query.dogs.findFirst({
+      where: eq(dogs.id, litterData.sire_id),
+      with: { owner: true },
+    });
+
+    if (sire && sire.owner_id && sire.owner_id !== breederContact.id) {
+      sireApprovalStatus = "pending";
+      sireOwnerContact = sire.owner ?? null;
+    }
+  }
 
   const [litter] = await db
     .insert(litters)
@@ -76,11 +92,35 @@ litterRoutes.post("/", requireAuth, requireFlag("is_breeder"), async (c) => {
       ...litterData,
       club_id: clubId,
       breeder_id: breederContact.id,
-      approved: autoApprove,
-      approved_by: autoApprove ? auth.member.id : null,
-      approved_at: autoApprove ? new Date() : null,
+      sire_approval_status: sireApprovalStatus,
     })
     .returning();
+
+  // Send sire approval request email (fire-and-forget)
+  if (sireApprovalStatus === "pending" && sireOwnerContact?.email) {
+    const club = await db.query.clubs.findFirst({ where: eq(clubs.id, clubId) });
+    const sire = await db.query.dogs.findFirst({ where: eq(dogs.id, litterData.sire_id!) });
+
+    if (club && sire) {
+      const dashboardUrl = `https://${club.slug}.wssca.org/dashboard`;
+      sendEmail(
+        {
+          to: sireOwnerContact.email,
+          subject: `Sire Approval Request — ${sire.call_name || sire.registered_name}`,
+          html: sireApprovalRequestEmail({
+            sireOwnerName: sireOwnerContact.full_name,
+            sireName: sire.call_name || sire.registered_name,
+            breederName: breederContact.kennel_name || breederContact.full_name,
+            litterName: litterData.litter_name ?? null,
+            whelpDate: litterData.whelp_date ?? null,
+            dashboardUrl,
+            clubName: club.name,
+          }),
+        },
+        c.env.RESEND_API_KEY
+      ).catch((err) => console.error("Failed to send sire approval email:", err));
+    }
+  }
 
   return c.json(litter, 201);
 });
@@ -126,6 +166,115 @@ litterRoutes.get("/", requireAuth, requireFlag("is_breeder"), async (c) => {
   });
 
   return c.json({ data: results });
+});
+
+/**
+ * GET /sire-approvals — pending sire approvals for the current user.
+ */
+litterRoutes.get("/sire-approvals", requireAuth, async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  // Get user's contact record
+  const userContact = await db.query.contacts.findFirst({
+    where: eq(contacts.member_id, auth.member.id),
+  });
+
+  if (!userContact) {
+    return c.json({ data: [] });
+  }
+
+  // Find all dogs owned by user
+  const ownedDogs = await db.query.dogs.findMany({
+    where: and(eq(dogs.club_id, clubId), eq(dogs.owner_id, userContact.id)),
+    columns: { id: true },
+  });
+
+  if (ownedDogs.length === 0) {
+    return c.json({ data: [] });
+  }
+
+  const ownedDogIds = ownedDogs.map((d) => d.id);
+
+  // Query litters where sire is one of user's dogs and approval is pending
+  const results = await db.query.litters.findMany({
+    where: and(
+      eq(litters.club_id, clubId),
+      eq(litters.sire_approval_status, "pending"),
+      inArray(litters.sire_id, ownedDogIds)
+    ),
+    with: {
+      sire: true,
+      dam: true,
+      breeder: true,
+    },
+    orderBy: [desc(litters.created_at)],
+  });
+
+  return c.json({ data: results });
+});
+
+/**
+ * POST /:id/sire-approve — approve or reject sire usage for a litter.
+ */
+litterRoutes.post("/:id/sire-approve", requireAuth, async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const litterId = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const litter = await db.query.litters.findFirst({
+    where: and(eq(litters.id, litterId), eq(litters.club_id, clubId)),
+    with: { sire: { with: { owner: true } } },
+  });
+
+  if (!litter) {
+    throw notFound("Litter");
+  }
+
+  if (litter.sire_approval_status !== "pending") {
+    throw badRequest("Sire approval is not pending for this litter");
+  }
+
+  // Verify the current user owns the sire
+  const userContact = await db.query.contacts.findFirst({
+    where: eq(contacts.member_id, auth.member.id),
+  });
+
+  if (!userContact || litter.sire?.owner_id !== userContact.id) {
+    throw forbidden("You can only approve/reject litters using your own sire");
+  }
+
+  const body = await c.req.json();
+  const { status, notes } = sireApprovalSchema.parse(body);
+
+  const updateData: Record<string, unknown> = {
+    sire_approval_status: status,
+    sire_approval_by: auth.member.id,
+    sire_approval_at: new Date(),
+    updated_at: new Date(),
+  };
+
+  if (notes) {
+    updateData.notes = notes;
+  }
+
+  const [updated] = await db
+    .update(litters)
+    .set(updateData)
+    .where(eq(litters.id, litterId))
+    .returning();
+
+  return c.json(updated);
 });
 
 /**
@@ -368,23 +517,34 @@ litterRoutes.post("/:id/pups/:pid/sell", requireAuth, requireFlag("is_breeder"),
   }
 
   const body = await c.req.json();
-  const { buyer_email, buyer_name, registered_name } = sellPupSchema.parse(body);
+  const { buyer_contact_id, buyer_email, buyer_name, registered_name } = sellPupSchema.parse(body);
 
-  // Check if buyer contact already exists
-  let buyerContact = await db.query.contacts.findFirst({
-    where: and(eq(contacts.club_id, clubId), eq(contacts.email, buyer_email)),
-  });
+  let buyerContact;
 
-  // Create buyer contact if doesn't exist
-  if (!buyerContact) {
-    [buyerContact] = await db
-      .insert(contacts)
-      .values({
-        club_id: clubId,
-        full_name: buyer_name,
-        email: buyer_email,
-      })
-      .returning();
+  if (buyer_contact_id) {
+    // Use existing contact
+    buyerContact = await db.query.contacts.findFirst({
+      where: and(eq(contacts.club_id, clubId), eq(contacts.id, buyer_contact_id)),
+    });
+    if (!buyerContact) {
+      throw notFound("Buyer contact");
+    }
+  } else {
+    // Find or create by email
+    buyerContact = await db.query.contacts.findFirst({
+      where: and(eq(contacts.club_id, clubId), eq(contacts.email, buyer_email!)),
+    });
+
+    if (!buyerContact) {
+      [buyerContact] = await db
+        .insert(contacts)
+        .values({
+          club_id: clubId,
+          full_name: buyer_name!,
+          email: buyer_email!,
+        })
+        .returning();
+    }
   }
 
   // Create dog record for the pup

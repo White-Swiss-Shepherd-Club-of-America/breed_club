@@ -9,7 +9,7 @@ import type { Tier, PermissionFlags } from "./roles.js";
 export type ApprovalStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "needs_revision";
 export type DogStatus = "pending" | "approved" | "rejected";
 export type MembershipStatus = "pending" | "active" | "expired" | "suspended";
-export type LitterStatus = "planned" | "expected" | "born" | "weaned" | "closed";
+export type SireApprovalStatus = "not_required" | "pending" | "approved" | "rejected";
 export type PupStatus = "available" | "reserved" | "sold" | "retained" | "deceased";
 export type OrgType = "kennel_club" | "health_testing" | "grading_body" | "pedigree_database";
 export type HealthCategory = "orthopedic" | "cardiac" | "genetic" | "vision" | "thyroid" | "dental" | "other";
@@ -59,11 +59,18 @@ export type ResultSchemaElbowLR = {
   score_config?: ScoreConfigElbowLR;
 };
 
+export type ResultSchemaEnumLR = {
+  type: "enum_lr";
+  options: string[];
+  score_config?: ScoreConfigEnum;
+};
+
 export type ResultSchema =
   | ResultSchemaEnum
   | ResultSchemaNumericLR
   | ResultSchemaPointScoreLR
-  | ResultSchemaElbowLR;
+  | ResultSchemaElbowLR
+  | ResultSchemaEnumLR;
 
 // --- Core Entities ---
 
@@ -305,13 +312,15 @@ export interface Litter {
   dam_id: string | null;
   breeder_id: string;
   whelp_date: string | null;
-  expected_date: string | null;
-  num_puppies_born: number | null;
-  num_puppies_survived: number | null;
-  status: LitterStatus;
+  litter_name: string | null;
+  num_males: number | null;
+  num_females: number | null;
   approved: boolean;
   approved_by: string | null;
   approved_at: string | null;
+  sire_approval_status: SireApprovalStatus;
+  sire_approval_by: string | null;
+  sire_approval_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

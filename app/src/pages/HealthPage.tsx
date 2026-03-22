@@ -341,6 +341,73 @@ function ElbowLRForm({
   );
 }
 
+function EnumLRForm({
+  schema,
+  value,
+  onChange,
+}: {
+  schema: Extract<ResultSchema, { type: "enum_lr" }>;
+  value: Record<string, unknown>;
+  onChange: (v: Record<string, unknown>) => void;
+}) {
+  const left = (value.left as { value?: string }) || {};
+  const right = (value.right as { value?: string }) || {};
+
+  const updateSide = (side: "left" | "right", val: string) => {
+    onChange({ ...value, [side]: { value: val } });
+  };
+
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm font-medium">Results</label>
+      <div className="border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium text-gray-600">Side</th>
+              <th className="px-3 py-2 text-center font-medium text-gray-600">Grade</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            <tr>
+              <td className="px-3 py-1.5 text-gray-700">Right</td>
+              <td className="px-3 py-1.5">
+                <select
+                  value={right.value ?? ""}
+                  onChange={(e) => updateSide("right", e.target.value)}
+                  className="w-full px-2 py-1 border rounded text-center"
+                  required
+                >
+                  <option value="">-</option>
+                  {schema.options.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td className="px-3 py-1.5 text-gray-700">Left</td>
+              <td className="px-3 py-1.5">
+                <select
+                  value={left.value ?? ""}
+                  onChange={(e) => updateSide("left", e.target.value)}
+                  className="w-full px-2 py-1 border rounded text-center"
+                  required
+                >
+                  <option value="">-</option>
+                  {schema.options.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Result Display Component ───────────────────────────────────────────────
 
 function ResultDataDisplay({ resultData }: { resultData: Record<string, unknown> }) {
@@ -416,6 +483,14 @@ function computeResultSummary(
       const right = resultData.right as { grade?: number } | undefined;
       if (left && right) {
         return `L: Grade ${left.grade ?? "?"}, R: Grade ${right.grade ?? "?"}`;
+      }
+      return "";
+    }
+    case "enum_lr": {
+      const left = resultData.left as { value?: string } | undefined;
+      const right = resultData.right as { value?: string } | undefined;
+      if (left && right) {
+        return `L: ${left.value ?? "?"}, R: ${right.value ?? "?"}`;
       }
       return "";
     }
@@ -677,6 +752,9 @@ export function HealthPage() {
                 )}
                 {activeSchema?.type === "elbow_lr" && (
                   <ElbowLRForm value={resultData} onChange={setResultData} />
+                )}
+                {activeSchema?.type === "enum_lr" && (
+                  <EnumLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
                 )}
               </>
             )}

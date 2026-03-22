@@ -47,13 +47,27 @@ const RESULT_SCHEMA_PRESETS: { value: string; label: string; schema: ResultSchem
     },
   },
   {
-    value: "fci_hips",
-    label: "FCI/SV Hips (A1/A2/B1/B2/C/D/E)",
+    value: "sv_hips",
+    label: "SV Hips (Normal/Fast Normal/…)",
     schema: {
       type: "enum",
-      options: ["A1", "A2", "B1", "B2", "C", "D", "E"],
+      options: ["Normal (a1)", "Fast Normal (a2)", "Noch Zugelassen (a3)", "Leicht (a4)", "Mittel (a5)", "Schwer (a6)"],
       score_config: {
-        score_map: { A1: 100, A2: 85, B1: 70, B2: 55, C: 30, D: 10, E: 0 },
+        score_map: {
+          "Normal (a1)": 100, "Fast Normal (a2)": 85, "Noch Zugelassen (a3)": 60,
+          "Leicht (a4)": 35, "Mittel (a5)": 15, "Schwer (a6)": 0,
+        },
+      },
+    },
+  },
+  {
+    value: "fci_hips",
+    label: "FCI Hips (A1–E2, single grade)",
+    schema: {
+      type: "enum",
+      options: ["A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2", "E1", "E2"],
+      score_config: {
+        score_map: { A1: 100, A2: 90, B1: 80, B2: 70, C1: 50, C2: 40, D1: 20, D2: 10, E1: 5, E2: 0 },
       },
     },
   },
@@ -842,7 +856,7 @@ function TestTypeForm({
     if (testType?.grading_orgs) {
       for (const org of testType.grading_orgs) {
         const schema = (org as GradingOrg).result_schema;
-        if (schema?.type === "enum") {
+        if (schema?.type === "enum" || schema?.type === "enum_lr") {
           initial[org.id] = schema.options;
         }
       }
@@ -852,8 +866,9 @@ function TestTypeForm({
 
   const updateEnumOptions = (orgId: string, options: string[]) => {
     const existing = orgSchemas[orgId];
-    const scoreConfig = existing?.type === "enum" ? existing.score_config : undefined;
-    setOrgSchema(orgId, { type: "enum", options, ...(scoreConfig ? { score_config: scoreConfig } : {}) });
+    const enumType = existing?.type === "enum_lr" ? "enum_lr" as const : "enum" as const;
+    const scoreConfig = (existing?.type === "enum" || existing?.type === "enum_lr") ? existing.score_config : undefined;
+    setOrgSchema(orgId, { type: enumType, options, ...(scoreConfig ? { score_config: scoreConfig } : {}) });
     setCachedEnumOptions((prev) => ({ ...prev, [orgId]: options }));
   };
 
@@ -863,7 +878,7 @@ function TestTypeForm({
     // Validate enum schemas have at least one non-empty option
     for (const orgId of selectedOrgIds) {
       const schema = orgSchemas[orgId];
-      if (schema?.type === "enum") {
+      if (schema?.type === "enum" || schema?.type === "enum_lr") {
         const nonEmpty = schema.options.filter((o) => o.trim().length > 0);
         if (nonEmpty.length === 0) {
           const org = organizations.find((o) => o.id === orgId);
@@ -890,7 +905,7 @@ function TestTypeForm({
       grading_org_ids: selectedOrgIds,
       grading_orgs: selectedOrgIds.map((orgId) => {
         let schema = orgSchemas[orgId] ?? null;
-        if (schema?.type === "enum") {
+        if (schema?.type === "enum" || schema?.type === "enum_lr") {
           schema = { ...schema, options: schema.options.filter((o) => o.trim().length > 0) };
         }
         return {
@@ -1069,7 +1084,7 @@ function TestTypeForm({
                   const org = organizations.find((o) => o.id === orgId);
                   if (!org) return null;
                   const currentPreset = getPresetForSchema(orgSchemas[orgId] ?? null);
-                  const isEnum = orgSchemas[orgId]?.type === "enum";
+                  const isEnum = orgSchemas[orgId]?.type === "enum" || orgSchemas[orgId]?.type === "enum_lr";
                   return (
                     <div key={orgId} className="text-sm">
                       <div className="flex items-center gap-3">
@@ -1110,7 +1125,7 @@ function TestTypeForm({
                       </div>
                       {isEnum && (
                         <EnumOptionsEditor
-                          options={(orgSchemas[orgId] as { type: "enum"; options: string[] }).options}
+                          options={(orgSchemas[orgId] as { options: string[] }).options}
                           onChange={(opts) => updateEnumOptions(orgId, opts)}
                         />
                       )}

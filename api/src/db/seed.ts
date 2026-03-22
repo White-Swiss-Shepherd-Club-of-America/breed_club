@@ -150,6 +150,14 @@ async function seed() {
     },
   };
 
+  const FCI_HIPS_SCHEMA: ResultSchema = {
+    type: "enum",
+    options: ["A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2", "E1", "E2"],
+    score_config: {
+      score_map: { "A1": 100, "A2": 90, "B1": 80, "B2": 70, "C1": 50, "C2": 40, "D1": 20, "D2": 10, "E1": 5, "E2": 0 },
+    },
+  };
+
   const OFA_ELBOWS_SCHEMA: ResultSchema = {
     type: "enum",
     options: ["Normal", "DJD1", "DJD2", "DJD3"],
@@ -242,6 +250,7 @@ async function seed() {
         { name: "PennHIP", result_schema: PENNHIP_SCHEMA, confidence: 9, thresholds: { auto_dq: 20, poor: 40, fair: 60, good: 80 } },
         { name: "BVA/KC", result_schema: BVA_HIPS_SCHEMA, confidence: 8, thresholds: { auto_dq: 0, poor: 25, fair: 50, good: 75 } },
         { name: "SV", result_schema: SV_HIPS_SCHEMA, confidence: 7, thresholds: { auto_dq: 15, poor: 35, fair: 60, good: 85 } },
+        { name: "FCI", result_schema: FCI_HIPS_SCHEMA, confidence: 7, thresholds: { auto_dq: 10, poor: 40, fair: 70, good: 90 } },
       ],
     },
     {

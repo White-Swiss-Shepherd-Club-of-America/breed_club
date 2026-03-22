@@ -51,26 +51,9 @@ export function AnnouncementsPage() {
                     {litter.sire?.call_name || litter.sire?.registered_name || "Unknown"} x{" "}
                     {litter.dam?.call_name || litter.dam?.registered_name || "Unknown"}
                   </h3>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-medium ${
-                      litter.status === "born"
-                        ? "bg-blue-100 text-blue-800"
-                        : litter.status === "expected"
-                        ? "bg-purple-100 text-purple-800"
-                        : "bg-gray-100 text-gray-800"
-                    }`}
-                  >
-                    {litter.status}
-                  </span>
                 </div>
 
                 <div className="space-y-2 text-sm text-gray-600 mb-4">
-                  {litter.expected_date && (
-                    <p>
-                      <span className="font-medium">Expected:</span>{" "}
-                      {formatDate(litter.expected_date)}
-                    </p>
-                  )}
                   {litter.whelp_date && (
                     <p>
                       <span className="font-medium">Whelped:</span>{" "}

@@ -3,9 +3,9 @@
  */
 
 import { useState } from "react";
-import { useAdminMembers, useUpdateMember, useDeleteMember, useUpdateContact } from "@/hooks/useAdmin";
+import { useAdminMembers, useUpdateMember, useDeleteMember, useUpdateContact, useDirectInvite } from "@/hooks/useAdmin";
 import type { Member, Tier } from "@breed-club/shared";
-import { Trash2, AlertTriangle, Pencil } from "lucide-react";
+import { Trash2, AlertTriangle, Pencil, Mail } from "lucide-react";
 
 const TIER_OPTIONS: Tier[] = ["non_member", "certificate", "member", "admin"];
 const STATUS_OPTIONS = ["pending", "active", "expired", "suspended"];
@@ -17,8 +17,11 @@ export function MembersPage() {
   const updateMutation = useUpdateMember();
   const deleteMutation = useDeleteMember();
   const updateContactMutation = useUpdateContact();
+  const directInviteMutation = useDirectInvite();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteSentTo, setInviteSentTo] = useState<string | null>(null);
 
   const allMembers = data?.data ?? [];
   const meta = data?.meta;
@@ -54,19 +57,48 @@ export function MembersPage() {
     <div className="max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Members</h1>
-        <input
-          type="text"
-          placeholder="Search by name, email, or kennel..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-72 focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-        />
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            placeholder="Search by name, email, or kennel..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-72 focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          />
+          <button
+            onClick={() => setShowInviteModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          >
+            <Mail className="h-4 w-4" /> Invite Member
+          </button>
+        </div>
       </div>
+
+      {inviteSentTo && (
+        <div className="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+          Invitation sent to <strong>{inviteSentTo}</strong>
+        </div>
+      )}
 
       {isLoading && (
         <div className="flex items-center justify-center h-32">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
         </div>
+      )}
+
+      {/* Direct invite modal */}
+      {showInviteModal && (
+        <DirectInviteModal
+          onClose={() => setShowInviteModal(false)}
+          onSend={async (data) => {
+            await directInviteMutation.mutateAsync(data);
+            setShowInviteModal(false);
+            setInviteSentTo(data.email);
+            setTimeout(() => setInviteSentTo(null), 5000);
+          }}
+          isSending={directInviteMutation.isPending}
+          error={directInviteMutation.error?.message ?? null}
+        />
       )}
 
       {/* Delete confirmation modal */}
@@ -289,6 +321,87 @@ export function MembersPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function DirectInviteModal({
+  onClose,
+  onSend,
+  isSending,
+  error,
+}: {
+  onClose: () => void;
+  onSend: (data: { email: string; name?: string; tier: string }) => Promise<void>;
+  isSending: boolean;
+  error: string | null;
+}) {
+  const [form, setForm] = useState({ email: "", name: "", tier: "member" });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await onSend({ email: form.email, name: form.name || undefined, tier: form.tier });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Invite Member</h3>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
+            <input
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="For personalized email greeting"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tier</label>
+            <select
+              value={form.tier}
+              onChange={(e) => setForm((f) => ({ ...f, tier: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            >
+              <option value="member">Member</option>
+              <option value="certificate">Certificate</option>
+              <option value="non_member">Non-Member</option>
+            </select>
+          </div>
+          {error && (
+            <p className="text-sm text-red-600">{error}</p>
+          )}
+          <div className="flex gap-3 justify-end pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSending}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            >
+              <Mail className="h-4 w-4" />
+              {isSending ? "Sending..." : "Send Invitation"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

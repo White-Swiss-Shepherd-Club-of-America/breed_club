@@ -82,6 +82,18 @@ export function computeResultScores(
       };
     }
 
+    case "enum_lr": {
+      const config = resultSchema.score_config;
+      if (!config || !resultData) return EMPTY;
+      const leftValue = String((resultData.left as Record<string, unknown> | undefined)?.value ?? "");
+      const rightValue = String((resultData.right as Record<string, unknown> | undefined)?.value ?? "");
+      return {
+        result_score: null,
+        result_score_left: leftValue ? (config.score_map[leftValue] ?? null) : null,
+        result_score_right: rightValue ? (config.score_map[rightValue] ?? null) : null,
+      };
+    }
+
     default:
       return EMPTY;
   }
