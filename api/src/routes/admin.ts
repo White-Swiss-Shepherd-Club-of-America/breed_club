@@ -34,6 +34,7 @@ import {
   dogOwnershipTransfers,
   healthCertVersions,
   litters,
+  clubs,
 } from "../db/schema.js";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
@@ -1365,6 +1366,55 @@ adminRoutes.post("/litters/:id/reject", requirePermission("dogs:approve"), async
     .returning();
 
   return c.json({ litter: updated });
+});
+
+/**
+ * PATCH /settings — update club settings (jsonb merge).
+ */
+adminRoutes.patch("/settings", requireTier("admin"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const body = await c.req.json();
+
+  // Validate expected shape
+  const settingsUpdate = z.object({
+    banner_width: z.number().int().min(100).max(2000).optional(),
+    banner_height: z.number().int().min(50).max(1000).optional(),
+  }).parse(body);
+
+  // Fetch current settings and merge
+  const club = await db.query.clubs.findFirst({
+    where: eq(clubs.id, clubId),
+  });
+
+  if (!club) throw notFound("Club");
+
+  const currentSettings = (club.settings ?? {}) as Record<string, unknown>;
+  const merged = { ...currentSettings, ...settingsUpdate };
+
+  await db
+    .update(clubs)
+    .set({ settings: merged, updated_at: new Date() })
+    .where(eq(clubs.id, clubId));
+
+  return c.json({ settings: merged });
+});
+
+/**
+ * GET /settings — get current club settings.
+ */
+adminRoutes.get("/settings", requireTier("admin"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const club = await db.query.clubs.findFirst({
+    where: eq(clubs.id, clubId),
+  });
+
+  if (!club) throw notFound("Club");
+
+  return c.json({ settings: club.settings ?? {} });
 });
 
 export { adminRoutes };

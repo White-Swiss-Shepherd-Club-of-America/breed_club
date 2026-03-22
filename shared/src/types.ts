@@ -117,6 +117,12 @@ export interface Member {
   can_approve_clearances: boolean;
   show_in_directory: boolean;
   verified_breeder: boolean;
+  logo_url: string | null;
+  banner_url: string | null;
+  primary_color: string | null;
+  accent_color: string | null;
+  pup_status: "available" | "expected" | "none" | null;
+  pup_expected_date: string | null;
   skip_fees: boolean;
   created_at: string;
   updated_at: string;

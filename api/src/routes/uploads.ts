@@ -216,4 +216,150 @@ uploadRoutes.get("/photo/*", async (c) => {
   return new Response(object.body, { headers });
 });
 
+/**
+ * POST /logo — upload a breeder logo (JPEG/PNG, max 2MB).
+ */
+uploadRoutes.post("/logo", requireTier("certificate"), async (c) => {
+  const auth = c.get("auth");
+  const clubId = c.get("clubId");
+
+  if (!auth?.member) {
+    return c.json(
+      { error: { code: "UNAUTHORIZED", message: "Authentication required" } },
+      401
+    );
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get("file");
+
+  if (!file || !(file instanceof File)) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "No file provided" } },
+      400
+    );
+  }
+
+  const ext = PHOTO_TYPES[file.type];
+  if (!ext) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "Invalid file type. Accepted: JPEG, PNG" } },
+      400
+    );
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "File too large (max 2MB)" } },
+      400
+    );
+  }
+
+  const key = `logos/${clubId}/${crypto.randomUUID()}.${ext}`;
+
+  await c.env.CERTIFICATES_BUCKET.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { uploadedBy: auth.member.id, originalName: file.name },
+  });
+
+  return c.json({ key });
+});
+
+/**
+ * GET /logo/* — retrieve a breeder logo by key.
+ */
+uploadRoutes.get("/logo/*", async (c) => {
+  const key = c.req.path.replace("/api/uploads/logo/", "");
+
+  if (!key || !key.startsWith("logos/")) {
+    return c.json({ error: { code: "NOT_FOUND", message: "File not found" } }, 404);
+  }
+
+  const object = await c.env.CERTIFICATES_BUCKET.get(key);
+  if (!object) {
+    return c.json({ error: { code: "NOT_FOUND", message: "File not found" } }, 404);
+  }
+
+  const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+  const headers = new Headers();
+  headers.set("Content-Type", contentType);
+  headers.set("Content-Disposition", "inline");
+  headers.set("Cache-Control", "public, max-age=86400");
+
+  return new Response(object.body, { headers });
+});
+
+/**
+ * POST /banner — upload a breeder banner image (JPEG/PNG, max 5MB).
+ */
+uploadRoutes.post("/banner", requireTier("certificate"), async (c) => {
+  const auth = c.get("auth");
+  const clubId = c.get("clubId");
+
+  if (!auth?.member) {
+    return c.json(
+      { error: { code: "UNAUTHORIZED", message: "Authentication required" } },
+      401
+    );
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get("file");
+
+  if (!file || !(file instanceof File)) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "No file provided" } },
+      400
+    );
+  }
+
+  const ext = PHOTO_TYPES[file.type];
+  if (!ext) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "Invalid file type. Accepted: JPEG, PNG" } },
+      400
+    );
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    return c.json(
+      { error: { code: "BAD_REQUEST", message: "File too large (max 5MB)" } },
+      400
+    );
+  }
+
+  const key = `banners/${clubId}/${crypto.randomUUID()}.${ext}`;
+
+  await c.env.CERTIFICATES_BUCKET.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { uploadedBy: auth.member.id, originalName: file.name },
+  });
+
+  return c.json({ key });
+});
+
+/**
+ * GET /banner/* — retrieve a breeder banner by key.
+ */
+uploadRoutes.get("/banner/*", async (c) => {
+  const key = c.req.path.replace("/api/uploads/banner/", "");
+
+  if (!key || !key.startsWith("banners/")) {
+    return c.json({ error: { code: "NOT_FOUND", message: "File not found" } }, 404);
+  }
+
+  const object = await c.env.CERTIFICATES_BUCKET.get(key);
+  if (!object) {
+    return c.json({ error: { code: "NOT_FOUND", message: "File not found" } }, 404);
+  }
+
+  const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+  const headers = new Headers();
+  headers.set("Content-Type", contentType);
+  headers.set("Content-Disposition", "inline");
+  headers.set("Cache-Control", "public, max-age=86400");
+
+  return new Response(object.body, { headers });
+});
+
 export { uploadRoutes };

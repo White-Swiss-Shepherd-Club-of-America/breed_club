@@ -24,6 +24,38 @@ export const createContactSchema = z.object({
 
 export const updateContactSchema = createContactSchema.partial();
 
+// --- Breeder Preferences ---
+
+export const updateBreederPrefsSchema = z.object({
+  kennel_name: z.string().max(255).nullish(),
+  website_url: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().url().nullish()
+  ),
+  logo_url: z.string().max(500).nullish(),
+  banner_url: z.string().max(500).nullish(),
+  primary_color: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().regex(/^#[0-9a-fA-F]{6}$/, "Invalid hex color").nullish()
+  ),
+  accent_color: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().regex(/^#[0-9a-fA-F]{6}$/, "Invalid hex color").nullish()
+  ),
+  pup_status: z.enum(["available", "expected", "none"]).nullish(),
+  pup_expected_date: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().date().nullish()
+  ),
+  show_in_directory: z.boolean().optional(),
+}).refine(
+  (data) => {
+    if (data.pup_status === "expected") return !!data.pup_expected_date;
+    return true;
+  },
+  { message: "Expected date is required when status is 'expected'", path: ["pup_expected_date"] }
+);
+
 // --- Dogs ---
 
 /** Parent ref: either an existing dog UUID or a new dog to create by name. */

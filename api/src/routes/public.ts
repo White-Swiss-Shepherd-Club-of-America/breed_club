@@ -53,6 +53,8 @@ publicRoutes.get("/club", async (c) => {
   }
 
   // Return only public-safe fields
+  const settings = (club.settings ?? {}) as Record<string, unknown>;
+
   return c.json({
     club: {
       id: club.id,
@@ -62,6 +64,8 @@ publicRoutes.get("/club", async (c) => {
       logo_url: club.logo_url,
       primary_color: club.primary_color,
       secondary_color: club.secondary_color,
+      banner_width: (settings.banner_width as number) || 390,
+      banner_height: (settings.banner_height as number) || 219,
     },
   });
 });
@@ -126,6 +130,11 @@ publicRoutes.get("/breeders", async (c) => {
     },
   });
 
+  // Build base URL for image keys so external consumers (Hugo) get full URLs
+  const origin = new URL(c.req.url).origin;
+  const imageUrl = (key: string | null) =>
+    key ? `${origin}/api/uploads/${key.startsWith("logos/") ? "logo" : key.startsWith("banners/") ? "banner" : "photo"}/${key}` : null;
+
   // Only expose directory-safe fields
   const breeders = data.map((m) => ({
     id: m.id,
@@ -137,6 +146,12 @@ publicRoutes.get("/breeders", async (c) => {
     email: m.contact?.email,
     phone: m.contact?.phone,
     website_url: m.contact?.website_url,
+    logo_url: imageUrl(m.logo_url),
+    banner_url: imageUrl(m.banner_url),
+    primary_color: m.primary_color,
+    accent_color: m.accent_color,
+    pup_status: m.pup_status,
+    pup_expected_date: m.pup_expected_date,
   }));
 
   return c.json({ data: breeders });

@@ -61,7 +61,7 @@ export function Layout() {
     { to: "/health-stats", label: "Health Statistics", icon: BarChart3, show: !!isMemberOrHigher },
     { to: "/directory", label: "Breeder Directory", icon: Users, show: true },
     { to: "/apply", label: "Apply for Membership", icon: UserPlus, show: !!member && member.tier === "non_member" },
-    { to: "/profile", label: "Profile", icon: Settings, show: !!member },
+    { to: "/settings", label: "Settings", icon: Settings, show: !!member },
   ];
 
   const adminItems = [

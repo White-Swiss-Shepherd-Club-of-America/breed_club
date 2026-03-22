@@ -4,6 +4,7 @@
  * - GET  /me            — current member profile
  * - POST /register      — auto-register on first sign-in (creates contact + member)
  * - PATCH /me           — update own profile (contact fields)
+ * - PATCH /me/breeder   — update breeder preferences (colors, logo, pup status)
  * - GET  /directory     — breeder directory (public-ish)
  */
 
@@ -16,7 +17,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireTier } from "../middleware/rbac.js";
 import { members, contacts } from "../db/schema.js";
 import { notFound, conflict, badRequest } from "../lib/errors.js";
-import { updateContactSchema, paginationSchema } from "@breed-club/shared/validation.js";
+import { updateContactSchema, updateBreederPrefsSchema, paginationSchema } from "@breed-club/shared/validation.js";
 
 type Variables = {
   clubId: string;
@@ -172,6 +173,59 @@ memberRoutes.patch("/me", requireAuth, async (c) => {
     .update(contacts)
     .set({ ...parsed, updated_at: new Date() })
     .where(eq(contacts.id, auth.contactId));
+
+  const member = await db.query.members.findFirst({
+    where: eq(members.id, auth.memberId),
+    with: { contact: true },
+  });
+
+  return c.json({ member });
+});
+
+/**
+ * PATCH /me/breeder — update breeder preferences.
+ * Splits contact fields (kennel_name, website_url) from member fields (colors, logo, pup status).
+ */
+memberRoutes.patch("/me/breeder", requireAuth, async (c) => {
+  const auth = c.get("auth");
+  if (!auth) throw notFound("Member");
+  if (!auth.flags.is_breeder) throw badRequest("Breeder flag is not set on your account");
+
+  const db = c.get("db");
+  const body = await c.req.json();
+  const parsed = updateBreederPrefsSchema.parse(body);
+
+  const contactFields: Record<string, unknown> = {};
+  const memberFields: Record<string, unknown> = {};
+
+  if (parsed.kennel_name !== undefined) contactFields.kennel_name = parsed.kennel_name;
+  if (parsed.website_url !== undefined) contactFields.website_url = parsed.website_url;
+  if (parsed.logo_url !== undefined) memberFields.logo_url = parsed.logo_url;
+  if (parsed.banner_url !== undefined) memberFields.banner_url = parsed.banner_url;
+  if (parsed.primary_color !== undefined) memberFields.primary_color = parsed.primary_color;
+  if (parsed.accent_color !== undefined) memberFields.accent_color = parsed.accent_color;
+  if (parsed.pup_status !== undefined) memberFields.pup_status = parsed.pup_status;
+  if (parsed.pup_expected_date !== undefined) memberFields.pup_expected_date = parsed.pup_expected_date;
+  if (parsed.show_in_directory !== undefined) memberFields.show_in_directory = parsed.show_in_directory;
+
+  // Clear expected date if status is not "expected"
+  if (parsed.pup_status && parsed.pup_status !== "expected") {
+    memberFields.pup_expected_date = null;
+  }
+
+  if (Object.keys(contactFields).length > 0) {
+    await db
+      .update(contacts)
+      .set({ ...contactFields, updated_at: new Date() })
+      .where(eq(contacts.id, auth.contactId));
+  }
+
+  if (Object.keys(memberFields).length > 0) {
+    await db
+      .update(members)
+      .set({ ...memberFields, updated_at: new Date() })
+      .where(eq(members.id, auth.memberId));
+  }
 
   const member = await db.query.members.findFirst({
     where: eq(members.id, auth.memberId),

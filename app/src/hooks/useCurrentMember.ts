@@ -62,3 +62,18 @@ export function useUpdateProfile() {
     },
   });
 }
+
+export function useUpdateBreederPrefs() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const token = await getToken();
+      return api.patch<MemberResponse>("/members/me/breeder", data, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["currentMember"] });
+    },
+  });
+}

@@ -7,7 +7,7 @@ import { HomePage } from "@/pages/HomePage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ApplyPage } from "@/pages/ApplyPage";
-import { ProfilePage } from "@/pages/ProfilePage";
+import { SettingsPage as UserSettingsPage } from "@/pages/SettingsPage";
 import { DirectoryPage } from "@/pages/DirectoryPage";
 import { AdminDashboard } from "@/pages/admin/AdminDashboard";
 import { MembersPage } from "@/pages/admin/MembersPage";
@@ -28,7 +28,7 @@ import { PublicApplyPage } from "@/pages/PublicApplyPage";
 import { HealthStatsPage } from "@/pages/HealthStatsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { EmbedApplyPage } from "@/pages/EmbedApplyPage";
-import { SettingsPage } from "@/pages/admin/SettingsPage";
+import { SettingsPage as AdminSettingsPage } from "@/pages/admin/SettingsPage";
 import { AcceptInvitationPage } from "@/pages/AcceptInvitationPage";
 
 const queryClient = new QueryClient({
@@ -85,11 +85,12 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/profile" element={<Navigate to="/settings" replace />} />
               <Route
-                path="/profile"
+                path="/settings"
                 element={
                   <ProtectedRoute>
-                    <ProfilePage />
+                    <UserSettingsPage />
                   </ProtectedRoute>
                 }
               />
@@ -137,7 +138,7 @@ export function App() {
                 path="/admin/settings"
                 element={
                   <ProtectedRoute minTier="admin">
-                    <SettingsPage />
+                    <AdminSettingsPage />
                   </ProtectedRoute>
                 }
               />

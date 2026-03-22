@@ -1,15 +1,18 @@
 /**
- * Admin settings page.
- * Currently manages membership form fields; future: branding, colors, etc.
+ * Admin settings page with tabs.
+ * - Membership tab: manage custom form fields
+ * - Settings tab: club-level configuration (banner aspect ratio, etc.)
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useAdminFormFields,
   useCreateFormField,
   useUpdateFormField,
   useDeleteFormField,
 } from "@/hooks/useFormFields";
+import { useAuth } from "@clerk/clerk-react";
+import { api } from "@/lib/api";
 import type { MembershipFormField } from "@breed-club/shared";
 import { Plus, Pencil, EyeOff, Eye, X } from "lucide-react";
 
@@ -28,7 +31,7 @@ type FormState = {
   label: string;
   description: string;
   field_type: string;
-  options_text: string; // comma-separated input for options
+  options_text: string;
   required: boolean;
   sort_order: string;
 };
@@ -61,7 +64,10 @@ function formStateToPayload(state: FormState) {
   };
 }
 
-export function SettingsPage() {
+const inputClass =
+  "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm";
+
+function MembershipTab() {
   const { data, isLoading } = useAdminFormFields();
   const createMutation = useCreateFormField();
   const updateMutation = useUpdateFormField();
@@ -129,31 +135,16 @@ export function SettingsPage() {
         is_active: !field.is_active,
       });
     } catch {
-      // silently fail — UI will reflect actual state on next fetch
-    }
-  };
-
-  const handleDelete = async (field: MembershipFormField) => {
-    if (!confirm(`Deactivate "${field.label}"? It will no longer appear on the form.`)) return;
-    try {
-      await deleteMutation.mutateAsync(field.id);
-    } catch {
       // silently fail
     }
   };
 
-  const inputClass =
-    "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm";
-
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Configure the questions shown on the membership application form.
-          </p>
-        </div>
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">
+          Configure the questions shown on the membership application form.
+        </p>
         {!showForm && (
           <button
             onClick={startCreate}
@@ -164,7 +155,6 @@ export function SettingsPage() {
         )}
       </div>
 
-      {/* Create/edit form */}
       {showForm && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -303,7 +293,7 @@ export function SettingsPage() {
               disabled={createMutation.isPending || updateMutation.isPending}
               className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
             >
-              {createMutation.isPending || updateMutation.isPending ? "Saving…" : "Save"}
+              {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
             </button>
             <button
               onClick={cancel}
@@ -315,7 +305,6 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* Field list */}
       {isLoading && (
         <div className="flex items-center justify-center h-32">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
@@ -409,6 +398,141 @@ export function SettingsPage() {
         These fields appear after the standard fields (name, email, phone, address, membership type) on the application form.
         Deactivated fields are hidden from applicants but their answers in existing applications are preserved.
       </p>
+    </>
+  );
+}
+
+function ClubSettingsTab() {
+  const { getToken } = useAuth();
+  const [bannerWidth, setBannerWidth] = useState(390);
+  const [bannerHeight, setBannerHeight] = useState(219);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await getToken();
+        const result = await api.get<{ settings: Record<string, unknown> }>("/admin/settings", { token });
+        if (result.settings?.banner_width) setBannerWidth(result.settings.banner_width as number);
+        if (result.settings?.banner_height) setBannerHeight(result.settings.banner_height as number);
+      } catch {
+        // defaults are fine
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [getToken]);
+
+  const ratio = bannerWidth && bannerHeight ? (bannerWidth / bannerHeight).toFixed(2) : "—";
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const token = await getToken();
+      await api.patch("/admin/settings", { banner_width: bannerWidth, banner_height: bannerHeight }, { token });
+      setSaved(true);
+    } catch {
+      // fail silently
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">Club-level configuration settings.</p>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Breeder Banner Dimensions
+        </label>
+        <div className="flex items-center gap-3">
+          <div>
+            <label htmlFor="banner_width" className="block text-xs text-gray-500 mb-1">Width (px)</label>
+            <input
+              id="banner_width"
+              type="number"
+              min={100}
+              max={2000}
+              value={bannerWidth}
+              onChange={(e) => { setBannerWidth(Number(e.target.value)); setSaved(false); }}
+              className={inputClass + " w-28"}
+            />
+          </div>
+          <span className="text-gray-400 mt-5">&times;</span>
+          <div>
+            <label htmlFor="banner_height" className="block text-xs text-gray-500 mb-1">Height (px)</label>
+            <input
+              id="banner_height"
+              type="number"
+              min={50}
+              max={1000}
+              value={bannerHeight}
+              onChange={(e) => { setBannerHeight(Number(e.target.value)); setSaved(false); }}
+              className={inputClass + " w-28"}
+            />
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-gray-400">
+          Ratio: {ratio}:1 — Uploaded banner images will be resized to fit these dimensions.
+        </p>
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
+      >
+        {saving ? "Saving..." : "Save Settings"}
+      </button>
+
+      {saved && <p className="text-sm text-green-600">Settings saved.</p>}
+    </div>
+  );
+}
+
+export function SettingsPage() {
+  const [tab, setTab] = useState<"membership" | "settings">("membership");
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
+          onClick={() => setTab("membership")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+            tab === "membership"
+              ? "border-gray-900 text-gray-900"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Membership Form
+        </button>
+        <button
+          onClick={() => setTab("settings")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+            tab === "settings"
+              ? "border-gray-900 text-gray-900"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Settings
+        </button>
+      </div>
+
+      {tab === "membership" ? <MembershipTab /> : <ClubSettingsTab />}
     </div>
   );
 }
