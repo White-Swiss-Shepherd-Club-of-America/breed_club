@@ -37,7 +37,7 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
   const clubId = c.get("clubId");
 
   if (!auth) {
-    throw new ApiError("UNAUTHORIZED", "Authentication required", 401);
+    throw new ApiError(401, "UNAUTHORIZED", "Authentication required");
   }
 
   const body = await c.req.json();
@@ -47,7 +47,7 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
   // Get club to read fee configuration
   const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
   if (!club) {
-    throw new ApiError("NOT_FOUND", "Club not found", 404);
+    throw new ApiError(404, "NOT_FOUND", "Club not found");
   }
 
   const feeConfig = club.settings as any;
@@ -62,7 +62,7 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
     // Check for fee bypass
     amountCents = auth.member?.skip_fees
       ? 0
-      : auth.tier === "member" || auth.tier === "admin"
+      : auth.tierLevel >= 20
       ? tierFees.member || 500
       : tierFees.certificate || 1500;
     description = "Dog Registration Fee";
@@ -71,12 +71,12 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
     // Check for fee bypass
     amountCents = auth.member?.skip_fees
       ? 0
-      : auth.tier === "member" || auth.tier === "admin"
+      : auth.tierLevel >= 20
       ? tierFees.member || 0
       : tierFees.certificate || 500;
     description = "Health Clearance Submission Fee";
   } else {
-    throw new ApiError("VALIDATION_ERROR", "Invalid resource type", 422);
+    throw new ApiError(422, "VALIDATION_ERROR", "Invalid resource type");
   }
 
   // If fee is $0, skip Stripe
@@ -99,7 +99,7 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
     .returning();
 
   if (!payment) {
-    throw new ApiError("DATABASE_ERROR", "Failed to create payment record", 500);
+    throw new ApiError(500, "DATABASE_ERROR", "Failed to create payment record");
   }
 
   // Create Stripe Checkout Session
@@ -165,7 +165,7 @@ paymentRoutes.post("/webhook", async (c) => {
 
   const signature = c.req.header("stripe-signature");
   if (!signature) {
-    throw new ApiError("VALIDATION_ERROR", "Missing Stripe signature", 400);
+    throw new ApiError(400, "VALIDATION_ERROR", "Missing Stripe signature");
   }
 
   const body = await c.req.text();
@@ -175,7 +175,7 @@ paymentRoutes.post("/webhook", async (c) => {
     event = stripe.webhooks.constructEvent(body, signature, c.env.STRIPE_WEBHOOK_SECRET);
   } catch (err: any) {
     console.error("Webhook signature verification failed:", err.message);
-    throw new ApiError("VALIDATION_ERROR", `Webhook error: ${err.message}`, 400);
+    throw new ApiError(400, "VALIDATION_ERROR", `Webhook error: ${err.message}`);
   }
 
   // Handle checkout.session.completed
@@ -294,7 +294,7 @@ paymentRoutes.get("/verify/:payment_id", requireAuth, async (c) => {
   const clubId = c.get("clubId");
 
   if (!auth) {
-    throw new ApiError("UNAUTHORIZED", "Authentication required", 401);
+    throw new ApiError(401, "UNAUTHORIZED", "Authentication required");
   }
 
   const paymentId = c.req.param("payment_id");
@@ -306,12 +306,12 @@ paymentRoutes.get("/verify/:payment_id", requireAuth, async (c) => {
     .limit(1);
 
   if (!payment) {
-    throw new ApiError("NOT_FOUND", "Payment not found", 404);
+    throw new ApiError(404, "NOT_FOUND", "Payment not found");
   }
 
   // Only allow member to view their own payment
-  if (payment.member_id !== auth.memberId && auth.tier !== "admin") {
-    throw new ApiError("FORBIDDEN", "Access denied", 403);
+  if (payment.member_id !== auth.memberId && auth.tierLevel < 100) {
+    throw new ApiError(403, "FORBIDDEN", "Access denied");
   }
 
   return c.json({

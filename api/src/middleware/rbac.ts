@@ -2,13 +2,13 @@ import { createMiddleware } from "hono/factory";
 import { eq, and } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
-import { members, contacts } from "../db/schema.js";
+import { members, membershipTiers } from "../db/schema.js";
 import {
-  type Tier,
   type AuthContext,
   type Permission,
   hasPermission,
-  hasTier,
+  hasTierLevel,
+  SYSTEM_LEVELS,
 } from "@breed-club/shared";
 
 type RbacVariables = {
@@ -21,10 +21,9 @@ type RbacVariables = {
 /**
  * Load member middleware.
  *
- * Looks up the member record by clerkUserId + clubId and attaches
- * the full AuthContext to the request. If no member record exists,
- * auth is null (the user is authenticated via Clerk but has no
- * member record yet).
+ * Looks up the member record by clerkUserId + clubId, resolves the
+ * tier's numeric level from membership_tiers, and attaches the full
+ * AuthContext to the request. If no member record exists, auth is null.
  *
  * Must run AFTER requireAuth/optionalAuth and clubContext.
  */
@@ -53,8 +52,19 @@ export const loadMember = createMiddleware<{
     return next();
   }
 
+  // Resolve the tier's numeric level
+  const tierRow = await db.query.membershipTiers.findFirst({
+    where: and(
+      eq(membershipTiers.club_id, clubId),
+      eq(membershipTiers.slug, member.tier)
+    ),
+    columns: { level: true },
+  });
+  const tierLevel = tierRow?.level ?? 0;
+
   const authCtx: AuthContext = {
-    tier: member.tier as Tier,
+    tier: member.tier,
+    tierLevel,
     flags: {
       is_breeder: member.is_breeder,
       can_approve_members: member.can_approve_members,
@@ -65,7 +75,8 @@ export const loadMember = createMiddleware<{
     clubId,
     member: {
       id: member.id,
-      tier: member.tier as Tier,
+      tier: member.tier,
+      tierLevel,
       verified_breeder: member.verified_breeder,
       is_breeder: member.is_breeder,
       can_approve_members: member.can_approve_members,
@@ -110,12 +121,13 @@ export function requirePermission(permission: Permission) {
 }
 
 /**
- * Create a middleware that requires a minimum tier.
+ * Create a middleware that requires a minimum tier level.
  *
  * Usage:
- *   app.get("/search", requireTier("member"), handler);
+ *   app.get("/search", requireLevel(20), handler);  // member+
+ *   app.get("/admin", requireLevel(100), handler);   // admin only
  */
-export function requireTier(minTier: Tier) {
+export function requireLevel(minLevel: number) {
   return createMiddleware<{
     Bindings: Env;
     Variables: RbacVariables;
@@ -129,15 +141,29 @@ export function requireTier(minTier: Tier) {
       );
     }
 
-    if (!hasTier(auth.tier, minTier)) {
+    if (!hasTierLevel(auth.tierLevel, minLevel)) {
       return c.json(
-        { error: { code: "FORBIDDEN", message: `Requires ${minTier} tier or higher` } },
+        { error: { code: "FORBIDDEN", message: `Requires tier level ${minLevel} or higher` } },
         403
       );
     }
 
     return next();
   });
+}
+
+/**
+ * @deprecated Use requireLevel() instead.
+ */
+export function requireTier(minTier: string) {
+  const levelMap: Record<string, number> = {
+    public: 0,
+    non_member: 1,
+    certificate: 10,
+    member: 20,
+    admin: SYSTEM_LEVELS.ADMIN,
+  };
+  return requireLevel(levelMap[minTier] ?? 0);
 }
 
 /**

@@ -13,7 +13,7 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
-import { requireTier } from "../middleware/rbac.js";
+import { requireLevel } from "../middleware/rbac.js";
 import { contacts } from "../db/schema.js";
 import { notFound, badRequest } from "../lib/errors.js";
 import { createContactSchema, updateContactSchema, paginationSchema } from "@breed-club/shared/validation.js";
@@ -31,7 +31,7 @@ const contactRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
  * GET / — search/list contacts. Supports typeahead via ?search= param.
  * Certificate+ tier required.
  */
-contactRoutes.get("/", requireTier("certificate"), async (c) => {
+contactRoutes.get("/", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
@@ -71,7 +71,7 @@ contactRoutes.get("/", requireTier("certificate"), async (c) => {
 /**
  * POST / — create a new contact.
  */
-contactRoutes.post("/", requireTier("certificate"), async (c) => {
+contactRoutes.post("/", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -89,7 +89,7 @@ contactRoutes.post("/", requireTier("certificate"), async (c) => {
 /**
  * GET /:id — get a single contact.
  */
-contactRoutes.get("/:id", requireTier("certificate"), async (c) => {
+contactRoutes.get("/:id", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -108,7 +108,7 @@ contactRoutes.get("/:id", requireTier("certificate"), async (c) => {
 /**
  * PATCH /:id — update a contact.
  */
-contactRoutes.patch("/:id", requireTier("certificate"), async (c) => {
+contactRoutes.patch("/:id", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");

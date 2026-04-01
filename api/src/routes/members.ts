@@ -14,8 +14,8 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
-import { requireTier } from "../middleware/rbac.js";
-import { members, contacts } from "../db/schema.js";
+import { requireLevel } from "../middleware/rbac.js";
+import { members, contacts, membershipTiers } from "../db/schema.js";
 import { notFound, conflict, badRequest } from "../lib/errors.js";
 import { updateContactSchema, updateBreederPrefsSchema, paginationSchema } from "@breed-club/shared/validation.js";
 
@@ -48,7 +48,7 @@ memberRoutes.get("/me", requireAuth, async (c) => {
     throw notFound("Member");
   }
 
-  return c.json({ member });
+  return c.json({ member: { ...member, tierLevel: auth.tierLevel } });
 });
 
 /**

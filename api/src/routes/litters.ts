@@ -16,7 +16,7 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
-import { requireTier, requireFlag } from "../middleware/rbac.js";
+import { requireLevel, requireFlag } from "../middleware/rbac.js";
 import {
   litters,
   litterPups,
@@ -313,7 +313,7 @@ litterRoutes.get("/:id", requireAuth, requireFlag("is_breeder"), async (c) => {
   }
 
   // Verify ownership (unless admin)
-  if (auth.member.tier !== "admin") {
+  if (auth.tierLevel < 100) {
     const breederContact = await db.query.contacts.findFirst({
       where: eq(contacts.member_id, auth.member.id),
     });
@@ -354,6 +354,10 @@ litterRoutes.patch("/:id", requireAuth, requireFlag("is_breeder"), async (c) => 
 
   if (!breederContact || litter.breeder_id !== breederContact.id) {
     throw forbidden("You can only update your own litters");
+  }
+
+  if (litter.approved) {
+    throw badRequest("Cannot edit an approved litter");
   }
 
   const body = await c.req.json();

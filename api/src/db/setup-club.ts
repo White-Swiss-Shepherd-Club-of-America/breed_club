@@ -11,7 +11,7 @@
 
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { clubs } from "./schema.js";
+import { clubs, membershipTiers } from "./schema.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -77,6 +77,23 @@ async function setup() {
     console.log(`  ID:    ${club.id}`);
     console.log(`  Slug:  ${club.slug}`);
     console.log(`  Breed: ${club.breed_name}`);
+
+    // Seed default membership tiers
+    const defaultTiers = [
+      { slug: "public", label: "Public", level: 0, sort_order: 0 },
+      { slug: "non_member", label: "Non-Member", level: 1, is_default: true, sort_order: 1 },
+      { slug: "certificate", label: "Certificate", level: 10, sort_order: 2 },
+      { slug: "member", label: "Member", level: 20, sort_order: 3 },
+      { slug: "admin", label: "Admin", level: 100, is_system: true, sort_order: 4 },
+    ];
+
+    await db.insert(membershipTiers).values(
+      defaultTiers.map((t) => ({
+        club_id: club.id,
+        ...t,
+      }))
+    );
+    console.log(`  Seeded ${defaultTiers.length} default membership tiers`);
   }
 
   console.log("\nDone. You can now run the seed script:");

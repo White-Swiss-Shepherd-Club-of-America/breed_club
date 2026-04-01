@@ -2,12 +2,231 @@
  * Litter detail page with pup management.
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useLitter, useAddPup, useUpdatePup, useSellPup } from "@/hooks/useLitters";
+import { useLitter, useAddPup, useUpdatePup, useSellPup, useUpdateLitter } from "@/hooks/useLitters";
+import { useDogs } from "@/hooks/useDogs";
 import { useSearchContacts } from "@/hooks/useContacts";
-import type { LitterPup, Contact } from "@breed-club/shared";
+import type { LitterPup, Contact, Litter, Dog } from "@breed-club/shared";
 import { formatDate } from "@/lib/utils";
+
+function EditLitterModal({
+  litter,
+  onClose,
+  onSuccess,
+}: {
+  litter: Litter;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const updateLitter = useUpdateLitter(litter.id);
+  const { data: maleData } = useDogs({ sex: "male" });
+  const { data: ownedData } = useDogs({ ownedOnly: true });
+
+  const males = maleData?.data ?? [];
+  const ownedFemales = useMemo(
+    () => (ownedData?.data ?? []).filter((d: Dog) => d.sex === "female"),
+    [ownedData]
+  );
+
+  const [formData, setFormData] = useState({
+    sire_id: litter.sire_id || "",
+    dam_id: litter.dam_id || "",
+    whelp_date: litter.whelp_date || "",
+    litter_name: litter.litter_name || "",
+    num_males: litter.num_males?.toString() || "",
+    num_females: litter.num_females?.toString() || "",
+    notes: litter.notes || "",
+  });
+  const [sireSearch, setSireSearch] = useState("");
+  const [damSearch, setDamSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const filteredMales = useMemo(() => {
+    if (!sireSearch) return males;
+    const q = sireSearch.toLowerCase();
+    return males.filter(
+      (d: Dog) =>
+        d.registered_name.toLowerCase().includes(q) ||
+        (d.call_name && d.call_name.toLowerCase().includes(q))
+    );
+  }, [males, sireSearch]);
+
+  const filteredFemales = useMemo(() => {
+    if (!damSearch) return ownedFemales;
+    const q = damSearch.toLowerCase();
+    return ownedFemales.filter(
+      (d: Dog) =>
+        d.registered_name.toLowerCase().includes(q) ||
+        (d.call_name && d.call_name.toLowerCase().includes(q))
+    );
+  }, [ownedFemales, damSearch]);
+
+  const dogLabel = (d: Dog) =>
+    d.call_name ? `${d.registered_name} (${d.call_name})` : d.registered_name;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      await updateLitter.mutateAsync({
+        sire_id: formData.sire_id || undefined,
+        dam_id: formData.dam_id || undefined,
+        whelp_date: formData.whelp_date || undefined,
+        litter_name: formData.litter_name || undefined,
+        num_males: formData.num_males ? parseInt(formData.num_males) : undefined,
+        num_females: formData.num_females ? parseInt(formData.num_females) : undefined,
+        notes: formData.notes || undefined,
+      });
+      onSuccess();
+      onClose();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update litter";
+      setError(message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-2xl font-bold mb-4">Edit Litter</h2>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+            <p className="text-red-800 text-sm">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Sire */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sire</label>
+            <input
+              type="text"
+              placeholder="Search males..."
+              value={sireSearch}
+              onChange={(e) => setSireSearch(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 mb-1"
+            />
+            <select
+              value={formData.sire_id}
+              onChange={(e) => setFormData({ ...formData, sire_id: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+              size={Math.min(filteredMales.length + 1, 6)}
+            >
+              <option value="">No sire selected</option>
+              {filteredMales.map((d: Dog) => (
+                <option key={d.id} value={d.id}>
+                  {dogLabel(d)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dam */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Dam</label>
+            <input
+              type="text"
+              placeholder="Search your females..."
+              value={damSearch}
+              onChange={(e) => setDamSearch(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 mb-1"
+            />
+            <select
+              value={formData.dam_id}
+              onChange={(e) => setFormData({ ...formData, dam_id: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+              size={Math.min(filteredFemales.length + 1, 6)}
+            >
+              <option value="">No dam selected</option>
+              {filteredFemales.map((d: Dog) => (
+                <option key={d.id} value={d.id}>
+                  {dogLabel(d)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Whelp Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Whelp Date</label>
+            <input
+              type="date"
+              value={formData.whelp_date}
+              onChange={(e) => setFormData({ ...formData, whelp_date: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+
+          {/* Litter Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Litter Name</label>
+            <input
+              type="text"
+              value={formData.litter_name}
+              onChange={(e) => setFormData({ ...formData, litter_name: e.target.value })}
+              placeholder="e.g. A, B, Spring 2026"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+
+          {/* Num Males / Num Females */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Males</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.num_males}
+                onChange={(e) => setFormData({ ...formData, num_males: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Females</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.num_females}
+                onChange={(e) => setFormData({ ...formData, num_females: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={updateLitter.isPending}
+              className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            >
+              {updateLitter.isPending ? "Saving..." : "Save Changes"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function AddPupModal({
   litterId,
@@ -352,6 +571,7 @@ export function LitterDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: litter, isLoading, error } = useLitter(id);
   const [showAddPup, setShowAddPup] = useState(false);
+  const [showEditLitter, setShowEditLitter] = useState(false);
   const [sellPupTarget, setSellPupTarget] = useState<LitterPup | null>(null);
 
   if (isLoading) {
@@ -402,14 +622,24 @@ export function LitterDetailPage() {
               </span>
             </div>
           </div>
-          {litter.approved && (
-            <button
-              onClick={() => setShowAddPup(true)}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition"
-            >
-              Add Pup
-            </button>
-          )}
+          <div className="flex gap-3">
+            {!litter.approved && (
+              <button
+                onClick={() => setShowEditLitter(true)}
+                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Edit Litter
+              </button>
+            )}
+            {litter.approved && (
+              <button
+                onClick={() => setShowAddPup(true)}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition"
+              >
+                Add Pup
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -581,6 +811,14 @@ export function LitterDetailPage() {
           </div>
         )}
       </div>
+
+      {showEditLitter && (
+        <EditLitterModal
+          litter={litter}
+          onClose={() => setShowEditLitter(false)}
+          onSuccess={() => {}}
+        />
+      )}
 
       {showAddPup && (
         <AddPupModal

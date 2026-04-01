@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
-import { requirePermission, requireTier } from "../middleware/rbac.js";
+import { requirePermission, requireLevel } from "../middleware/rbac.js";
 import {
   members,
   contacts,
@@ -35,7 +35,9 @@ import {
   healthCertVersions,
   litters,
   clubs,
+  membershipTiers,
 } from "../db/schema.js";
+import { createMembershipTierSchema, updateMembershipTierSchema } from "@breed-club/shared";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
 import { recomputeHealthRating, recomputeAllClubRatings } from "../lib/rating.js";
@@ -65,7 +67,7 @@ const adminRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * GET /members — list all members (admin only).
  */
-adminRoutes.get("/members", requireTier("admin"), async (c) => {
+adminRoutes.get("/members", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
@@ -93,7 +95,7 @@ adminRoutes.get("/members", requireTier("admin"), async (c) => {
 /**
  * GET /members/:id — get member detail (admin only).
  */
-adminRoutes.get("/members/:id", requireTier("admin"), async (c) => {
+adminRoutes.get("/members/:id", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -199,7 +201,7 @@ adminRoutes.delete("/members/:id", requirePermission("members:manage"), async (c
  * GET /dogs/pending — list dogs awaiting approval.
  * Requires can_approve_clearances permission (same permission used for dog approvals).
  */
-adminRoutes.get("/dogs/pending", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.get("/dogs/pending", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
@@ -239,7 +241,7 @@ adminRoutes.get("/dogs/pending", requirePermission("clearances:approve"), async 
 /**
  * POST /dogs/:id/approve — approve a pending dog.
  */
-adminRoutes.post("/dogs/:id/approve", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.post("/dogs/:id/approve", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -281,7 +283,7 @@ adminRoutes.post("/dogs/:id/approve", requirePermission("clearances:approve"), a
 /**
  * POST /dogs/:id/reject — reject a pending dog.
  */
-adminRoutes.post("/dogs/:id/reject", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.post("/dogs/:id/reject", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -323,7 +325,7 @@ adminRoutes.post("/dogs/:id/reject", requirePermission("clearances:approve"), as
 /**
  * POST /dogs/:id/recalculate — force-recompute a dog's health rating.
  */
-adminRoutes.post("/dogs/:id/recalculate", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.post("/dogs/:id/recalculate", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -442,7 +444,7 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:approve"), async (c) => {
 /**
  * GET /organizations — list all organizations for this club.
  */
-adminRoutes.get("/organizations", requireTier("admin"), async (c) => {
+adminRoutes.get("/organizations", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -518,7 +520,7 @@ adminRoutes.delete("/organizations/:id", requirePermission("orgs:manage"), async
 /**
  * GET /health-test-types — list all health test types for this club.
  */
-adminRoutes.get("/health-test-types", requireTier("admin"), async (c) => {
+adminRoutes.get("/health-test-types", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -674,7 +676,7 @@ adminRoutes.delete("/health-test-types/:id", requirePermission("test_types:manag
 /**
  * GET /clearances/pending — list clearances awaiting verification.
  */
-adminRoutes.get("/clearances/pending", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.get("/clearances/pending", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
@@ -757,7 +759,7 @@ adminRoutes.get("/clearances/pending", requirePermission("clearances:approve"), 
 /**
  * POST /clearances/:id/approve — verify/approve a clearance.
  */
-adminRoutes.post("/clearances/:id/approve", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.post("/clearances/:id/approve", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -819,7 +821,7 @@ adminRoutes.post("/clearances/:id/approve", requirePermission("clearances:approv
 /**
  * POST /clearances/:id/reject — reject a clearance.
  */
-adminRoutes.post("/clearances/:id/reject", requirePermission("clearances:approve"), async (c) => {
+adminRoutes.post("/clearances/:id/reject", requirePermission("health:verify"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -871,7 +873,7 @@ adminRoutes.post("/clearances/:id/reject", requirePermission("clearances:approve
 /**
  * GET /api/admin/export/dogs?format=csv — export all dogs to CSV
  */
-adminRoutes.get("/export/dogs", requireTier("admin"), async (c) => {
+adminRoutes.get("/export/dogs", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const format = c.req.query("format") || "csv";
@@ -961,7 +963,7 @@ adminRoutes.get("/export/dogs", requireTier("admin"), async (c) => {
 /**
  * GET /api/admin/export/health?format=csv — export all health clearances to CSV
  */
-adminRoutes.get("/export/health", requireTier("admin"), async (c) => {
+adminRoutes.get("/export/health", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const format = c.req.query("format") || "csv";
@@ -1174,7 +1176,7 @@ adminRoutes.post("/transfers/:id/reject", requirePermission("dogs:approve"), asy
 /**
  * GET /cert-versions — list all cert versions for this club.
  */
-adminRoutes.get("/cert-versions", requireTier("admin"), async (c) => {
+adminRoutes.get("/cert-versions", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -1260,6 +1262,48 @@ adminRoutes.delete("/cert-versions/:id", requirePermission("test_types:manage"),
 });
 
 // ─── Litters ──────────────────────────────────────────────────────────────
+
+/**
+ * GET /litters — list all litters with optional status filter.
+ */
+adminRoutes.get("/litters", requirePermission("dogs:approve"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const query = paginationSchema.parse(c.req.query());
+  const statusFilter = c.req.query("status") || "all";
+
+  const conditions = [eq(litters.club_id, clubId)];
+  if (statusFilter === "pending") conditions.push(eq(litters.approved, false));
+  if (statusFilter === "approved") conditions.push(eq(litters.approved, true));
+  const where = and(...conditions);
+
+  const [data, countResult] = await Promise.all([
+    db.query.litters.findMany({
+      where,
+      with: {
+        sire: { columns: { id: true, registered_name: true, call_name: true } },
+        dam: { columns: { id: true, registered_name: true, call_name: true } },
+        breeder: true,
+      },
+      limit: query.limit,
+      offset: (query.page - 1) * query.limit,
+      orderBy: (l, { desc }) => [desc(l.created_at)],
+    }),
+    db.select({ count: sql<number>`count(*)` }).from(litters).where(where),
+  ]);
+
+  const total = Number(countResult[0].count);
+
+  return c.json({
+    data,
+    meta: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      pages: Math.ceil(total / query.limit),
+    },
+  });
+});
 
 /**
  * GET /litters/pending — list litters awaiting club approval.
@@ -1371,7 +1415,7 @@ adminRoutes.post("/litters/:id/reject", requirePermission("dogs:approve"), async
 /**
  * PATCH /settings — update club settings (jsonb merge).
  */
-adminRoutes.patch("/settings", requireTier("admin"), async (c) => {
+adminRoutes.patch("/settings", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -1404,7 +1448,7 @@ adminRoutes.patch("/settings", requireTier("admin"), async (c) => {
 /**
  * GET /settings — get current club settings.
  */
-adminRoutes.get("/settings", requireTier("admin"), async (c) => {
+adminRoutes.get("/settings", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -1415,6 +1459,123 @@ adminRoutes.get("/settings", requireTier("admin"), async (c) => {
   if (!club) throw notFound("Club");
 
   return c.json({ settings: club.settings ?? {} });
+});
+
+// ─── Membership Tiers ──────────────────────────────────────────────────────
+
+/**
+ * GET /membership-tiers — list all membership tiers with member counts.
+ */
+adminRoutes.get("/membership-tiers", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const tiers = await db.query.membershipTiers.findMany({
+    where: eq(membershipTiers.club_id, clubId),
+    orderBy: (t, { asc }) => [asc(t.level)],
+  });
+
+  // Get member counts per tier slug
+  const counts = await db
+    .select({
+      tier: members.tier,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(members)
+    .where(eq(members.club_id, clubId))
+    .groupBy(members.tier);
+
+  const countMap = new Map(counts.map((r) => [r.tier, r.count]));
+
+  const data = tiers.map((t) => ({
+    ...t,
+    member_count: countMap.get(t.slug) ?? 0,
+  }));
+
+  return c.json({ data });
+});
+
+/**
+ * POST /membership-tiers — create a new membership tier.
+ */
+adminRoutes.post("/membership-tiers", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const body = await c.req.json();
+  const data = createMembershipTierSchema.parse(body);
+
+  const [tier] = await db
+    .insert(membershipTiers)
+    .values({
+      club_id: clubId,
+      ...data,
+      color: data.color ?? null,
+    })
+    .returning();
+
+  return c.json({ tier }, 201);
+});
+
+/**
+ * PATCH /membership-tiers/:id — update a membership tier.
+ */
+adminRoutes.patch("/membership-tiers/:id", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const existing = await db.query.membershipTiers.findFirst({
+    where: and(eq(membershipTiers.id, id), eq(membershipTiers.club_id, clubId)),
+  });
+
+  if (!existing) throw notFound("Membership tier");
+
+  // Cannot change level of admin tier
+  const body = await c.req.json();
+  const data = updateMembershipTierSchema.parse(body);
+
+  if (existing.is_system && data.level !== undefined && data.level !== existing.level) {
+    throw badRequest("Cannot change the level of a system tier");
+  }
+
+  const [updated] = await db
+    .update(membershipTiers)
+    .set({ ...data, color: data.color ?? existing.color, updated_at: new Date() })
+    .where(eq(membershipTiers.id, id))
+    .returning();
+
+  return c.json({ tier: updated });
+});
+
+/**
+ * DELETE /membership-tiers/:id — delete a membership tier.
+ */
+adminRoutes.delete("/membership-tiers/:id", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const existing = await db.query.membershipTiers.findFirst({
+    where: and(eq(membershipTiers.id, id), eq(membershipTiers.club_id, clubId)),
+  });
+
+  if (!existing) throw notFound("Membership tier");
+  if (existing.is_system) throw badRequest("Cannot delete a system tier");
+
+  // Check if any members are assigned this tier
+  const memberCount = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(members)
+    .where(and(eq(members.club_id, clubId), eq(members.tier, existing.slug)));
+
+  if (memberCount[0].count > 0) {
+    throw badRequest(`Cannot delete tier "${existing.label}" — ${memberCount[0].count} member(s) are assigned to it`);
+  }
+
+  await db.delete(membershipTiers).where(eq(membershipTiers.id, id));
+
+  return c.json({ success: true });
 });
 
 export { adminRoutes };

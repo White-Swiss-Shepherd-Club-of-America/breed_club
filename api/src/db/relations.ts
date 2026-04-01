@@ -19,6 +19,14 @@ import {
   healthCertVersions,
   memberInvitations,
   payments,
+  votingTiers,
+  memberVotingTiers,
+  elections,
+  voteQuestions,
+  voteOptions,
+  voteRecords,
+  voteParticipation,
+  membershipTiers,
 } from "./schema.js";
 
 // ─── Club relations ─────────────────────────────────────────────────────────
@@ -38,6 +46,9 @@ export const clubsRelations = relations(clubs, ({ one, many }) => ({
   membershipApplications: many(membershipApplications),
   membershipFormFields: many(membershipFormFields),
   payments: many(payments),
+  membershipTiers: many(membershipTiers),
+  votingTiers: many(votingTiers),
+  elections: many(elections),
 }));
 
 // ─── Contact relations ──────────────────────────────────────────────────────
@@ -54,6 +65,10 @@ export const contactsRelations = relations(contacts, ({ one, many }) => ({
 export const membersRelations = relations(members, ({ one }) => ({
   club: one(clubs, { fields: [members.club_id], references: [clubs.id] }),
   contact: one(contacts, { fields: [members.contact_id], references: [contacts.id] }),
+  votingTierAssignment: one(memberVotingTiers, {
+    fields: [members.id],
+    references: [memberVotingTiers.member_id],
+  }),
 }));
 
 // ─── Membership Application relations ───────────────────────────────────────
@@ -70,6 +85,12 @@ export const membershipApplicationsRelations = relations(membershipApplications,
     references: [members.id],
     relationName: "applicationMember",
   }),
+}));
+
+// ─── Membership Tier relations ─────────────────────────────────────────────
+
+export const membershipTiersRelations = relations(membershipTiers, ({ one }) => ({
+  club: one(clubs, { fields: [membershipTiers.club_id], references: [clubs.id] }),
 }));
 
 // ─── Membership Form Field relations ────────────────────────────────────────
@@ -293,4 +314,66 @@ export const memberInvitationsRelations = relations(memberInvitations, ({ one })
 export const paymentsRelations = relations(payments, ({ one }) => ({
   club: one(clubs, { fields: [payments.club_id], references: [clubs.id] }),
   member: one(members, { fields: [payments.member_id], references: [members.id] }),
+}));
+
+// ─── Voting Tier relations ─────────────────────────────────────────────────
+
+export const votingTiersRelations = relations(votingTiers, ({ one, many }) => ({
+  club: one(clubs, { fields: [votingTiers.club_id], references: [clubs.id] }),
+  membershipTier: one(membershipTiers, { fields: [votingTiers.membership_tier_id], references: [membershipTiers.id] }),
+  assignments: many(memberVotingTiers),
+}));
+
+// ─── Member Voting Tier relations ──────────────────────────────────────────
+
+export const memberVotingTiersRelations = relations(memberVotingTiers, ({ one }) => ({
+  member: one(members, { fields: [memberVotingTiers.member_id], references: [members.id] }),
+  votingTier: one(votingTiers, { fields: [memberVotingTiers.voting_tier_id], references: [votingTiers.id] }),
+  assignedByMember: one(members, {
+    fields: [memberVotingTiers.assigned_by],
+    references: [members.id],
+    relationName: "votingTierAssigner",
+  }),
+}));
+
+// ─── Election relations ────────────────────────────────────────────────────
+
+export const electionsRelations = relations(elections, ({ one, many }) => ({
+  club: one(clubs, { fields: [elections.club_id], references: [clubs.id] }),
+  creator: one(members, {
+    fields: [elections.created_by],
+    references: [members.id],
+    relationName: "electionCreator",
+  }),
+  questions: many(voteQuestions),
+}));
+
+// ─── Vote Question relations ───────────────────────────────────────────────
+
+export const voteQuestionsRelations = relations(voteQuestions, ({ one, many }) => ({
+  election: one(elections, { fields: [voteQuestions.election_id], references: [elections.id] }),
+  options: many(voteOptions),
+  records: many(voteRecords),
+  participation: many(voteParticipation),
+}));
+
+// ─── Vote Option relations ─────────────────────────────────────────────────
+
+export const voteOptionsRelations = relations(voteOptions, ({ one, many }) => ({
+  question: one(voteQuestions, { fields: [voteOptions.question_id], references: [voteQuestions.id] }),
+  records: many(voteRecords),
+}));
+
+// ─── Vote Record relations (anonymous — no member relation) ────────────────
+
+export const voteRecordsRelations = relations(voteRecords, ({ one }) => ({
+  question: one(voteQuestions, { fields: [voteRecords.question_id], references: [voteQuestions.id] }),
+  option: one(voteOptions, { fields: [voteRecords.option_id], references: [voteOptions.id] }),
+}));
+
+// ─── Vote Participation relations (no option relation) ─────────────────────
+
+export const voteParticipationRelations = relations(voteParticipation, ({ one }) => ({
+  question: one(voteQuestions, { fields: [voteParticipation.question_id], references: [voteQuestions.id] }),
+  member: one(members, { fields: [voteParticipation.member_id], references: [members.id] }),
 }));

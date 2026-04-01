@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { TIERS } from "./roles.js";
+import { SYSTEM_LEVELS } from "./roles.js";
 
 // --- Common ---
 
@@ -217,7 +217,7 @@ export const reorderFormFieldsSchema = z.object({
 // --- Members (admin update) ---
 
 export const updateMemberSchema = z.object({
-  tier: z.enum(TIERS).optional(),
+  tier: z.string().max(50).optional(),
   membership_status: z.enum(["pending", "active", "expired", "suspended"]).optional(),
   membership_type: z.string().max(50).nullish(),
   membership_expires: z.string().datetime().nullish(),
@@ -394,6 +394,96 @@ export const createPaymentSessionSchema = z.object({
   metadata: z.record(z.unknown()),
   success_url: z.string().url(),
   cancel_url: z.string().url(),
+});
+
+// --- Voting Tiers ---
+
+export const createVotingTierSchema = z.object({
+  name: z.string().min(1).max(100),
+  points: z.number().int().min(1).max(100),
+  membership_tier_id: z.string().uuid().nullable().optional(),
+  sort_order: z.number().int().default(0),
+  is_active: z.boolean().default(true),
+});
+
+export const updateVotingTierSchema = createVotingTierSchema.partial();
+
+export const assignVotingTierSchema = z.object({
+  member_id: uuidSchema,
+  voting_tier_id: uuidSchema,
+});
+
+export const bulkAssignVotingTierSchema = z.object({
+  member_ids: z.array(uuidSchema).min(1),
+  voting_tier_id: uuidSchema,
+});
+
+// --- Elections ---
+
+const voteOptionInputSchema = z.object({
+  label: z.string().min(1).max(255),
+  sort_order: z.number().int().default(0),
+});
+
+const voteQuestionInputSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().max(2000).nullish(),
+  question_type: z.enum(["yes_no", "multiple_choice"]),
+  sort_order: z.number().int().default(0),
+  options: z.array(voteOptionInputSchema).optional(),
+}).refine(
+  (data) => {
+    if (data.question_type === "multiple_choice") {
+      return data.options && data.options.length >= 2;
+    }
+    return true;
+  },
+  { message: "Multiple choice questions require at least 2 options", path: ["options"] }
+);
+
+export const createElectionSchema = z.object({
+  title: z.string().min(1).max(255),
+  description: z.string().max(2000).nullish(),
+  starts_at: z.string().datetime(),
+  ends_at: z.string().datetime(),
+  questions: z.array(voteQuestionInputSchema).min(1),
+}).refine(
+  (data) => new Date(data.ends_at) > new Date(data.starts_at),
+  { message: "End date must be after start date", path: ["ends_at"] }
+);
+
+export const updateElectionSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).nullish(),
+  starts_at: z.string().datetime().optional(),
+  ends_at: z.string().datetime().optional(),
+  results_visible: z.boolean().optional(),
+});
+
+export const castBallotSchema = z.object({
+  votes: z.array(z.object({
+    question_id: uuidSchema,
+    option_id: uuidSchema,
+  })).min(1),
+});
+
+// --- Membership Tiers ---
+
+export const createMembershipTierSchema = z.object({
+  slug: z.string().min(1).max(50).regex(/^[a-z][a-z0-9_]*$/, "Slug must be lowercase letters, numbers, and underscores"),
+  label: z.string().min(1).max(100),
+  level: z.number().int().min(0).max(99),
+  color: z.string().max(7).nullish(),
+  is_default: z.boolean().default(false),
+  sort_order: z.number().int().default(0),
+});
+
+export const updateMembershipTierSchema = z.object({
+  label: z.string().min(1).max(100).optional(),
+  level: z.number().int().min(0).max(99).optional(),
+  color: z.string().max(7).nullish(),
+  is_default: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
 });
 
 // --- Pagination ---

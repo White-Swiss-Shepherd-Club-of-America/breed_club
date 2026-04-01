@@ -4,10 +4,10 @@
 
 import { useState } from "react";
 import { useAdminMembers, useUpdateMember, useDeleteMember, useUpdateContact, useDirectInvite } from "@/hooks/useAdmin";
-import type { Member, Tier } from "@breed-club/shared";
+import { useTiers } from "@/hooks/useTiers";
+import type { Member } from "@breed-club/shared";
 import { Trash2, AlertTriangle, Pencil, Mail } from "lucide-react";
 
-const TIER_OPTIONS: Tier[] = ["non_member", "certificate", "member", "admin"];
 const STATUS_OPTIONS = ["pending", "active", "expired", "suspended"];
 
 export function MembersPage() {
@@ -18,6 +18,7 @@ export function MembersPage() {
   const deleteMutation = useDeleteMember();
   const updateContactMutation = useUpdateContact();
   const directInviteMutation = useDirectInvite();
+  const { assignableTiers, invitableTiers } = useTiers();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -98,6 +99,7 @@ export function MembersPage() {
           }}
           isSending={directInviteMutation.isPending}
           error={directInviteMutation.error?.message ?? null}
+          tierOptions={invitableTiers}
         />
       )}
 
@@ -185,9 +187,9 @@ export function MembersPage() {
                     onChange={(e) => handleUpdate(member.id, "tier", e.target.value)}
                     className="text-sm border border-gray-200 rounded px-2 py-1"
                   >
-                    {TIER_OPTIONS.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
+                    {assignableTiers.map((t) => (
+                      <option key={t.slug} value={t.slug}>
+                        {t.label}
                       </option>
                     ))}
                   </select>
@@ -330,13 +332,16 @@ function DirectInviteModal({
   onSend,
   isSending,
   error,
+  tierOptions,
 }: {
   onClose: () => void;
   onSend: (data: { email: string; name?: string; tier: string }) => Promise<void>;
   isSending: boolean;
   error: string | null;
+  tierOptions: Array<{ slug: string; label: string; level: number }>;
 }) {
-  const [form, setForm] = useState({ email: "", name: "", tier: "member" });
+  const defaultTier = tierOptions.find((t) => t.slug === "member")?.slug ?? tierOptions[0]?.slug ?? "member";
+  const [form, setForm] = useState({ email: "", name: "", tier: defaultTier });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -375,9 +380,11 @@ function DirectInviteModal({
               onChange={(e) => setForm((f) => ({ ...f, tier: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
             >
-              <option value="member">Member</option>
-              <option value="certificate">Certificate</option>
-              <option value="non_member">Non-Member</option>
+              {tierOptions.map((t) => (
+                <option key={t.slug} value={t.slug}>
+                  {t.label}
+                </option>
+              ))}
             </select>
           </div>
           {error && (

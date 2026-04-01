@@ -2,7 +2,7 @@
  * Shared TypeScript types used by both frontend and API.
  */
 
-import type { Tier, PermissionFlags } from "./roles.js";
+import type { PermissionFlags } from "./roles.js";
 
 // --- Enums ---
 
@@ -103,12 +103,29 @@ export interface Contact {
   updated_at: string;
 }
 
+export interface MembershipTier {
+  id: string;
+  club_id: string;
+  slug: string;
+  label: string;
+  level: number;
+  color: string | null;
+  is_system: boolean;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  // Computed
+  member_count?: number;
+}
+
 export interface Member {
   id: string;
   club_id: string;
   clerk_user_id: string;
   contact_id: string;
-  tier: Tier;
+  tier: string;
+  tierLevel: number;
   membership_status: MembershipStatus;
   membership_type: string | null;
   membership_expires: string | null;
@@ -477,6 +494,97 @@ export interface ApiError {
     message: string;
     details?: Record<string, unknown>;
   };
+}
+
+// --- Voting ---
+
+export type QuestionType = "yes_no" | "multiple_choice";
+export type ElectionStatus = "upcoming" | "open" | "closed";
+
+export interface VotingTier {
+  id: string;
+  club_id: string;
+  name: string;
+  points: number;
+  membership_tier_id: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Computed
+  member_count?: number;
+}
+
+export interface MemberVotingTierAssignment {
+  id: string;
+  member_id: string;
+  voting_tier_id: string;
+  assigned_at: string;
+  assigned_by: string | null;
+  // Joined
+  member?: Pick<Member, "id" | "tier"> & { contact?: Pick<Contact, "full_name" | "email"> };
+  votingTier?: VotingTier;
+}
+
+export interface VoteOption {
+  id: string;
+  question_id: string;
+  label: string;
+  sort_order: number;
+}
+
+export interface VoteQuestion {
+  id: string;
+  election_id: string;
+  title: string;
+  description: string | null;
+  question_type: QuestionType;
+  sort_order: number;
+  created_at: string;
+  // Joined
+  options?: VoteOption[];
+  // Computed (per-member)
+  has_voted?: boolean;
+}
+
+export interface Election {
+  id: string;
+  club_id: string;
+  title: string;
+  description: string | null;
+  starts_at: string;
+  ends_at: string;
+  results_visible: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed
+  status?: ElectionStatus;
+  // Joined
+  questions?: VoteQuestion[];
+}
+
+export interface VoteOptionResult {
+  option_id: string;
+  label: string;
+  vote_count: number;
+  points_total: number;
+}
+
+export interface VoteQuestionResult {
+  question_id: string;
+  title: string;
+  question_type: QuestionType;
+  participation_count: number;
+  total_points: number;
+  options: VoteOptionResult[];
+}
+
+export interface ElectionResults {
+  election_id: string;
+  title: string;
+  status: ElectionStatus;
+  questions: VoteQuestionResult[];
 }
 
 // --- Health Stamp (public page data) ---

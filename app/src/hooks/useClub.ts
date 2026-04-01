@@ -4,12 +4,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Club } from "@breed-club/shared";
+import type { Club, MembershipTier } from "@breed-club/shared";
 
 type PublicClub = Pick<
   Club,
   "id" | "name" | "slug" | "breed_name" | "logo_url" | "primary_color" | "secondary_color"
->;
+> & {
+  membership_tiers: MembershipTier[];
+};
 
 export function useClub() {
   return useQuery({

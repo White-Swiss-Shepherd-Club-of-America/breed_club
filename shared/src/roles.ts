@@ -1,15 +1,39 @@
 /**
- * RBAC: Composable tier + permission flags
+ * RBAC: Level-based tier system + permission flags
  *
- * Base tier represents access/payment level.
- * Permission flags are additive booleans on top of the tier.
+ * Membership tiers are configurable per club (stored in membership_tiers table).
+ * Each tier has a numeric level used for access control comparisons.
+ * Permission flags are additive booleans on top of the tier level.
  */
 
-export const TIERS = ["public", "non_member", "certificate", "member", "admin"] as const;
-export type Tier = (typeof TIERS)[number];
+/** System-reserved level for admin (always highest, cannot be deleted) */
+export const SYSTEM_LEVELS = {
+  ADMIN: 100,
+} as const;
 
-/** Numeric hierarchy for tier comparison */
-export const TIER_LEVEL: Record<Tier, number> = {
+/** Default levels used when seeding a new club */
+export const DEFAULT_LEVELS = {
+  public: 0,
+  non_member: 1,
+  certificate: 10,
+  member: 20,
+  admin: 100,
+} as const;
+
+/**
+ * @deprecated Use level-based checks instead. Kept for transition.
+ */
+export const TIERS = ["public", "non_member", "certificate", "member", "admin"] as const;
+
+/**
+ * @deprecated Use `string` instead. Tier slugs are now club-configurable.
+ */
+export type Tier = string;
+
+/**
+ * @deprecated Use DEFAULT_LEVELS instead.
+ */
+export const TIER_LEVEL: Record<string, number> = {
   public: 0,
   non_member: 1,
   certificate: 2,
@@ -26,7 +50,8 @@ export interface PermissionFlags {
 
 /** Full authorization context for a request */
 export interface AuthContext {
-  tier: Tier;
+  tier: string;
+  tierLevel: number;
   flags: PermissionFlags;
   memberId: string;
   contactId: string;
@@ -34,7 +59,8 @@ export interface AuthContext {
   /** Full member record (optional, for convenience) */
   member?: {
     id: string;
-    tier: Tier;
+    tier: string;
+    tierLevel: number;
     verified_breeder: boolean;
     is_breeder: boolean;
     can_approve_members: boolean;
@@ -44,46 +70,59 @@ export interface AuthContext {
 }
 
 /**
- * Check if a tier meets a minimum requirement.
- * e.g., hasTier("member", "certificate") => true
+ * Check if a tier level meets a minimum requirement.
  */
-export function hasTier(actual: Tier, required: Tier): boolean {
-  return TIER_LEVEL[actual] >= TIER_LEVEL[required];
+export function hasTierLevel(actualLevel: number, requiredLevel: number): boolean {
+  return actualLevel >= requiredLevel;
 }
 
 /**
- * Permission definitions: what tier + flags are needed for each action.
+ * @deprecated Use hasTierLevel() instead.
+ */
+export function hasTier(actual: string, required: string): boolean {
+  const actualLevel = TIER_LEVEL[actual] ?? 0;
+  const requiredLevel = TIER_LEVEL[required] ?? 0;
+  return actualLevel >= requiredLevel;
+}
+
+/**
+ * Permission definitions: what level + flags are needed for each action.
  */
 export const PERMISSIONS = {
   // Dogs
-  "dogs:create": { minTier: "non_member" as Tier },
-  "dogs:read_own": { minTier: "non_member" as Tier },
-  "dogs:read_all": { minTier: "member" as Tier },
-  "dogs:approve": { minTier: "member" as Tier, flag: "can_approve_clearances" as const },
+  "dogs:create": { minLevel: 1 },           // non_member+
+  "dogs:read_own": { minLevel: 1 },
+  "dogs:read_all": { minLevel: 20 },         // member+
+  "dogs:approve": { minLevel: 20, flag: "can_approve_clearances" as const },
 
   // Health clearances
-  "health:create": { minTier: "non_member" as Tier },
-  "health:read_own": { minTier: "non_member" as Tier },
-  "health:read_all": { minTier: "member" as Tier },
-  "health:verify": { minTier: "member" as Tier, flag: "can_approve_clearances" as const },
+  "health:create": { minLevel: 1 },
+  "health:read_own": { minLevel: 1 },
+  "health:read_all": { minLevel: 20 },
+  "health:verify": { minLevel: 20, flag: "can_approve_clearances" as const },
 
   // Litters
-  "litters:create": { minTier: "certificate" as Tier, flag: "is_breeder" as const },
-  "litters:read_own": { minTier: "certificate" as Tier },
-  "litters:read_all": { minTier: "member" as Tier },
+  "litters:create": { minLevel: 10, flag: "is_breeder" as const },  // certificate+
+  "litters:read_own": { minLevel: 10 },
+  "litters:read_all": { minLevel: 20 },
 
   // Members
-  "members:read_directory": { minTier: "non_member" as Tier },
-  "members:approve": { minTier: "member" as Tier, flag: "can_approve_members" as const },
-  "members:manage": { minTier: "admin" as Tier },
+  "members:read_directory": { minLevel: 1 },
+  "members:approve": { minLevel: 20, flag: "can_approve_members" as const },
+  "members:manage": { minLevel: SYSTEM_LEVELS.ADMIN },
 
   // Search / research
-  "research:access": { minTier: "member" as Tier },
+  "research:access": { minLevel: 20 },
 
   // Admin
-  "settings:manage": { minTier: "admin" as Tier },
-  "orgs:manage": { minTier: "admin" as Tier },
-  "test_types:manage": { minTier: "admin" as Tier },
+  "settings:manage": { minLevel: SYSTEM_LEVELS.ADMIN },
+  "orgs:manage": { minLevel: SYSTEM_LEVELS.ADMIN },
+  "test_types:manage": { minLevel: SYSTEM_LEVELS.ADMIN },
+
+  // Elections / Voting
+  "elections:manage": { minLevel: SYSTEM_LEVELS.ADMIN },
+  "elections:vote": { minLevel: 10 },
+  "elections:view": { minLevel: 10 },
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -93,10 +132,10 @@ export type Permission = keyof typeof PERMISSIONS;
  */
 export function hasPermission(auth: AuthContext, permission: Permission): boolean {
   // Admin always has access
-  if (auth.tier === "admin") return true;
+  if (auth.tierLevel >= SYSTEM_LEVELS.ADMIN) return true;
 
   const req = PERMISSIONS[permission];
-  if (!hasTier(auth.tier, req.minTier)) return false;
+  if (auth.tierLevel < req.minLevel) return false;
 
   if ("flag" in req && req.flag) {
     return auth.flags[req.flag] === true;

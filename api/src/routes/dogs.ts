@@ -16,7 +16,7 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
-import { requireTier } from "../middleware/rbac.js";
+import { requireLevel } from "../middleware/rbac.js";
 import { dogs, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
 import { notFound, badRequest, forbidden, conflict } from "../lib/errors.js";
 import { isDogOwner } from "../lib/ownership.js";
@@ -48,7 +48,7 @@ const dogRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
  * - If fee is $0 for user's tier: creates dog immediately
  * - If fee > $0: returns requiresPayment flag (frontend should call /api/payments/create-session)
  */
-dogRoutes.post("/", requireTier("certificate"), async (c) => {
+dogRoutes.post("/", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -63,7 +63,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
   // Non-admin users must provide at least one external registration for non-historical dogs
   if (
     !dogData.is_historical &&
-    auth.member.tier !== "admin" &&
+    auth.tierLevel < 100 &&
     (!inlineRegs || inlineRegs.length === 0)
   ) {
     throw badRequest("At least one external registration (e.g. AKC, UKC) is required");
@@ -81,9 +81,9 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
   const tierFees = fees.create_dog || { certificate: 1500, member: 500 };
 
   // Check for fee bypass — admins always bypass fees
-  const amountCents = auth.member.skip_fees || auth.member.tier === "admin"
+  const amountCents = auth.member.skip_fees || auth.tierLevel >= 100
     ? 0
-    : auth.member.tier === "member"
+    : auth.tierLevel >= 20
     ? tierFees.member || 500
     : tierFees.certificate || 1500;
 
@@ -194,7 +194,7 @@ dogRoutes.post("/", requireTier("certificate"), async (c) => {
  * - dam_id: filter by dam
  * - page, limit: pagination
  */
-dogRoutes.get("/search", requireTier("member"), async (c) => {
+dogRoutes.get("/search", requireLevel(20), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const query = c.req.query();
@@ -268,7 +268,7 @@ dogRoutes.get("/search", requireTier("member"), async (c) => {
 /**
  * GET /filter-options — distinct coat_type and color values for filter dropdowns.
  */
-dogRoutes.get("/filter-options", requireTier("member"), async (c) => {
+dogRoutes.get("/filter-options", requireLevel(20), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -298,7 +298,7 @@ dogRoutes.get("/filter-options", requireTier("member"), async (c) => {
  * - Certificate tier: own dogs only (where submitted_by = member.id)
  * - Member+ tier: all approved dogs
  */
-dogRoutes.get("/", requireTier("certificate"), async (c) => {
+dogRoutes.get("/", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -408,8 +408,8 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
     if (!includeHistorical) {
       conditions.push(eq(dogs.is_historical, false));
     }
-  } else if (auth?.tier === "certificate") {
-    conditions.push(eq(dogs.submitted_by, auth.member!.id));
+  } else if ((auth?.tierLevel ?? 0) < 20) {
+    conditions.push(eq(dogs.submitted_by, auth!.member!.id));
   } else {
     // member+ tier: all approved dogs, plus their own pending submissions
     conditions.push(
@@ -459,7 +459,7 @@ dogRoutes.get("/", requireTier("certificate"), async (c) => {
 /**
  * GET /:id — dog detail with registrations, clearances, pedigree links.
  */
-dogRoutes.get("/:id", requireTier("certificate"), async (c) => {
+dogRoutes.get("/:id", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -492,12 +492,12 @@ dogRoutes.get("/:id", requireTier("certificate"), async (c) => {
 
   // RBAC: certificate tier can only view own dogs, member+ can view all approved dogs
   // Admins and members with can_approve_clearances can also view pending dogs
-  if (auth?.tier === "certificate" && dog.submitted_by !== auth.member?.id) {
+  if ((auth?.tierLevel ?? 0) < 20 && dog.submitted_by !== auth?.member?.id) {
     throw forbidden("You can only view your own dogs");
   }
 
-  const canApprove = auth?.tier === "admin" || auth?.member?.can_approve_clearances;
-  if (auth?.tier !== "certificate" && dog.status !== "approved" && !canApprove) {
+  const canApprove = (auth?.tierLevel ?? 0) >= 100 || auth?.member?.can_approve_clearances;
+  if ((auth?.tierLevel ?? 0) >= 20 && dog.status !== "approved" && !canApprove) {
     throw forbidden("Dog not yet approved");
   }
 
@@ -523,7 +523,7 @@ dogRoutes.get("/:id", requireTier("certificate"), async (c) => {
 /**
  * PATCH /:id — update own dog (only if status is pending).
  */
-dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
+dogRoutes.patch("/:id", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -616,7 +616,7 @@ dogRoutes.patch("/:id", requireTier("certificate"), async (c) => {
 /**
  * POST /:id/registrations — add external registration to a dog.
  */
-dogRoutes.post("/:id/registrations", requireTier("certificate"), async (c) => {
+dogRoutes.post("/:id/registrations", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -666,7 +666,7 @@ dogRoutes.post("/:id/registrations", requireTier("certificate"), async (c) => {
  * PATCH /:id/photo — update dog photo.
  * Allowed for admin, clearance approvers, or the dog's owner.
  */
-dogRoutes.patch("/:id/photo", requireTier("certificate"), async (c) => {
+dogRoutes.patch("/:id/photo", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -708,7 +708,7 @@ dogRoutes.patch("/:id/photo", requireTier("certificate"), async (c) => {
  * GET /:id/pedigree — fetch pedigree tree (sire/dam ancestry).
  * Returns up to 3 generations by default (depth=3).
  */
-dogRoutes.get("/:id/pedigree", requireTier("certificate"), async (c) => {
+dogRoutes.get("/:id/pedigree", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -770,7 +770,7 @@ dogRoutes.get("/:id/pedigree", requireTier("certificate"), async (c) => {
  * Query params:
  *   depth: max generations to fetch (1-4, default 1)
  */
-dogRoutes.get("/:id/progeny", requireTier("member"), async (c) => {
+dogRoutes.get("/:id/progeny", requireLevel(20), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -835,7 +835,7 @@ dogRoutes.get("/:id/progeny", requireTier("member"), async (c) => {
  * Only the current owner or admin can initiate. Creates a pending transfer
  * that must be approved by an admin before ownership changes.
  */
-dogRoutes.post("/:id/transfer", requireTier("certificate"), async (c) => {
+dogRoutes.post("/:id/transfer", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const club = c.get("club");
@@ -911,7 +911,7 @@ dogRoutes.post("/:id/transfer", requireTier("certificate"), async (c) => {
 /**
  * GET /:id/transfers — ownership transfer history.
  */
-dogRoutes.get("/:id/transfers", requireTier("certificate"), async (c) => {
+dogRoutes.get("/:id/transfers", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");

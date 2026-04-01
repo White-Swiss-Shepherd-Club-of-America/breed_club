@@ -26,15 +26,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 5273,
     proxy: {
       "/api": {
-        target: "http://localhost:8787",
+        target: "http://localhost:8887",
         changeOrigin: true,
       },
       // SSR health stamp pages served by the API (no /api prefix)
       "^/dogs/[^/]+/health": {
-        target: "http://localhost:8787",
+        target: "http://localhost:8887",
         changeOrigin: true,
       },
     },

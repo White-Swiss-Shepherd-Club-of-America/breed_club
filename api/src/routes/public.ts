@@ -22,6 +22,7 @@ import {
   litters,
   membershipApplications,
   membershipFormFields,
+  membershipTiers,
 } from "../db/schema.js";
 import { publicApplicationSchema } from "@breed-club/shared/validation.js";
 import { conflict, badRequest } from "../lib/errors.js";
@@ -52,6 +53,12 @@ publicRoutes.get("/club", async (c) => {
     return c.json({ error: { code: "NOT_FOUND", message: "Club not found" } }, 404);
   }
 
+  // Fetch membership tiers for this club
+  const tiers = await db.query.membershipTiers.findMany({
+    where: eq(membershipTiers.club_id, clubId),
+    orderBy: (t, { asc }) => [asc(t.level)],
+  });
+
   // Return only public-safe fields
   const settings = (club.settings ?? {}) as Record<string, unknown>;
 
@@ -66,6 +73,7 @@ publicRoutes.get("/club", async (c) => {
       secondary_color: club.secondary_color,
       banner_width: (settings.banner_width as number) || 390,
       banner_height: (settings.banner_height as number) || 219,
+      membership_tiers: tiers,
     },
   });
 });
@@ -351,6 +359,9 @@ publicRoutes.post("/applications", async (c) => {
   // Verify reCAPTCHA (skip in development if no key configured)
   const secretKey = c.env.RECAPTCHA_SECRET_KEY;
   if (secretKey) {
+    if (!recaptcha_token) {
+      throw badRequest("reCAPTCHA verification required.");
+    }
     const valid = await verifyRecaptcha(recaptcha_token, secretKey);
     if (!valid) {
       throw badRequest("reCAPTCHA verification failed. Please try again.");

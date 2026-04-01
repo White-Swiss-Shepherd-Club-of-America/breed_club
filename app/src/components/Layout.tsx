@@ -22,6 +22,8 @@ import {
   Menu,
   X,
   Building2,
+  Vote,
+  List,
 } from "lucide-react";
 
 export function Layout() {
@@ -47,12 +49,13 @@ export function Layout() {
   }, [location.pathname]);
 
   const club = clubData?.club;
-  const isAdmin = member?.tier === "admin";
+  const tierLevel = member?.tierLevel ?? 0;
+  const isAdmin = tierLevel >= 100;
   const canApproveMembers = isAdmin || member?.can_approve_members;
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
 
-  const isCertificateOrHigher = member && ["certificate", "member", "admin"].includes(member.tier);
-  const isMemberOrHigher = member && ["member", "admin"].includes(member.tier);
+  const isCertificateOrHigher = member && tierLevel >= 10;
+  const isMemberOrHigher = member && tierLevel >= 20;
 
   const navItems = [
     { to: "/", label: "Home", icon: Home, show: true },
@@ -60,7 +63,8 @@ export function Layout() {
     { to: "/registry", label: "Dog Registry", icon: PawPrint, show: !!isMemberOrHigher },
     { to: "/health-stats", label: "Health Statistics", icon: BarChart3, show: !!isMemberOrHigher },
     { to: "/directory", label: "Breeder Directory", icon: Users, show: true },
-    { to: "/apply", label: "Apply for Membership", icon: UserPlus, show: !!member && member.tier === "non_member" },
+    { to: "/voting", label: "Voting", icon: Vote, show: !!isCertificateOrHigher },
+    { to: "/apply", label: "Apply for Membership", icon: UserPlus, show: !!member && tierLevel <= 1 },
     { to: "/settings", label: "Settings", icon: Settings, show: !!member },
   ];
 
@@ -68,8 +72,10 @@ export function Layout() {
     { to: "/admin", label: "Admin Dashboard", icon: Shield, show: isAdmin },
     { to: "/admin/members", label: "Members", icon: Users, show: isAdmin },
     { to: "/admin/approvals", label: "Approvals", icon: ClipboardCheck, show: canApproveClearances || canApproveMembers },
+    { to: "/admin/litters", label: "Litters", icon: List, show: canApproveClearances },
     { to: "/admin/health-tests", label: "Health", icon: HeartPulse, show: isAdmin },
     { to: "/admin/organizations", label: "Organizations", icon: Building2, show: isAdmin },
+    { to: "/admin/elections", label: "Elections", icon: Vote, show: isAdmin },
     { to: "/admin/settings", label: "Settings", icon: Settings, show: isAdmin },
   ];
 

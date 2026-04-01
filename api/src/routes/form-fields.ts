@@ -13,7 +13,7 @@ import { eq, and } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
-import { requireTier } from "../middleware/rbac.js";
+import { requireLevel } from "../middleware/rbac.js";
 import { membershipFormFields } from "../db/schema.js";
 import { notFound, conflict } from "../lib/errors.js";
 import {
@@ -34,7 +34,7 @@ const formFieldRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * GET / — list all form fields (active + inactive), ordered by sort_order.
  */
-formFieldRoutes.get("/", requireTier("admin"), async (c) => {
+formFieldRoutes.get("/", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -49,7 +49,7 @@ formFieldRoutes.get("/", requireTier("admin"), async (c) => {
 /**
  * POST / — create a new form field.
  */
-formFieldRoutes.post("/", requireTier("admin"), async (c) => {
+formFieldRoutes.post("/", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -83,7 +83,7 @@ formFieldRoutes.post("/", requireTier("admin"), async (c) => {
  * PATCH /:id — update a form field.
  * field_key cannot be changed (to preserve historical form_data references).
  */
-formFieldRoutes.patch("/:id", requireTier("admin"), async (c) => {
+formFieldRoutes.patch("/:id", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -114,7 +114,7 @@ formFieldRoutes.patch("/:id", requireTier("admin"), async (c) => {
 /**
  * DELETE /:id — soft delete (set is_active=false).
  */
-formFieldRoutes.delete("/:id", requireTier("admin"), async (c) => {
+formFieldRoutes.delete("/:id", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");
@@ -141,7 +141,7 @@ formFieldRoutes.delete("/:id", requireTier("admin"), async (c) => {
 /**
  * PUT /reorder — bulk update sort_order from ordered array of field IDs.
  */
-formFieldRoutes.put("/reorder", requireTier("admin"), async (c) => {
+formFieldRoutes.put("/reorder", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 

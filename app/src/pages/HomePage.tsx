@@ -70,7 +70,7 @@ export function HomePage() {
               <p className="mt-1 text-sm text-gray-600">Find breeders in the club</p>
             </Link>
 
-            {(member.tier === "admin" || member.can_approve_members || member.can_approve_clearances) && (
+            {((member.tierLevel ?? 0) >= 100 || member.can_approve_members || member.can_approve_clearances) && (
               <Link
                 to="/admin"
                 className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"

@@ -264,7 +264,7 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   // Check for fee bypass
   const amountCents = member.skip_fees
     ? 0
-    : member.tier === "member" || member.tier === "admin"
+    : auth.tierLevel >= 20
     ? tierFees.member || 0
     : tierFees.certificate || 500;
 

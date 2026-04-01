@@ -8,22 +8,16 @@ import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useMyApplications } from "@/hooks/useApplications";
 import { useDogs } from "@/hooks/useDogs";
 import { useLitters, useSireApprovals, useRespondSireApproval } from "@/hooks/useLitters";
-import { hasTier } from "@breed-club/shared/roles.js";
+import { useTiers } from "@/hooks/useTiers";
 import { PawPrint, FileText, UserPlus, Award, Baby } from "lucide-react";
 import { ratingBgClass } from "@/lib/health-colors";
 import { formatDate } from "@/lib/utils";
 import type { Dog, Litter } from "@breed-club/shared";
 
-const TIER_LABELS: Record<string, string> = {
-  non_member: "Non-Member",
-  certificate: "Certificate",
-  member: "Full Member",
-  admin: "Administrator",
-};
-
 export function DashboardPage() {
   const { member } = useCurrentMember();
   const { data: appData } = useMyApplications();
+  const { getTierLabel } = useTiers();
 
   if (!member) return null;
 
@@ -47,7 +41,7 @@ export function DashboardPage() {
           </div>
           <div className="text-right">
             <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
-              {TIER_LABELS[member.tier] || member.tier}
+              {getTierLabel(member.tier)}
             </span>
             {member.membership_status === "active" && (
               <span className="ml-2 inline-block px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700">
@@ -77,7 +71,7 @@ export function DashboardPage() {
       </div>
 
       {/* Non-member info banner */}
-      {member.tier === "non_member" && (
+      {member.tierLevel <= 1 && (
         <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 mb-6">
           <p className="text-sm text-blue-800">
             <strong>Self-service account</strong> — You can register dogs and submit health clearances right away.
@@ -88,7 +82,7 @@ export function DashboardPage() {
 
       {/* Quick actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {member.tier === "non_member" && !pendingApp && (
+        {member.tierLevel <= 1 && !pendingApp && (
           <Link
             to="/apply"
             className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
@@ -136,7 +130,7 @@ export function DashboardPage() {
       <SireApprovalsSection />
 
       {/* My Dogs */}
-      {hasTier(member.tier, "non_member") && <MyDogsSection />}
+      {member.tierLevel >= 1 && <MyDogsSection />}
 
       {/* My Litters */}
       {member.is_breeder && <MyLittersSection />}

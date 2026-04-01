@@ -202,6 +202,21 @@ export function useSellPup(litterId: string, pupId: string) {
   });
 }
 
+export function useAdminLitters(page = 1, status = "all") {
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ["adminLitters", page, status],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<{ data: Litter[]; meta: { page: number; limit: number; total: number; pages: number } }>("/admin/litters", {
+        token,
+        params: { page, status },
+      });
+    },
+  });
+}
+
 export function usePendingLitters(page = 1) {
   const { getToken } = useAuth();
 

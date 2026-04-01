@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth, useUser, SignUp } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
+import { useTiers } from "@/hooks/useTiers";
 
 interface InvitationPreview {
   email: string;
@@ -19,13 +20,6 @@ interface InvitationPreview {
   status: string;
   club_name: string;
 }
-
-const TIER_LABELS: Record<string, string> = {
-  non_member: "Non-Member",
-  certificate: "Certificate",
-  member: "Full Member",
-  admin: "Administrator",
-};
 
 export function AcceptInvitationPage() {
   const [searchParams] = useSearchParams();
@@ -101,7 +95,8 @@ export function AcceptInvitationPage() {
     );
   }
 
-  const tierLabel = TIER_LABELS[preview.tier] ?? preview.tier;
+  const { getTierLabel } = useTiers();
+  const tierLabel = getTierLabel(preview.tier);
   const expiresAt = new Date(preview.expires_at).toLocaleDateString();
 
   return (

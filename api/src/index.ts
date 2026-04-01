@@ -21,6 +21,7 @@ import { litterRoutes } from "./routes/litters.js";
 import { uploadRoutes } from "./routes/uploads.js";
 import { formFieldRoutes } from "./routes/form-fields.js";
 import { invitationRoutes } from "./routes/invitations.js";
+import { votingRoutes } from "./routes/voting.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -90,6 +91,9 @@ app.route("/api/admin/form-fields", formFieldRoutes);
 
 // Member invitations
 app.route("/api/invitations", invitationRoutes);
+
+// Voting / Elections
+app.route("/api/voting", votingRoutes);
 
 // Health stamp SSR pages (no /api prefix)
 app.route("/", healthStampRoutes);

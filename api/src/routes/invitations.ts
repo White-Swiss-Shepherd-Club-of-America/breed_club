@@ -14,8 +14,8 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
-import { requireTier, requirePermission } from "../middleware/rbac.js";
-import { memberInvitations, membershipApplications, members, contacts } from "../db/schema.js";
+import { requireLevel, requirePermission } from "../middleware/rbac.js";
+import { memberInvitations, membershipApplications, members, contacts, membershipTiers } from "../db/schema.js";
 import { notFound, badRequest, conflict } from "../lib/errors.js";
 import { sendEmail, invitationEmail, welcomeEmail } from "../lib/email.js";
 import { z } from "zod";
@@ -302,17 +302,15 @@ invitationRoutes.post("/accept", requireAuth, async (c) => {
   let memberId: string;
 
   if (existingMember) {
-    // Upgrade tier if invitation tier is higher
-    const TIER_LEVEL: Record<string, number> = {
-      public: 0,
-      non_member: 1,
-      certificate: 2,
-      member: 3,
-      admin: 4,
-    };
+    // Upgrade tier if invitation tier is higher — look up levels from membership_tiers table
+    const tierRows = await db.query.membershipTiers.findMany({
+      where: eq(membershipTiers.club_id, clubId),
+      columns: { slug: true, level: true },
+    });
+    const tierLevelMap = new Map(tierRows.map((t) => [t.slug, t.level]));
 
-    const currentLevel = TIER_LEVEL[existingMember.tier] ?? 0;
-    const inviteLevel = TIER_LEVEL[invitation.tier] ?? 0;
+    const currentLevel = tierLevelMap.get(existingMember.tier) ?? 0;
+    const inviteLevel = tierLevelMap.get(invitation.tier) ?? 0;
 
     if (inviteLevel > currentLevel) {
       await db
@@ -407,7 +405,7 @@ invitationRoutes.post("/accept", requireAuth, async (c) => {
 /**
  * GET / — list all invitations for this club (admin only).
  */
-invitationRoutes.get("/", requireTier("admin"), async (c) => {
+invitationRoutes.get("/", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
 
@@ -422,7 +420,7 @@ invitationRoutes.get("/", requireTier("admin"), async (c) => {
 /**
  * DELETE /:id — revoke a pending invitation (admin only).
  */
-invitationRoutes.delete("/:id", requireTier("admin"), async (c) => {
+invitationRoutes.delete("/:id", requireLevel(100), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");

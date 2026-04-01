@@ -13,6 +13,7 @@ import { AdminDashboard } from "@/pages/admin/AdminDashboard";
 import { MembersPage } from "@/pages/admin/MembersPage";
 import { HealthTestsPage } from "@/pages/admin/HealthTestsPage";
 import { ApprovalsPage } from "@/pages/admin/ApprovalsPage";
+import { AdminLittersPage } from "@/pages/admin/AdminLittersPage";
 import { OrganizationsPage } from "@/pages/admin/OrganizationsPage";
 import { RegistryPage } from "@/pages/RegistryPage";
 import { DogCreatePage } from "@/pages/DogCreatePage";
@@ -30,6 +31,12 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { EmbedApplyPage } from "@/pages/EmbedApplyPage";
 import { SettingsPage as AdminSettingsPage } from "@/pages/admin/SettingsPage";
 import { AcceptInvitationPage } from "@/pages/AcceptInvitationPage";
+import { VotingTiersPage } from "@/pages/admin/VotingTiersPage";
+import { ElectionsPage } from "@/pages/admin/ElectionsPage";
+import { ElectionDetailPage } from "@/pages/admin/ElectionDetailPage";
+import { VotingPage } from "@/pages/VotingPage";
+import { ElectionVotePage } from "@/pages/ElectionVotePage";
+import { ElectionResultsPage } from "@/pages/ElectionResultsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,7 +104,7 @@ export function App() {
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute minTier="admin">
+                  <ProtectedRoute minLevel={100}>
                     <AdminDashboard />
                   </ProtectedRoute>
                 }
@@ -105,7 +112,7 @@ export function App() {
               <Route
                 path="/admin/members"
                 element={
-                  <ProtectedRoute minTier="admin">
+                  <ProtectedRoute minLevel={100}>
                     <MembersPage />
                   </ProtectedRoute>
                 }
@@ -113,15 +120,23 @@ export function App() {
               <Route
                 path="/admin/approvals"
                 element={
-                  <ProtectedRoute minTier="member">
+                  <ProtectedRoute minLevel={20}>
                     <ApprovalsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/litters"
+                element={
+                  <ProtectedRoute minLevel={20}>
+                    <AdminLittersPage />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/admin/health-tests"
                 element={
-                  <ProtectedRoute minTier="admin">
+                  <ProtectedRoute minLevel={100}>
                     <HealthTestsPage />
                   </ProtectedRoute>
                 }
@@ -129,7 +144,7 @@ export function App() {
               <Route
                 path="/admin/organizations"
                 element={
-                  <ProtectedRoute minTier="admin">
+                  <ProtectedRoute minLevel={100}>
                     <OrganizationsPage />
                   </ProtectedRoute>
                 }
@@ -137,15 +152,63 @@ export function App() {
               <Route
                 path="/admin/settings"
                 element={
-                  <ProtectedRoute minTier="admin">
+                  <ProtectedRoute minLevel={100}>
                     <AdminSettingsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/voting-tiers"
+                element={
+                  <ProtectedRoute minLevel={100}>
+                    <VotingTiersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/elections"
+                element={
+                  <ProtectedRoute minLevel={100}>
+                    <ElectionsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/elections/:id"
+                element={
+                  <ProtectedRoute minLevel={100}>
+                    <ElectionDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/voting"
+                element={
+                  <ProtectedRoute minLevel={10}>
+                    <VotingPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/voting/:id"
+                element={
+                  <ProtectedRoute minLevel={10}>
+                    <ElectionVotePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/voting/:id/results"
+                element={
+                  <ProtectedRoute minLevel={10}>
+                    <ElectionResultsPage />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/registry"
                 element={
-                  <ProtectedRoute minTier="member">
+                  <ProtectedRoute minLevel={20}>
                     <RegistryPage />
                   </ProtectedRoute>
                 }
@@ -154,7 +217,7 @@ export function App() {
               <Route
                 path="/health-stats"
                 element={
-                  <ProtectedRoute minTier="member">
+                  <ProtectedRoute minLevel={20}>
                     <HealthStatsPage />
                   </ProtectedRoute>
                 }
@@ -162,7 +225,7 @@ export function App() {
               <Route
                 path="/dogs/register"
                 element={
-                  <ProtectedRoute minTier="non_member">
+                  <ProtectedRoute minLevel={1}>
                     <DogCreatePage />
                   </ProtectedRoute>
                 }
@@ -170,7 +233,7 @@ export function App() {
               <Route
                 path="/dogs/:id"
                 element={
-                  <ProtectedRoute minTier="non_member">
+                  <ProtectedRoute minLevel={1}>
                     <DogDetailPage />
                   </ProtectedRoute>
                 }
@@ -178,7 +241,7 @@ export function App() {
               <Route
                 path="/dogs/:id/edit"
                 element={
-                  <ProtectedRoute minTier="member" flag="can_approve_clearances">
+                  <ProtectedRoute minLevel={20} flag="can_approve_clearances">
                     <DogEditPage />
                   </ProtectedRoute>
                 }
@@ -186,7 +249,7 @@ export function App() {
               <Route
                 path="/health"
                 element={
-                  <ProtectedRoute minTier="non_member">
+                  <ProtectedRoute minLevel={1}>
                     <HealthSelectPage />
                   </ProtectedRoute>
                 }
@@ -194,7 +257,7 @@ export function App() {
               <Route
                 path="/health/:dogId"
                 element={
-                  <ProtectedRoute minTier="non_member">
+                  <ProtectedRoute minLevel={1}>
                     <HealthPage />
                   </ProtectedRoute>
                 }
@@ -202,7 +265,7 @@ export function App() {
               <Route
                 path="/litters"
                 element={
-                  <ProtectedRoute minTier="certificate" flag="is_breeder">
+                  <ProtectedRoute minLevel={10} flag="is_breeder">
                     <LittersPage />
                   </ProtectedRoute>
                 }
@@ -210,7 +273,7 @@ export function App() {
               <Route
                 path="/litters/new"
                 element={
-                  <ProtectedRoute minTier="certificate" flag="is_breeder">
+                  <ProtectedRoute minLevel={10} flag="is_breeder">
                     <LitterCreatePage />
                   </ProtectedRoute>
                 }
@@ -218,7 +281,7 @@ export function App() {
               <Route
                 path="/litters/:id"
                 element={
-                  <ProtectedRoute minTier="certificate" flag="is_breeder">
+                  <ProtectedRoute minLevel={10} flag="is_breeder">
                     <LitterDetailPage />
                   </ProtectedRoute>
                 }

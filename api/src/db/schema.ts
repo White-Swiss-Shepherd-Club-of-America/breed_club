@@ -612,3 +612,174 @@ export const payments = pgTable(
   },
   (t) => [index("idx_payments_club_member").on(t.club_id, t.member_id)]
 );
+
+// ─── Membership Tiers ─────────────────────────────────────────────────────
+
+export const membershipTiers = pgTable(
+  "membership_tiers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    slug: varchar("slug", { length: 50 }).notNull(),
+    label: varchar("label", { length: 100 }).notNull(),
+    level: integer("level").notNull(),
+    color: varchar("color", { length: 7 }),
+    is_system: boolean("is_system").notNull().default(false),
+    is_default: boolean("is_default").notNull().default(false),
+    sort_order: integer("sort_order").notNull().default(0),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_membership_tiers_club_slug").on(t.club_id, t.slug),
+    uniqueIndex("idx_membership_tiers_club_level").on(t.club_id, t.level),
+    index("idx_membership_tiers_club").on(t.club_id),
+  ]
+);
+
+// ─── Voting Tiers ──────────────────────────────────────────────────────────
+
+export const votingTiers = pgTable(
+  "voting_tiers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    name: varchar("name", { length: 100 }).notNull(),
+    points: integer("points").notNull().default(1),
+    membership_tier_id: uuid("membership_tier_id").references(() => membershipTiers.id, { onDelete: "set null" }),
+    sort_order: integer("sort_order").notNull().default(0),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_voting_tiers_club_name").on(t.club_id, t.name),
+    index("idx_voting_tiers_club").on(t.club_id),
+    index("idx_voting_tiers_membership_tier").on(t.membership_tier_id),
+  ]
+);
+
+// ─── Member Voting Tiers ───────────────────────────────────────────────────
+
+export const memberVotingTiers = pgTable(
+  "member_voting_tiers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    member_id: uuid("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    voting_tier_id: uuid("voting_tier_id")
+      .notNull()
+      .references(() => votingTiers.id),
+    assigned_at: timestamp("assigned_at", { withTimezone: true }).defaultNow().notNull(),
+    assigned_by: uuid("assigned_by").references(() => members.id),
+  },
+  (t) => [
+    uniqueIndex("idx_member_voting_tiers_member").on(t.member_id),
+    index("idx_member_voting_tiers_tier").on(t.voting_tier_id),
+  ]
+);
+
+// ─── Elections ─────────────────────────────────────────────────────────────
+
+export const elections = pgTable(
+  "elections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    starts_at: timestamp("starts_at", { withTimezone: true }).notNull(),
+    ends_at: timestamp("ends_at", { withTimezone: true }).notNull(),
+    results_visible: boolean("results_visible").notNull().default(false),
+    created_by: uuid("created_by").references(() => members.id),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_elections_club").on(t.club_id),
+    index("idx_elections_club_dates").on(t.club_id, t.starts_at, t.ends_at),
+  ]
+);
+
+// ─── Vote Questions ────────────────────────────────────────────────────────
+
+export const voteQuestions = pgTable(
+  "vote_questions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    election_id: uuid("election_id")
+      .notNull()
+      .references(() => elections.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 500 }).notNull(),
+    description: text("description"),
+    question_type: varchar("question_type", { length: 20 }).notNull(), // "yes_no" | "multiple_choice"
+    sort_order: integer("sort_order").notNull().default(0),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_vote_questions_election").on(t.election_id)]
+);
+
+// ─── Vote Options ──────────────────────────────────────────────────────────
+
+export const voteOptions = pgTable(
+  "vote_options",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    question_id: uuid("question_id")
+      .notNull()
+      .references(() => voteQuestions.id, { onDelete: "cascade" }),
+    label: varchar("label", { length: 255 }).notNull(),
+    sort_order: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("idx_vote_options_question").on(t.question_id)]
+);
+
+// ─── Vote Records (Anonymous) ──────────────────────────────────────────────
+// CRITICAL: No member_id — this table stores WHAT was voted, not WHO voted.
+
+export const voteRecords = pgTable(
+  "vote_records",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    question_id: uuid("question_id")
+      .notNull()
+      .references(() => voteQuestions.id, { onDelete: "cascade" }),
+    option_id: uuid("option_id")
+      .notNull()
+      .references(() => voteOptions.id, { onDelete: "cascade" }),
+    points: integer("points").notNull(),
+    cast_at: timestamp("cast_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_vote_records_question").on(t.question_id),
+    index("idx_vote_records_option").on(t.option_id),
+  ]
+);
+
+// ─── Vote Participation ────────────────────────────────────────────────────
+// CRITICAL: No option_id, no points — this table stores WHO voted, not WHAT.
+
+export const voteParticipation = pgTable(
+  "vote_participation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    question_id: uuid("question_id")
+      .notNull()
+      .references(() => voteQuestions.id, { onDelete: "cascade" }),
+    member_id: uuid("member_id")
+      .notNull()
+      .references(() => members.id),
+    voted_at: timestamp("voted_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_vote_participation_unique").on(t.question_id, t.member_id),
+    index("idx_vote_participation_member").on(t.member_id),
+  ]
+);

@@ -5,7 +5,7 @@
 import { Link } from "react-router-dom";
 import { useApplicationQueue } from "@/hooks/useApplications";
 import { useAdminMembers } from "@/hooks/useAdmin";
-import { Users, ClipboardCheck, Settings, Heart, Dog, ArrowRightLeft, Shield } from "lucide-react";
+import { Users, ClipboardCheck, Settings, Heart, Dog, ArrowRightLeft, Shield, Vote } from "lucide-react";
 
 export function AdminDashboard() {
   const { data: appQueue } = useApplicationQueue("submitted");
@@ -48,6 +48,26 @@ export function AdminDashboard() {
           <h3 className="font-semibold text-gray-900">Cert Versions</h3>
           <p className="mt-1 text-sm text-gray-500">
             Health testing standard versions
+          </p>
+        </Link>
+        <Link
+          to="/admin/elections"
+          className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
+        >
+          <Vote className="h-8 w-8 text-violet-400 mb-3" />
+          <h3 className="font-semibold text-gray-900">Elections</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Create and manage member votes
+          </p>
+        </Link>
+        <Link
+          to="/admin/voting-tiers"
+          className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition"
+        >
+          <Users className="h-8 w-8 text-violet-300 mb-3" />
+          <h3 className="font-semibold text-gray-900">Voting Tiers</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Configure voter point weights
           </p>
         </Link>
       </div>

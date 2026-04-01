@@ -760,7 +760,7 @@ export function DogDetailPage() {
   const { member } = useCurrentMember();
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const canEdit = member?.tier === "admin" || member?.can_approve_clearances;
+  const canEdit = (member?.tierLevel ?? 0) >= 100 || member?.can_approve_clearances;
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [showDeceasedDialog, setShowDeceasedDialog] = useState(false);

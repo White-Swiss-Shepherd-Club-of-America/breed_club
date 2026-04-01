@@ -11,7 +11,7 @@ import { Hono } from "hono";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
-import { requireTier } from "../middleware/rbac.js";
+import { requireLevel } from "../middleware/rbac.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES: Record<string, string> = {
@@ -38,7 +38,7 @@ const uploadRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
  * Accepts multipart/form-data with a "file" field.
  * Returns { key } which can be stored as certificate_url.
  */
-uploadRoutes.post("/certificate", requireTier("certificate"), async (c) => {
+uploadRoutes.post("/certificate", requireLevel(10), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
@@ -131,7 +131,7 @@ uploadRoutes.get("/certificate/*", async (c) => {
  * Accepts multipart/form-data with a "file" field (JPEG/PNG only).
  * Returns { key } which can be stored as photo_url.
  */
-uploadRoutes.post("/photo", requireTier("certificate"), async (c) => {
+uploadRoutes.post("/photo", requireLevel(10), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
@@ -219,7 +219,7 @@ uploadRoutes.get("/photo/*", async (c) => {
 /**
  * POST /logo — upload a breeder logo (JPEG/PNG, max 2MB).
  */
-uploadRoutes.post("/logo", requireTier("certificate"), async (c) => {
+uploadRoutes.post("/logo", requireLevel(10), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
@@ -292,7 +292,7 @@ uploadRoutes.get("/logo/*", async (c) => {
 /**
  * POST /banner — upload a breeder banner image (JPEG/PNG, max 5MB).
  */
-uploadRoutes.post("/banner", requireTier("certificate"), async (c) => {
+uploadRoutes.post("/banner", requireLevel(10), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
