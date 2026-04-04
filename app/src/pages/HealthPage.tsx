@@ -508,6 +508,7 @@ export function HealthPage() {
   const { data: dogData } = useDog(dogId);
   const canManage = dogData?.canManageClearances ?? false;
 
+  // Per-test form fields
   const [showForm, setShowForm] = useState(false);
   const [selectedTestType, setSelectedTestType] = useState<TestType | null>(null);
   const [selectedOrg, setSelectedOrg] = useState<GradingOrg | null>(null);
@@ -515,10 +516,25 @@ export function HealthPage() {
   const [resultData, setResultData] = useState<Record<string, unknown>>({});
   const [testDate, setTestDate] = useState("");
   const [certificateNumber, setCertificateNumber] = useState("");
+  const [notes, setNotes] = useState("");
+
+  // Batch state
+  const [pendingTests, setPendingTests] = useState<Array<{
+    id: string;
+    testType: TestType;
+    org: GradingOrg;
+    result: string;
+    resultData: Record<string, unknown> | null;
+    testDate: string;
+    certificateNumber: string;
+    notes: string;
+  }>>([]);
+  const [batchStep, setBatchStep] = useState<"entry" | "upload">("entry");
+
+  // Certificate (shared across batch, entered at upload step)
   const [certificateUrl, setCertificateUrl] = useState("");
   const [certificateFile, setCertificateFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [notes, setNotes] = useState("");
 
   // Fetch test types catalog
   const { data: testTypesData } = useQuery({
@@ -554,20 +570,22 @@ export function HealthPage() {
     return [];
   }, [activeSchema, selectedTestType]);
 
-  // Submit clearance mutation
-  const submitClearance = useMutation({
+  // Submit batch mutation
+  const submitBatch = useMutation({
     mutationFn: async (data: {
-      health_test_type_id: string;
-      organization_id: string;
-      result: string;
-      result_data?: Record<string, unknown> | null;
-      test_date: string;
-      certificate_number?: string;
+      clearances: Array<{
+        health_test_type_id: string;
+        organization_id: string;
+        result: string;
+        result_data?: Record<string, unknown> | null;
+        test_date: string;
+        certificate_number?: string;
+        notes?: string;
+      }>;
       certificate_url?: string;
-      notes?: string;
     }) => {
       const token = await getToken();
-      return api.post(`/health/dogs/${dogId}/clearances`, data, { token });
+      return api.post(`/health/dogs/${dogId}/clearances/batch`, data, { token });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dogs", dogId, "clearances"] });
@@ -575,29 +593,33 @@ export function HealthPage() {
     },
   });
 
-  const resetForm = () => {
+  const resetFormFields = () => {
     setSelectedTestType(null);
     setSelectedOrg(null);
     setSelectedResult("");
     setResultData({});
     setTestDate("");
     setCertificateNumber("");
+    setNotes("");
+  };
+
+  const resetForm = () => {
+    resetFormFields();
+    setPendingTests([]);
+    setBatchStep("entry");
     setCertificateUrl("");
     setCertificateFile(null);
     setUploading(false);
-    setNotes("");
     setShowForm(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  /** Validate current form and return a pending test entry, or null if invalid */
+  const validateCurrentTest = (): typeof pendingTests[0] | null => {
     if (!selectedTestType || !selectedOrg || !testDate) {
       alert("Please select test type, organization, and test date");
-      return;
+      return null;
     }
 
-    // For structured schemas, compute the result summary from result_data
     let result = selectedResult;
     let submittedResultData: Record<string, unknown> | null = null;
 
@@ -606,10 +628,45 @@ export function HealthPage() {
       submittedResultData = resultData;
       if (!result) {
         alert("Please fill in all result fields");
-        return;
+        return null;
       }
     } else if (!selectedResult) {
       alert("Please select a result");
+      return null;
+    }
+
+    return {
+      id: crypto.randomUUID(),
+      testType: selectedTestType,
+      org: selectedOrg,
+      result,
+      resultData: submittedResultData,
+      testDate,
+      certificateNumber,
+      notes,
+    };
+  };
+
+  const handleAddAnother = () => {
+    const entry = validateCurrentTest();
+    if (!entry) return;
+    setPendingTests((prev) => [...prev, entry]);
+    resetFormFields();
+  };
+
+  const handleComplete = () => {
+    const entry = validateCurrentTest();
+    if (!entry) return;
+    setPendingTests((prev) => [...prev, entry]);
+    resetFormFields();
+    setBatchStep("upload");
+  };
+
+  const handleBatchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (pendingTests.length === 0) {
+      alert("No tests to submit");
       return;
     }
 
@@ -633,15 +690,17 @@ export function HealthPage() {
       setUploading(false);
     }
 
-    submitClearance.mutate({
-      health_test_type_id: selectedTestType.id,
-      organization_id: selectedOrg.id,
-      result,
-      result_data: submittedResultData,
-      test_date: testDate,
-      certificate_number: certificateNumber || undefined,
+    submitBatch.mutate({
+      clearances: pendingTests.map((t) => ({
+        health_test_type_id: t.testType.id,
+        organization_id: t.org.id,
+        result: t.result,
+        result_data: t.resultData,
+        test_date: t.testDate,
+        certificate_number: t.certificateNumber || undefined,
+        notes: t.notes || undefined,
+      })),
       certificate_url: finalCertificateUrl,
-      notes: notes || undefined,
     });
   };
 
@@ -673,7 +732,13 @@ export function HealthPage() {
         </h1>
         {canManage && (
           <button
-            onClick={() => setShowForm((f) => !f)}
+            onClick={() => {
+              if (showForm) {
+                resetForm();
+              } else {
+                setShowForm(true);
+              }
+            }}
             className="ml-auto shrink-0 text-sm bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700"
           >
             {showForm ? "Cancel" : "+ Add Clearance"}
@@ -684,169 +749,227 @@ export function HealthPage() {
       {/* Collapsible submission form */}
       {canManage && showForm && (
         <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-          <form onSubmit={handleSubmit} className="space-y-3">
-            {/* Test Type + Org side by side */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Test Type *</label>
-                <select
-                  value={selectedTestType?.id || ""}
-                  onChange={(e) => {
-                    const testType = testTypes.find((t) => t.id === e.target.value) || null;
-                    setSelectedTestType(testType);
-                    setSelectedOrg(null);
-                    setSelectedResult("");
-                    setResultData({});
-                  }}
-                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
-                  required
-                >
-                  <option value="">Select test type...</option>
-                  {testTypes.map((tt) => (
-                    <option key={tt.id} value={tt.id}>
-                      {tt.name} ({tt.short_name})
-                    </option>
-                  ))}
-                </select>
+          {/* Pending tests summary */}
+          {pendingTests.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                Tests to submit ({pendingTests.length})
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Organization *</label>
-                <select
-                  value={selectedOrg?.id || ""}
-                  onChange={(e) => {
-                    const org =
-                      selectedTestType?.organizations.find((o) => o.id === e.target.value) || null;
-                    setSelectedOrg(org);
-                    setSelectedResult("");
-                    setResultData({});
-                  }}
-                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
-                  required
-                  disabled={!selectedTestType}
-                >
-                  <option value="">Select org...</option>
-                  {selectedTestType?.organizations.map((org) => (
-                    <option key={org.id} value={org.id}>
-                      {org.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-1">
+                {pendingTests.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center justify-between bg-purple-50 border border-purple-100 rounded px-3 py-1.5 text-sm"
+                  >
+                    <span>
+                      <span className="font-medium">{t.testType.short_name}</span>
+                      <span className="text-gray-500 mx-1">&middot;</span>
+                      <span className="text-gray-600">{t.org.name}</span>
+                      <span className="text-gray-500 mx-1">&middot;</span>
+                      <span className="text-gray-600">{t.result}</span>
+                      <span className="text-gray-500 mx-1">&middot;</span>
+                      <span className="text-gray-400">{t.testDate}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingTests((prev) => prev.filter((p) => p.id !== t.id))}
+                      className="text-red-400 hover:text-red-600 text-xs ml-2"
+                    >
+                      remove
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
+          )}
 
-            {/* Dynamic result form */}
-            {selectedOrg && (
-              <>
-                {!isStructuredSchema && enumOptions.length > 0 && (
-                  <EnumResultForm
-                    options={enumOptions}
-                    value={selectedResult}
-                    onChange={setSelectedResult}
-                  />
-                )}
-                {activeSchema?.type === "numeric_lr" && (
-                  <NumericLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
-                )}
-                {activeSchema?.type === "point_score_lr" && (
-                  <PointScoreLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
-                )}
-                {activeSchema?.type === "elbow_lr" && (
-                  <ElbowLRForm value={resultData} onChange={setResultData} />
-                )}
-                {activeSchema?.type === "enum_lr" && (
-                  <EnumLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
-                )}
-              </>
-            )}
-
-            {/* Test Date + Cert # */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Test Date *</label>
-                <input
-                  type="date"
-                  value={testDate}
-                  onChange={(e) => setTestDate(e.target.value)}
-                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
-                  required
-                />
+          {batchStep === "entry" ? (
+            <div className="space-y-3">
+              {/* Test Type + Org side by side */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Test Type *</label>
+                  <select
+                    value={selectedTestType?.id || ""}
+                    onChange={(e) => {
+                      const testType = testTypes.find((t) => t.id === e.target.value) || null;
+                      setSelectedTestType(testType);
+                      setSelectedOrg(null);
+                      setSelectedResult("");
+                      setResultData({});
+                    }}
+                    className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                  >
+                    <option value="">Select test type...</option>
+                    {testTypes.map((tt) => (
+                      <option key={tt.id} value={tt.id}>
+                        {tt.name} ({tt.short_name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Organization *</label>
+                  <select
+                    value={selectedOrg?.id || ""}
+                    onChange={(e) => {
+                      const org =
+                        selectedTestType?.organizations.find((o) => o.id === e.target.value) || null;
+                      setSelectedOrg(org);
+                      setSelectedResult("");
+                      setResultData({});
+                    }}
+                    className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                    disabled={!selectedTestType}
+                  >
+                    <option value="">Select org...</option>
+                    {selectedTestType?.organizations.map((org) => (
+                      <option key={org.id} value={org.id}>
+                        {org.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Certificate #</label>
-                <input
-                  type="text"
-                  value={certificateNumber}
-                  onChange={(e) => setCertificateNumber(e.target.value)}
-                  className="w-full px-2 py-1.5 border rounded-lg text-sm"
-                  placeholder="e.g., OFA123456"
-                />
-              </div>
-            </div>
 
-            {/* Certificate file / URL — compact row */}
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-xs font-medium text-gray-600 shrink-0">Certificate:</span>
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => {
-                  setCertificateFile(e.target.files?.[0] || null);
-                  if (e.target.files?.[0]) setCertificateUrl("");
-                }}
-                className="text-sm"
-              />
-              {certificateFile ? (
-                <span className="text-xs text-gray-500">
-                  {certificateFile.name} ({(certificateFile.size / 1024).toFixed(0)} KB)
-                </span>
-              ) : (
+              {/* Dynamic result form */}
+              {selectedOrg && (
                 <>
-                  <span className="text-xs text-gray-400">or URL:</span>
-                  <input
-                    type="url"
-                    value={certificateUrl}
-                    onChange={(e) => setCertificateUrl(e.target.value)}
-                    className="px-2 py-1 border rounded text-sm flex-1 min-w-32"
-                    placeholder="https://..."
-                  />
+                  {!isStructuredSchema && enumOptions.length > 0 && (
+                    <EnumResultForm
+                      options={enumOptions}
+                      value={selectedResult}
+                      onChange={setSelectedResult}
+                    />
+                  )}
+                  {activeSchema?.type === "numeric_lr" && (
+                    <NumericLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
+                  )}
+                  {activeSchema?.type === "point_score_lr" && (
+                    <PointScoreLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
+                  )}
+                  {activeSchema?.type === "elbow_lr" && (
+                    <ElbowLRForm value={resultData} onChange={setResultData} />
+                  )}
+                  {activeSchema?.type === "enum_lr" && (
+                    <EnumLRForm schema={activeSchema} value={resultData} onChange={setResultData} />
+                  )}
                 </>
               )}
-            </div>
 
-            {/* Notes — 1 row */}
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-2 py-1.5 border rounded-lg text-sm"
-              rows={1}
-              placeholder="Notes (optional)"
-            />
+              {/* Test Date + Cert # */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Test Date *</label>
+                  <input
+                    type="date"
+                    value={testDate}
+                    onChange={(e) => setTestDate(e.target.value)}
+                    className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Certificate #</label>
+                  <input
+                    type="text"
+                    value={certificateNumber}
+                    onChange={(e) => setCertificateNumber(e.target.value)}
+                    className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                    placeholder="e.g., OFA123456"
+                  />
+                </div>
+              </div>
 
-            {/* Submit row */}
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={
-                  submitClearance.isPending ||
-                  uploading ||
-                  !selectedTestType ||
-                  !selectedOrg ||
-                  !testDate ||
-                  (!isStructuredSchema && !selectedResult)
-                }
-                className="bg-purple-600 text-white py-1.5 px-4 rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uploading
-                  ? "Uploading…"
-                  : submitClearance.isPending
-                    ? "Submitting…"
-                    : "Submit Clearance"}
-              </button>
-              {submitClearance.isError && (
-                <span className="text-red-600 text-sm">Error submitting. Please try again.</span>
-              )}
+              {/* Notes */}
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full px-2 py-1.5 border rounded-lg text-sm"
+                rows={1}
+                placeholder="Notes (optional)"
+              />
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleAddAnother}
+                  className="border border-purple-600 text-purple-600 py-1.5 px-4 rounded-lg text-sm hover:bg-purple-50"
+                >
+                  + Add Another Test
+                </button>
+                <button
+                  type="button"
+                  onClick={handleComplete}
+                  className="bg-purple-600 text-white py-1.5 px-4 rounded-lg text-sm hover:bg-purple-700"
+                >
+                  {pendingTests.length === 0 ? "Continue to Upload" : `Complete & Upload (${pendingTests.length + 1} tests)`}
+                </button>
+              </div>
             </div>
-          </form>
+          ) : (
+            /* Upload step */
+            <form onSubmit={handleBatchSubmit} className="space-y-3">
+              <div className="text-sm font-medium text-gray-700">
+                Attach certificate for {pendingTests.length} test{pendingTests.length !== 1 ? "s" : ""}
+              </div>
+
+              {/* Certificate file / URL */}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-xs font-medium text-gray-600 shrink-0">Certificate:</span>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => {
+                    setCertificateFile(e.target.files?.[0] || null);
+                    if (e.target.files?.[0]) setCertificateUrl("");
+                  }}
+                  className="text-sm"
+                />
+                {certificateFile ? (
+                  <span className="text-xs text-gray-500">
+                    {certificateFile.name} ({(certificateFile.size / 1024).toFixed(0)} KB)
+                  </span>
+                ) : (
+                  <>
+                    <span className="text-xs text-gray-400">or URL:</span>
+                    <input
+                      type="url"
+                      value={certificateUrl}
+                      onChange={(e) => setCertificateUrl(e.target.value)}
+                      className="px-2 py-1 border rounded text-sm flex-1 min-w-32"
+                      placeholder="https://..."
+                    />
+                  </>
+                )}
+              </div>
+
+              {/* Submit / back */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBatchStep("entry")}
+                  className="text-sm text-purple-600 hover:underline"
+                >
+                  &larr; Add more tests
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitBatch.isPending || uploading}
+                  className="bg-purple-600 text-white py-1.5 px-4 rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading
+                    ? "Uploading…"
+                    : submitBatch.isPending
+                      ? "Submitting…"
+                      : `Submit ${pendingTests.length} Test${pendingTests.length !== 1 ? "s" : ""}`}
+                </button>
+                {submitBatch.isError && (
+                  <span className="text-red-600 text-sm">Error submitting. Please try again.</span>
+                )}
+              </div>
+            </form>
+          )}
         </div>
       )}
 

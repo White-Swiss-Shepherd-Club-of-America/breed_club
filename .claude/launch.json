@@ -3,11 +3,17 @@
   "configurations": [
     {
       "name": "breed-club-app",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["/Users/mike/src/wssca/breed_club/node_modules/.bin/vite", "--port", "5273"],
       "port": 5273,
-      "autoPort": true,
       "cwd": "/Users/mike/src/wssca/breed_club/app"
+    },
+    {
+      "name": "breed-club-api",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["/Users/mike/src/wssca/breed_club/node_modules/.bin/wrangler", "dev"],
+      "port": 8887,
+      "cwd": "/Users/mike/src/wssca/breed_club/api"
     }
   ]
 }

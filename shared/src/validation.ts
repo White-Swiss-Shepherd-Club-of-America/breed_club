@@ -390,7 +390,7 @@ export const transferDogSchema = z.object({
 // --- Payments ---
 
 export const createPaymentSessionSchema = z.object({
-  resource_type: z.enum(["dog_create", "clearance_submit"]),
+  resource_type: z.enum(["dog_create", "clearance_submit", "clearance_batch_submit"]),
   metadata: z.record(z.unknown()),
   success_url: z.string().url(),
   cancel_url: z.string().url(),

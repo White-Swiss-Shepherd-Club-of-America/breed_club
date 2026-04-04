@@ -37,6 +37,23 @@ const createClearanceSchema = z.object({
 
 const updateClearanceSchema = createClearanceSchema.partial();
 
+const batchClearanceItemSchema = z.object({
+  health_test_type_id: z.string().uuid(),
+  organization_id: z.string().uuid(),
+  result: z.string().min(1),
+  result_data: z.record(z.unknown()).nullish(),
+  result_detail: z.string().optional(),
+  test_date: z.string(),
+  expiration_date: z.string().optional(),
+  certificate_number: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const batchClearanceSchema = z.object({
+  clearances: z.array(batchClearanceItemSchema).min(1).max(20),
+  certificate_url: z.string().max(500).optional(),
+});
+
 // ─── Result Summary Helpers ─────────────────────────────────────────────────
 
 /**
@@ -313,6 +330,166 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   recomputeHealthRating(db, dogId).catch(() => {});
 
   return c.json({ clearance }, 201);
+});
+
+// ─── POST /api/dogs/:id/clearances/batch — submit multiple clearances ─────
+
+healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
+
+  const member = auth.member;
+  const dogId = c.req.param("dog_id");
+  const body = await c.req.json();
+  const { clearances: items, certificate_url } = batchClearanceSchema.parse(body);
+
+  const db = getDb(c.env);
+
+  // Verify dog exists and user has permission
+  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  if (!dog) throw notFound("Dog");
+  if (dog.club_id !== club.id) throw notFound("Dog");
+
+  if (!isDogOwner(auth, dog, club.settings as Record<string, unknown>)) {
+    throw forbidden("You can only submit clearances for dogs you own");
+  }
+
+  // Block if dog has a pending ownership transfer
+  const [pendingTransfer] = await db
+    .select()
+    .from(dogOwnershipTransfers)
+    .where(
+      and(
+        eq(dogOwnershipTransfers.dog_id, dogId),
+        eq(dogOwnershipTransfers.status, "pending")
+      )
+    )
+    .limit(1);
+
+  if (pendingTransfer) {
+    throw forbidden("Dog has a pending ownership transfer and is locked");
+  }
+
+  // Check for intra-batch duplicates (same test_type + org + date)
+  const seen = new Set<string>();
+  for (let i = 0; i < items.length; i++) {
+    const key = `${items[i].health_test_type_id}:${items[i].organization_id}:${items[i].test_date}`;
+    if (seen.has(key)) {
+      throw badRequest(`Duplicate test in batch at index ${i} (same test type, organization, and date)`);
+    }
+    seen.add(key);
+  }
+
+  // Validate each item: check DB duplicates, look up schemas, compute scores
+  const prepared: Array<{
+    item: typeof items[0];
+    computedResult: string;
+    scores: { result_score: number | null; result_score_left: number | null; result_score_right: number | null };
+  }> = [];
+
+  for (const item of items) {
+    // Check for existing duplicate in DB
+    const existing = await db
+      .select()
+      .from(dogHealthClearances)
+      .where(
+        and(
+          eq(dogHealthClearances.dog_id, dogId),
+          eq(dogHealthClearances.health_test_type_id, item.health_test_type_id),
+          eq(dogHealthClearances.organization_id, item.organization_id),
+          eq(dogHealthClearances.test_date, item.test_date)
+        )
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      throw conflict(`Clearance already exists for test type ${item.health_test_type_id}, organization ${item.organization_id}, and date ${item.test_date}`);
+    }
+
+    // Look up result_schema
+    const [orgLink] = await db
+      .select({ result_schema: healthTestTypeOrgs.result_schema })
+      .from(healthTestTypeOrgs)
+      .where(
+        and(
+          eq(healthTestTypeOrgs.health_test_type_id, item.health_test_type_id),
+          eq(healthTestTypeOrgs.organization_id, item.organization_id)
+        )
+      )
+      .limit(1);
+
+    const resultSchema = orgLink?.result_schema as ResultSchema | null;
+    const computedResult = computeResultSummary(item.result, item.result_data, resultSchema);
+    const scores = computeResultScores(item.result, item.result_data, resultSchema);
+
+    prepared.push({ item, computedResult, scores });
+  }
+
+  // Check if payment is required
+  const feeConfig = club.settings as any;
+  const fees = feeConfig?.fees || {};
+  const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
+
+  const perClearance = member.skip_fees
+    ? 0
+    : auth.tierLevel >= 20
+    ? tierFees.member || 0
+    : tierFees.certificate || 500;
+
+  const totalAmountCents = perClearance * items.length;
+
+  if (totalAmountCents > 0) {
+    return c.json(
+      {
+        requiresPayment: true,
+        amountCents: totalAmountCents,
+        description: `Health Clearance Submission Fee (${items.length} test${items.length > 1 ? "s" : ""})`,
+        metadata: {
+          resource_type: "clearance_batch_submit",
+          dog_id: dogId,
+          clearances: items,
+          certificate_url,
+        },
+      },
+      402
+    );
+  }
+
+  // No payment required — insert all in a transaction
+  const created = await db.transaction(async (tx) => {
+    const results = [];
+    for (const { item, computedResult, scores } of prepared) {
+      const [clearance] = await tx
+        .insert(dogHealthClearances)
+        .values({
+          dog_id: dogId,
+          health_test_type_id: item.health_test_type_id,
+          organization_id: item.organization_id,
+          result: computedResult,
+          result_data: item.result_data ?? null,
+          result_detail: item.result_detail,
+          result_score: scores.result_score,
+          result_score_left: scores.result_score_left,
+          result_score_right: scores.result_score_right,
+          test_date: item.test_date,
+          expiration_date: item.expiration_date,
+          certificate_number: item.certificate_number,
+          certificate_url,
+          notes: item.notes,
+          status: "pending",
+          submitted_by: member.id,
+        })
+        .returning();
+      results.push(clearance);
+    }
+    return results;
+  });
+
+  // Recompute health rating once
+  recomputeHealthRating(db, dogId).catch(() => {});
+
+  return c.json({ clearances: created }, 201);
 });
 
 // ─── GET /api/dogs/:id/clearances — list clearances ────────────────────────

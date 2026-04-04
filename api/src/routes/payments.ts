@@ -5,10 +5,12 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { ApiError } from "../lib/errors.js";
-import { payments, dogs, dogHealthClearances, clubs, dogRegistrations } from "../db/schema.js";
+import { payments, dogs, dogHealthClearances, clubs, dogRegistrations, healthTestTypeOrgs } from "../db/schema.js";
+import type { ResultSchema } from "../db/schema.js";
 import { createPaymentSessionSchema } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { recomputeHealthRating } from "../lib/rating.js";
+import { computeResultScores } from "../lib/scoring.js";
 
 type Variables = {
   clubId: string;
@@ -75,6 +77,16 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
       ? tierFees.member || 0
       : tierFees.certificate || 500;
     description = "Health Clearance Submission Fee";
+  } else if (resource_type === "clearance_batch_submit") {
+    const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
+    const perClearance = auth.member?.skip_fees
+      ? 0
+      : auth.tierLevel >= 20
+      ? tierFees.member || 0
+      : tierFees.certificate || 500;
+    const count = (metadata as any)?.clearances?.length || 1;
+    amountCents = perClearance * count;
+    description = `Health Clearance Submission Fee (${count} test${count > 1 ? "s" : ""})`;
   } else {
     throw new ApiError(422, "VALIDATION_ERROR", "Invalid resource type");
   }
@@ -275,6 +287,49 @@ paymentRoutes.post("/webhook", async (c) => {
 
       // Recompute health rating (async, don't block webhook response)
       recomputeHealthRating(db, clearanceData.dog_id).catch(() => {});
+    } else if (resourceType === "clearance_batch_submit") {
+      const batchData = payment.metadata as any;
+      const items = batchData.clearances as any[];
+      const sharedCertUrl = batchData.certificate_url || null;
+
+      for (const item of items) {
+        // Look up result_schema for scoring
+        const [orgLink] = await db
+          .select({ result_schema: healthTestTypeOrgs.result_schema })
+          .from(healthTestTypeOrgs)
+          .where(
+            and(
+              eq(healthTestTypeOrgs.health_test_type_id, item.health_test_type_id),
+              eq(healthTestTypeOrgs.organization_id, item.organization_id)
+            )
+          )
+          .limit(1);
+
+        const resultSchema = orgLink?.result_schema as ResultSchema | null;
+        const scores = computeResultScores(item.result, item.result_data, resultSchema);
+
+        await db.insert(dogHealthClearances).values({
+          dog_id: batchData.dog_id,
+          health_test_type_id: item.health_test_type_id,
+          organization_id: item.organization_id,
+          result: item.result,
+          result_data: item.result_data || null,
+          result_detail: item.result_detail || null,
+          result_score: scores.result_score,
+          result_score_left: scores.result_score_left,
+          result_score_right: scores.result_score_right,
+          test_date: item.test_date,
+          expiration_date: item.expiration_date || null,
+          certificate_number: item.certificate_number || null,
+          certificate_url: sharedCertUrl,
+          status: "pending",
+          submitted_by: payment.member_id,
+          notes: item.notes || null,
+        });
+      }
+
+      console.log(`Batch health clearances (${items.length}) created after payment for dog: ${batchData.dog_id}`);
+      recomputeHealthRating(db, batchData.dog_id).catch(() => {});
     }
 
     console.log(`Payment completed: ${payment.id}, amount: ${payment.amount_cents}¢`);
