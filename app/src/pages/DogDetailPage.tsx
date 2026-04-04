@@ -5,8 +5,8 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating } from "@/hooks/useDogs";
-import { RefreshCw, ExternalLink, Camera, Plus } from "lucide-react";
+import { useDog, useDogPedigree, useDogProgeny, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition } from "@/hooks/useDogs";
+import { RefreshCw, ExternalLink, Camera, Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
 import { PedigreeTree as PedigreeChart } from "@/components/PedigreeTree";
@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ratingToHex, ratingBgClass, effectiveScore, scoreToColor, RATING_COLORS, formatAge } from "@/lib/health-colors";
 import { formatDate } from "@/lib/utils";
-import type { Dog, DogRegistration, DogHealthClearance, Contact, HealthRating } from "@breed-club/shared";
+import type { Dog, DogRegistration, DogHealthClearance, Contact, HealthRating, BreedingStatus, HealthCondition } from "@breed-club/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -277,7 +277,147 @@ function DeceasedDialog({
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ dog }: { dog: Dog }) {
+const BREEDING_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  not_published: { label: "Not Published", color: "bg-gray-100 text-gray-700" },
+  breeding: { label: "Currently Breeding", color: "bg-green-100 text-green-800" },
+  retired: { label: "Retired", color: "bg-amber-100 text-amber-800" },
+  altered: { label: "Altered", color: "bg-blue-100 text-blue-800" },
+};
+
+function BreedingInfoSection({ dog, canEdit }: { dog: Dog; canEdit: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [breedingStatus, setBreedingStatus] = useState<BreedingStatus>(dog.breeding_status || "not_published");
+  const [studService, setStudService] = useState(dog.stud_service_available || false);
+  const [frozenSemen, setFrozenSemen] = useState(dog.frozen_semen_available || false);
+  const updateMutation = useUpdateBreedingMetadata();
+
+  const statusInfo = BREEDING_STATUS_LABELS[dog.breeding_status || "not_published"];
+  const showBreedingInfo = dog.breeding_status && dog.breeding_status !== "not_published";
+  const isMale = dog.sex === "male";
+
+  const handleSave = () => {
+    updateMutation.mutate(
+      {
+        dogId: dog.id,
+        breeding_status: breedingStatus,
+        ...(isMale ? { stud_service_available: studService, frozen_semen_available: frozenSemen } : {}),
+      },
+      {
+        onSuccess: () => setEditing(false),
+      }
+    );
+  };
+
+  const handleCancel = () => {
+    setBreedingStatus(dog.breeding_status || "not_published");
+    setStudService(dog.stud_service_available || false);
+    setFrozenSemen(dog.frozen_semen_available || false);
+    setEditing(false);
+  };
+
+  if (!showBreedingInfo && !canEdit) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-gray-500">Breeding Information</h3>
+        {canEdit && !editing && showBreedingInfo && (
+          <button onClick={() => setEditing(true)} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+            <Pencil className="h-3 w-3" /> Edit
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="p-3 border border-gray-200 rounded-lg space-y-3">
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Breeding Status</label>
+            <select
+              value={breedingStatus}
+              onChange={(e) => setBreedingStatus(e.target.value as BreedingStatus)}
+              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            >
+              <option value="not_published">Not Published</option>
+              <option value="breeding">Currently Breeding</option>
+              <option value="retired">Retired</option>
+              <option value="altered">Altered</option>
+            </select>
+          </div>
+          {isMale && (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={studService}
+                  onChange={(e) => setStudService(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                Stud service available
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={frozenSemen}
+                  onChange={(e) => setFrozenSemen(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                Frozen semen available
+              </label>
+            </>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {updateMutation.isPending ? "Saving..." : "Save"}
+            </button>
+            <button
+              onClick={handleCancel}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+          {updateMutation.isError && (
+            <p className="text-xs text-red-600">Failed to update breeding information.</p>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {showBreedingInfo && (
+            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusInfo.color}`}>
+              {statusInfo.label}
+            </span>
+          )}
+          {isMale && dog.stud_service_available && (
+            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+              Stud Service Available
+            </span>
+          )}
+          {isMale && dog.frozen_semen_available && (
+            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800">
+              Frozen Semen Available
+            </span>
+          )}
+          {!showBreedingInfo && canEdit && (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-700 transition"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Set breeding information
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearances: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
       {/* Metadata Grid */}
@@ -341,6 +481,9 @@ function OverviewTab({ dog }: { dog: Dog }) {
           </div>
         )}
       </div>
+
+      {/* Breeding Information */}
+      <BreedingInfoSection dog={dog} canEdit={canManageClearances} />
 
       {/* Registrations */}
       {dog.registrations && dog.registrations.length > 0 && (
@@ -637,6 +780,227 @@ function HealthRecordsTab({
 
       {viewingCert && (
         <CertificateModal url={viewingCert} onClose={() => setViewingCert(null)} />
+      )}
+
+      {/* Health Conditions */}
+      <HealthConditionsSection dogId={dog.id} canEdit={canManageClearances || canEdit} />
+    </div>
+  );
+}
+
+// ─── Health Conditions Section ────────────────────────────────────────────────
+
+const CONDITION_CATEGORIES = ["orthopedic", "cardiac", "genetic", "vision", "thyroid", "dental", "other"] as const;
+const SEVERITY_OPTIONS = ["mild", "moderate", "severe"] as const;
+
+function HealthConditionsSection({ dogId, canEdit }: { dogId: string; canEdit: boolean }) {
+  const { data, isLoading } = useHealthConditions(dogId);
+  const createMutation = useCreateHealthCondition();
+  const updateMutation = useUpdateHealthCondition();
+  const deleteMutation = useDeleteHealthCondition();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    condition_name: "",
+    category: "" as string,
+    diagnosis_date: "",
+    resolved_date: "",
+    severity: "" as string,
+    notes: "",
+  });
+
+  const conditions = data?.conditions || [];
+
+  const resetForm = () => {
+    setFormData({ condition_name: "", category: "", diagnosis_date: "", resolved_date: "", severity: "", notes: "" });
+    setShowForm(false);
+    setEditingId(null);
+  };
+
+  const startEdit = (c: HealthCondition) => {
+    setFormData({
+      condition_name: c.condition_name,
+      category: c.category || "",
+      diagnosis_date: c.diagnosis_date || "",
+      resolved_date: c.resolved_date || "",
+      severity: c.severity || "",
+      notes: c.notes || "",
+    });
+    setEditingId(c.id);
+    setShowForm(true);
+  };
+
+  const handleSubmit = () => {
+    const payload = {
+      condition_name: formData.condition_name,
+      ...(formData.category ? { category: formData.category } : {}),
+      ...(formData.diagnosis_date ? { diagnosis_date: formData.diagnosis_date } : {}),
+      ...(formData.resolved_date ? { resolved_date: formData.resolved_date } : {}),
+      ...(formData.severity ? { severity: formData.severity } : {}),
+      ...(formData.notes ? { notes: formData.notes } : {}),
+    };
+
+    if (editingId) {
+      updateMutation.mutate(
+        { dogId, conditionId: editingId, ...payload },
+        { onSuccess: resetForm }
+      );
+    } else {
+      createMutation.mutate(
+        { dogId, ...payload },
+        { onSuccess: resetForm }
+      );
+    }
+  };
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <div className="mt-6 border-t border-gray-200 pt-4">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-semibold text-gray-900">Reported Health Conditions</h3>
+        {canEdit && !showForm && (
+          <button
+            onClick={() => { resetForm(); setShowForm(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          >
+            <Plus className="h-3 w-3" />
+            Report Condition
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="p-3 border border-gray-200 rounded-lg mb-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Condition Name *</label>
+              <input
+                type="text"
+                value={formData.condition_name}
+                onChange={(e) => setFormData({ ...formData, condition_name: e.target.value })}
+                placeholder="e.g., Cryptorchidism, Hip Dysplasia"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Category</label>
+              <select
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+              >
+                <option value="">Select...</option>
+                {CONDITION_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Severity</label>
+              <select
+                value={formData.severity}
+                onChange={(e) => setFormData({ ...formData, severity: e.target.value })}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+              >
+                <option value="">Select...</option>
+                {SEVERITY_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Diagnosis Date</label>
+              <input
+                type="date"
+                value={formData.diagnosis_date}
+                onChange={(e) => setFormData({ ...formData, diagnosis_date: e.target.value })}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Resolved Date</label>
+              <input
+                type="date"
+                value={formData.resolved_date}
+                onChange={(e) => setFormData({ ...formData, resolved_date: e.target.value })}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-0.5">Notes</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={2}
+              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSubmit}
+              disabled={!formData.condition_name || isSaving}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            >
+              <Check className="h-3 w-3" />
+              {isSaving ? "Saving..." : editingId ? "Update" : "Save"}
+            </button>
+            <button onClick={resetForm} className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isLoading && <p className="text-xs text-gray-400">Loading conditions...</p>}
+
+      {conditions.length > 0 ? (
+        <div className="space-y-2">
+          {conditions.map((c) => (
+            <div key={c.id} className="flex items-start justify-between p-2 bg-gray-50 rounded-lg text-sm">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{c.condition_name}</span>
+                  {c.severity && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      c.severity === "severe" ? "bg-red-100 text-red-700" :
+                      c.severity === "moderate" ? "bg-amber-100 text-amber-700" :
+                      "bg-blue-100 text-blue-700"
+                    }`}>
+                      {c.severity}
+                    </span>
+                  )}
+                  {c.category && (
+                    <span className="text-xs text-gray-500 capitalize">{c.category}</span>
+                  )}
+                </div>
+                {c.diagnosis_date && (
+                  <span className="text-xs text-gray-500">
+                    Diagnosed: {formatDate(c.diagnosis_date)}
+                    {c.resolved_date && ` — Resolved: ${formatDate(c.resolved_date)}`}
+                  </span>
+                )}
+                {c.notes && <p className="text-xs text-gray-600 mt-0.5">{c.notes}</p>}
+              </div>
+              {canEdit && (
+                <div className="flex gap-1 flex-shrink-0 ml-2">
+                  <button onClick={() => startEdit(c)} className="text-gray-400 hover:text-gray-600 p-1">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => deleteMutation.mutate({ dogId, conditionId: c.id })}
+                    className="text-gray-400 hover:text-red-600 p-1"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        !isLoading && <p className="text-xs text-gray-400">No health conditions reported.</p>
       )}
     </div>
   );
@@ -978,7 +1342,7 @@ export function DogDetailPage() {
 
       {/* Tab Content */}
       {activeTab === "overview" && (
-        <OverviewTab dog={dog} />
+        <OverviewTab dog={dog} canManageClearances={!!data.canManageClearances} />
       )}
       {activeTab === "pedigree" && id && dog.status === "approved" && (
         <PedigreeTab dogId={id} />

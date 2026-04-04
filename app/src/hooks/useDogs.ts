@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, DogFilterOptions, HealthRating, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse } from "@breed-club/shared";
+import type { Dog, DogFilterOptions, HealthRating, HealthCondition, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -436,6 +436,121 @@ export function useRecalculateHealthRating() {
     },
     onSuccess: (_, dogId) => {
       queryClient.invalidateQueries({ queryKey: ["dog", dogId] });
+    },
+  });
+}
+
+// ─── Breeding Metadata ──────────────────────────────────────────────────────
+
+export function useUpdateBreedingMetadata() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      dogId,
+      ...data
+    }: {
+      dogId: string;
+      breeding_status?: BreedingStatus;
+      stud_service_available?: boolean;
+      frozen_semen_available?: boolean;
+    }) => {
+      const token = await getToken();
+      return api.patch<{ dog: Dog }>(`/dogs/${dogId}/breeding`, data, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dog", variables.dogId] });
+      queryClient.invalidateQueries({ queryKey: ["dogs"] });
+    },
+  });
+}
+
+// ─── Health Conditions ──────────────────────────────────────────────────────
+
+export function useHealthConditions(dogId: string | undefined) {
+  const { getToken, isSignedIn } = useAuth();
+
+  return useQuery({
+    queryKey: ["healthConditions", dogId],
+    queryFn: async () => {
+      if (!dogId) throw new Error("Dog ID required");
+      const token = await getToken();
+      return api.get<{ conditions: HealthCondition[] }>(`/health/dogs/${dogId}/conditions`, { token });
+    },
+    enabled: isSignedIn === true && !!dogId,
+  });
+}
+
+export function useCreateHealthCondition() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      dogId,
+      ...data
+    }: {
+      dogId: string;
+      condition_name: string;
+      category?: string;
+      diagnosis_date?: string;
+      resolved_date?: string;
+      severity?: string;
+      notes?: string;
+    }) => {
+      const token = await getToken();
+      return api.post<{ condition: HealthCondition }>(`/health/dogs/${dogId}/conditions`, data, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["healthConditions", variables.dogId] });
+    },
+  });
+}
+
+export function useUpdateHealthCondition() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      dogId,
+      conditionId,
+      ...data
+    }: {
+      dogId: string;
+      conditionId: string;
+      condition_name?: string;
+      category?: string;
+      diagnosis_date?: string;
+      resolved_date?: string;
+      severity?: string;
+      notes?: string;
+    }) => {
+      const token = await getToken();
+      return api.patch<{ condition: HealthCondition }>(
+        `/health/dogs/${dogId}/conditions/${conditionId}`,
+        data,
+        { token }
+      );
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["healthConditions", variables.dogId] });
+    },
+  });
+}
+
+export function useDeleteHealthCondition() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ dogId, conditionId }: { dogId: string; conditionId: string }) => {
+      const token = await getToken();
+      return api.delete<{ ok: boolean }>(`/health/dogs/${dogId}/conditions/${conditionId}`, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["healthConditions", variables.dogId] });
     },
   });
 }

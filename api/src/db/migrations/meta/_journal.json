@@ -120,6 +120,13 @@
       "when": 1775700000000,
       "tag": "0016_voting_tier_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1775800000000,
+      "tag": "0017_breeding_metadata",
+      "breakpoints": true
     }
   ]
 }

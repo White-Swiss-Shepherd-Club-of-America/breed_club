@@ -14,6 +14,7 @@ export type PupStatus = "available" | "reserved" | "sold" | "retained" | "deceas
 export type OrgType = "kennel_club" | "health_testing" | "grading_body" | "pedigree_database";
 export type HealthCategory = "orthopedic" | "cardiac" | "genetic" | "vision" | "thyroid" | "dental" | "other";
 export type ConditionSeverity = "mild" | "moderate" | "severe";
+export type BreedingStatus = "not_published" | "altered" | "retired" | "breeding";
 
 // --- Score Config Types ---
 
@@ -167,6 +168,9 @@ export interface Dog {
   is_public: boolean;
   is_historical: boolean;
   is_deceased: boolean;
+  breeding_status: BreedingStatus;
+  stud_service_available: boolean;
+  frozen_semen_available: boolean;
   status: DogStatus;
   health_rating: HealthRating | null;
   submitted_by: string | null;

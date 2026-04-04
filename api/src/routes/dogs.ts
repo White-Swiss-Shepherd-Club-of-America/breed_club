@@ -27,6 +27,7 @@ import {
   createDogRegistrationSchema,
   transferDogSchema,
   paginationSchema,
+  updateBreedingMetadataSchema,
 } from "@breed-club/shared/validation.js";
 
 type Variables = {
@@ -933,6 +934,46 @@ dogRoutes.get("/:id/transfers", requireLevel(10), async (c) => {
   });
 
   return c.json({ transfers });
+});
+
+/**
+ * PATCH /:id/breeding — update breeding metadata (owner-editable).
+ * Allows the dog owner to set breeding_status, stud_service_available, frozen_semen_available.
+ */
+dogRoutes.patch("/:id/breeding", requireLevel(10), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const club = c.get("club");
+  const id = c.req.param("id");
+
+  if (!auth?.member) throw forbidden("Member required");
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) throw notFound("Dog");
+
+  if (!isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>)) {
+    throw forbidden("Only the owner or an admin can update breeding metadata");
+  }
+
+  const body = await c.req.json();
+  const data = updateBreedingMetadataSchema.parse(body);
+
+  // Stud/frozen semen fields only valid for males
+  if ((data.stud_service_available || data.frozen_semen_available) && dog.sex !== "male") {
+    throw badRequest("Stud service and frozen semen fields are only applicable to male dogs");
+  }
+
+  const [updated] = await db
+    .update(dogs)
+    .set({ ...data, updated_at: new Date() })
+    .where(eq(dogs.id, id))
+    .returning();
+
+  return c.json({ dog: updated });
 });
 
 export { dogRoutes };

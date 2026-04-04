@@ -152,6 +152,16 @@ export const createHealthConditionSchema = z.object({
   notes: z.string().max(2000).nullish(),
 });
 
+export const updateHealthConditionSchema = createHealthConditionSchema.partial();
+
+// --- Breeding Metadata ---
+
+export const updateBreedingMetadataSchema = z.object({
+  breeding_status: z.enum(["not_published", "altered", "retired", "breeding"]).optional(),
+  stud_service_available: z.boolean().optional(),
+  frozen_semen_available: z.boolean().optional(),
+});
+
 // --- Membership Applications ---
 
 export const formDataEntrySchema = z.object({

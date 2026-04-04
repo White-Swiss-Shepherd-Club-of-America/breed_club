@@ -9,7 +9,8 @@
       "Bash(curl:*)",
       "Bash(source:*)",
       "Bash(psql:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(npx drizzle-kit:*)"
     ]
   }
 }

@@ -115,6 +115,8 @@ const createConditionSchema = z.object({
   notes: z.string().optional(),
 });
 
+const updateConditionSchema = createConditionSchema.partial();
+
 // ─── GET /api/health/test-types — catalog of all test types with orgs ──────
 
 healthRoutes.get("/test-types", async (c: ApiContext) => {
@@ -669,6 +671,11 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
     throw notFound("Dog");
   }
 
+  // Only owner or admin can report conditions
+  if (!isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>)) {
+    throw forbidden("Only the owner or an admin can report health conditions");
+  }
+
   // Insert condition
   const [condition] = await db
     .insert(healthConditions)
@@ -710,6 +717,80 @@ healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
     .orderBy(desc(healthConditions.created_at));
 
   return c.json({ conditions });
+});
+
+// ─── PATCH /api/dogs/:id/conditions/:condition_id — update condition ────────
+
+healthRoutes.patch("/dogs/:dog_id/conditions/:condition_id", async (c: ApiContext) => {
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
+
+  const dogId = c.req.param("dog_id");
+  const conditionId = c.req.param("condition_id");
+  const db = getDb(c.env);
+
+  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  if (!dog || dog.club_id !== club.id) throw notFound("Dog");
+
+  const [condition] = await db
+    .select()
+    .from(healthConditions)
+    .where(and(eq(healthConditions.id, conditionId), eq(healthConditions.dog_id, dogId)))
+    .limit(1);
+
+  if (!condition) throw notFound("Health condition");
+
+  // Reporter or dog owner/admin can update
+  const isReporter = condition.reported_by === auth.member.id;
+  const isOwner = isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>);
+  if (!isReporter && !isOwner) {
+    throw forbidden("Only the reporter or dog owner can update this condition");
+  }
+
+  const body = await c.req.json();
+  const data = updateConditionSchema.parse(body);
+
+  const [updated] = await db
+    .update(healthConditions)
+    .set(data)
+    .where(eq(healthConditions.id, conditionId))
+    .returning();
+
+  return c.json({ condition: updated });
+});
+
+// ─── DELETE /api/dogs/:id/conditions/:condition_id — delete condition ───────
+
+healthRoutes.delete("/dogs/:dog_id/conditions/:condition_id", async (c: ApiContext) => {
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
+
+  const dogId = c.req.param("dog_id");
+  const conditionId = c.req.param("condition_id");
+  const db = getDb(c.env);
+
+  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  if (!dog || dog.club_id !== club.id) throw notFound("Dog");
+
+  const [condition] = await db
+    .select()
+    .from(healthConditions)
+    .where(and(eq(healthConditions.id, conditionId), eq(healthConditions.dog_id, dogId)))
+    .limit(1);
+
+  if (!condition) throw notFound("Health condition");
+
+  const isReporter = condition.reported_by === auth.member.id;
+  const isOwner = isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>);
+  if (!isReporter && !isOwner) {
+    throw forbidden("Only the reporter or dog owner can delete this condition");
+  }
+
+  await db.delete(healthConditions).where(eq(healthConditions.id, conditionId));
+
+  return c.json({ ok: true });
 });
 
 // ─── GET /api/health/statistics — aggregate health stats ───────────────────
