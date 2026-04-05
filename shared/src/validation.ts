@@ -234,6 +234,7 @@ export const updateMemberSchema = z.object({
   is_breeder: z.boolean().optional(),
   can_approve_members: z.boolean().optional(),
   can_approve_clearances: z.boolean().optional(),
+  can_manage_registry: z.boolean().optional(),
   show_in_directory: z.boolean().optional(),
   verified_breeder: z.boolean().optional(),
   skip_fees: z.boolean().optional(),

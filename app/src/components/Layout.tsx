@@ -53,6 +53,7 @@ export function Layout() {
   const isAdmin = tierLevel >= 100;
   const canApproveMembers = isAdmin || member?.can_approve_members;
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
+  const canManageRegistry = isAdmin || member?.can_manage_registry;
 
   const isCertificateOrHigher = member && tierLevel >= 10;
   const isMemberOrHigher = member && tierLevel >= 20;
@@ -203,7 +204,7 @@ export function Layout() {
                 </>
               )}
 
-              {(isAdmin || canApproveMembers || canApproveClearances) && (
+              {(isAdmin || canApproveMembers || canApproveClearances || canManageRegistry) && (
                 <>
                   <div className="border-t border-gray-200 my-3" />
                   <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">

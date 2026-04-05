@@ -46,6 +46,7 @@ export interface PermissionFlags {
   is_breeder: boolean;
   can_approve_members: boolean;
   can_approve_clearances: boolean;
+  can_manage_registry: boolean;
 }
 
 /** Full authorization context for a request */
@@ -65,6 +66,7 @@ export interface AuthContext {
     is_breeder: boolean;
     can_approve_members: boolean;
     can_approve_clearances: boolean;
+    can_manage_registry: boolean;
     skip_fees: boolean;
   };
 }
@@ -94,6 +96,7 @@ export const PERMISSIONS = {
   "dogs:read_own": { minLevel: 1 },
   "dogs:read_all": { minLevel: 20 },         // member+
   "dogs:approve": { minLevel: 20, flag: "can_approve_clearances" as const },
+  "dogs:edit": { minLevel: 20, flag: "can_manage_registry" as const },
 
   // Health clearances
   "health:create": { minLevel: 1 },

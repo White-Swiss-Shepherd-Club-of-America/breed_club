@@ -6,12 +6,10 @@ import * as relations from "./relations.js";
 /**
  * Create a Drizzle database client from a connection string.
  *
- * In Cloudflare Workers, we create a new connection per request
- * (postgres.js handles pooling via Supabase's Supavisor).
+ * In Cloudflare Workers, we create a new connection per request.
  */
 export function createDb(connectionString: string) {
   const client = postgres(connectionString, {
-    prepare: false, // required for Supabase transaction pooling (port 6543)
     idle_timeout: 20,
     max_lifetime: 60 * 5,
   });

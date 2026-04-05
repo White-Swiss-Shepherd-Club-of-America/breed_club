@@ -22,6 +22,10 @@ import { uploadRoutes } from "./routes/uploads.js";
 import { formFieldRoutes } from "./routes/form-fields.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { votingRoutes } from "./routes/voting.js";
+import { createDb } from "./db/client.js";
+import { clubs } from "./db/schema.js";
+import { eq } from "drizzle-orm";
+import { refreshHealthStatisticsCache } from "./lib/compute-health-stats.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -141,4 +145,18 @@ app.onError((err, c) => {
   );
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    const db = createDb(env.DATABASE_URL);
+    const [club] = await db
+      .select({ id: clubs.id })
+      .from(clubs)
+      .where(eq(clubs.slug, env.CLUB_SLUG))
+      .limit(1);
+
+    if (club) {
+      ctx.waitUntil(refreshHealthStatisticsCache(db, club.id));
+    }
+  },
+};

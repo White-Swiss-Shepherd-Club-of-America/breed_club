@@ -10,7 +10,10 @@
       "Bash(source:*)",
       "Bash(psql:*)",
       "Bash(npm run dev:*)",
-      "Bash(npx drizzle-kit:*)"
+      "Bash(npx drizzle-kit:*)",
+      "Bash(export PATH=\"$HOME/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH\")",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, DogFilterOptions, HealthRating, HealthCondition, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
+import type { Dog, DogAuditLog, DogFilterOptions, HealthRating, HealthCondition, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -437,6 +437,22 @@ export function useRecalculateHealthRating() {
     onSuccess: (_, dogId) => {
       queryClient.invalidateQueries({ queryKey: ["dog", dogId] });
     },
+  });
+}
+
+// ─── Audit Log ─────────────────────────────────────────────────────────────
+
+export function useDogAuditLog(dogId: string | undefined) {
+  const { getToken, isSignedIn } = useAuth();
+
+  return useQuery({
+    queryKey: ["dogAuditLog", dogId],
+    queryFn: async () => {
+      if (!dogId) throw new Error("Dog ID required");
+      const token = await getToken();
+      return api.get<{ data: DogAuditLog[] }>(`/admin/dogs/${dogId}/audit-log`, { token });
+    },
+    enabled: isSignedIn === true && !!dogId,
   });
 }
 

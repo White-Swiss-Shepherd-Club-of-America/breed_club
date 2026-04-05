@@ -12,8 +12,6 @@ export interface Env {
   CLERK_SECRET_KEY: string;
   CLERK_PUBLISHABLE_KEY: string;
   CLERK_JWKS_URL: string;
-  SUPABASE_URL: string;
-  SUPABASE_SERVICE_KEY: string;
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   RECAPTCHA_SECRET_KEY: string;

@@ -5,7 +5,7 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition } from "@/hooks/useDogs";
 import { RefreshCw, ExternalLink, Camera, Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ratingToHex, ratingBgClass, effectiveScore, scoreToColor, RATING_COLORS, formatAge } from "@/lib/health-colors";
 import { formatDate } from "@/lib/utils";
-import type { Dog, DogRegistration, DogHealthClearance, Contact, HealthRating, BreedingStatus, HealthCondition } from "@breed-club/shared";
+import type { Dog, DogAuditLog, DogRegistration, DogHealthClearance, Contact, HealthRating, BreedingStatus, HealthCondition } from "@breed-club/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -38,11 +38,11 @@ function getBadgeSvgUrl(dogId: string): string {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TabId = "overview" | "pedigree" | "health" | "progeny";
+type TabId = "overview" | "pedigree" | "health" | "progeny" | "history";
 type SortField = "category" | "test_name" | "date" | "result" | "status" | "age";
 type SortOrder = "asc" | "desc";
 
-const TABS: { id: TabId; label: string }[] = [
+const BASE_TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "pedigree", label: "Pedigree" },
   { id: "health", label: "Health Records" },
@@ -1116,6 +1116,114 @@ function ProgenyTab({ dogId }: { dogId: string }) {
   );
 }
 
+// ─── Edit History Tab ───────────────────────────────────────────────────────
+
+const FIELD_LABELS: Record<string, string> = {
+  registered_name: "Registered Name",
+  call_name: "Call Name",
+  microchip_number: "Microchip",
+  sex: "Sex",
+  date_of_birth: "Date of Birth",
+  date_of_death: "Date of Death",
+  color: "Color",
+  coat_type: "Coat Type",
+  sire_id: "Sire",
+  dam_id: "Dam",
+  owner_id: "Owner",
+  breeder_id: "Breeder",
+  photo_url: "Photo",
+  notes: "Notes",
+  is_public: "Public",
+  is_historical: "Historical",
+  is_deceased: "Deceased",
+  breeding_status: "Breeding Status",
+  stud_service_available: "Stud Service",
+  frozen_semen_available: "Frozen Semen",
+  status: "Status",
+  health_rating: "Health Rating",
+  approved_by: "Approved By",
+  approved_at: "Approved At",
+};
+
+function formatAuditValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function EditHistoryTab({ dogId }: { dogId: string }) {
+  const { data, isLoading } = useDogAuditLog(dogId);
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900" />
+      </div>
+    );
+  }
+
+  const logs = data?.data ?? [];
+
+  if (logs.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <p className="text-gray-500 text-sm">No edit history recorded for this dog.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {logs.map((log) => (
+        <div key={log.id} className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                log.action === "approve"
+                  ? "bg-green-100 text-green-800"
+                  : log.action === "reject"
+                    ? "bg-red-100 text-red-800"
+                    : "bg-blue-100 text-blue-800"
+              }`}
+            >
+              {log.action}
+            </span>
+            <span className="text-sm text-gray-700 font-medium">{log.member_name}</span>
+            <span className="text-xs text-gray-400 ml-auto">{new Date(log.created_at).toLocaleString()}</span>
+          </div>
+          {log.changes.length > 0 && (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-500 border-b">
+                  <th className="text-left py-1 pr-2 font-medium">Field</th>
+                  <th className="text-left py-1 pr-2 font-medium">Old</th>
+                  <th className="text-left py-1 font-medium">New</th>
+                </tr>
+              </thead>
+              <tbody>
+                {log.changes.map((change, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    <td className="py-1 pr-2 text-gray-600">
+                      {FIELD_LABELS[change.field] || change.field}
+                    </td>
+                    <td className="py-1 pr-2 text-red-600 font-mono">
+                      {formatAuditValue(change.old)}
+                    </td>
+                    <td className="py-1 text-green-600 font-mono">
+                      {formatAuditValue(change.new)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function DogDetailPage() {
@@ -1124,7 +1232,7 @@ export function DogDetailPage() {
   const { member } = useCurrentMember();
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const canEdit = (member?.tierLevel ?? 0) >= 100 || member?.can_approve_clearances;
+  const canEdit = (member?.tierLevel ?? 0) >= 100 || member?.can_manage_registry;
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [showDeceasedDialog, setShowDeceasedDialog] = useState(false);
@@ -1325,7 +1433,7 @@ export function DogDetailPage() {
 
       {/* Tab Bar */}
       <div className="flex gap-1 border-b border-gray-200 mb-4">
-        {TABS.map((tab) => (
+        {[...BASE_TABS, ...(canEdit ? [{ id: "history" as TabId, label: "Edit History" }] : [])].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -1362,6 +1470,9 @@ export function DogDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-gray-500 text-sm">Progeny is available after the dog is approved.</p>
         </div>
+      )}
+      {activeTab === "history" && canEdit && id && (
+        <EditHistoryTab dogId={id} />
       )}
 
       {/* Transfer Dialog */}

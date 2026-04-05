@@ -30,6 +30,7 @@ import {
   healthTestTypes,
   healthTestTypeOrgs,
   dogs,
+  dogAuditLogs,
   dogHealthClearances,
   dogOwnershipTransfers,
   healthCertVersions,
@@ -39,8 +40,10 @@ import {
 } from "../db/schema.js";
 import { createMembershipTierSchema, updateMembershipTierSchema } from "@breed-club/shared";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
+import { logDogAudit } from "../lib/audit.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
 import { recomputeHealthRating, recomputeAllClubRatings } from "../lib/rating.js";
+import { refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
 import {
   updateMemberSchema,
   updateDogSchema,
@@ -277,6 +280,16 @@ adminRoutes.post("/dogs/:id/approve", requirePermission("health:verify"), async 
     where: eq(dogs.id, id),
   });
 
+  // Audit trail
+  await logDogAudit(db, {
+    clubId,
+    dogId: id,
+    memberId: auth.member.id,
+    action: "approve",
+    before: dog as Record<string, unknown>,
+    after: updated as unknown as Record<string, unknown>,
+  });
+
   return c.json({ dog: updated });
 });
 
@@ -319,6 +332,16 @@ adminRoutes.post("/dogs/:id/reject", requirePermission("health:verify"), async (
     where: eq(dogs.id, id),
   });
 
+  // Audit trail
+  await logDogAudit(db, {
+    clubId,
+    dogId: id,
+    memberId: auth.member.id,
+    action: "reject",
+    before: dog as Record<string, unknown>,
+    after: updated as unknown as Record<string, unknown>,
+  });
+
   return c.json({ dog: updated });
 });
 
@@ -346,7 +369,7 @@ adminRoutes.post("/dogs/:id/recalculate", requirePermission("health:verify"), as
 /**
  * PATCH /dogs/:id — update a dog (admin/approver, no status restrictions).
  */
-adminRoutes.patch("/dogs/:id", requirePermission("dogs:approve"), async (c) => {
+adminRoutes.patch("/dogs/:id", requirePermission("dogs:edit"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth");
@@ -436,7 +459,59 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:approve"), async (c) => {
     },
   });
 
+  // Audit trail
+  await logDogAudit(db, {
+    clubId,
+    dogId: id,
+    memberId: auth.member.id,
+    action: "update",
+    before: existing as Record<string, unknown>,
+    after: updated as unknown as Record<string, unknown>,
+  });
+
   return c.json({ dog: updated });
+});
+
+/**
+ * GET /dogs/:id/audit-log — get edit history for a dog.
+ */
+adminRoutes.get("/dogs/:id/audit-log", requirePermission("dogs:edit"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+    columns: { id: true },
+  });
+
+  if (!dog) {
+    throw notFound("Dog");
+  }
+
+  const logs = await db.query.dogAuditLogs.findMany({
+    where: and(eq(dogAuditLogs.dog_id, id), eq(dogAuditLogs.club_id, clubId)),
+    orderBy: (log, { desc }) => [desc(log.created_at)],
+    with: {
+      member: {
+        with: {
+          contact: { columns: { full_name: true } },
+        },
+      },
+    },
+  });
+
+  const data = logs.map((log) => ({
+    id: log.id,
+    dog_id: log.dog_id,
+    member_id: log.member_id,
+    action: log.action,
+    changes: log.changes,
+    created_at: log.created_at,
+    member_name: log.member?.contact?.full_name ?? "Unknown",
+  }));
+
+  return c.json({ data });
 });
 
 // ─── Organizations ──────────────────────────────────────────────────────────
@@ -814,6 +889,7 @@ adminRoutes.post("/clearances/:id/approve", requirePermission("health:verify"), 
 
   // Recompute health rating after approval (async, don't block response)
   recomputeHealthRating(db, clearance.dog_id).catch(() => {});
+  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
 
   return c.json({ clearance: updated });
 });
@@ -864,6 +940,7 @@ adminRoutes.post("/clearances/:id/reject", requirePermission("health:verify"), a
 
   // Recompute health rating after rejection (async, don't block response)
   recomputeHealthRating(db, clearance.dog_id).catch(() => {});
+  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
 
   return c.json({ clearance: updated });
 });

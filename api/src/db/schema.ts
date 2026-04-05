@@ -76,6 +76,7 @@ export const members = pgTable(
     is_breeder: boolean("is_breeder").notNull().default(false),
     can_approve_members: boolean("can_approve_members").notNull().default(false),
     can_approve_clearances: boolean("can_approve_clearances").notNull().default(false),
+    can_manage_registry: boolean("can_manage_registry").notNull().default(false),
     show_in_directory: boolean("show_in_directory").notNull().default(true),
     verified_breeder: boolean("verified_breeder").notNull().default(false),
     logo_url: varchar("logo_url", { length: 500 }),
@@ -564,6 +565,14 @@ export const healthCertVersions = pgTable(
   ]
 );
 
+// ─── Health Statistics Cache ─────────────────────────────────────────────────
+
+export const healthStatisticsCache = pgTable("health_statistics_cache", {
+  id: integer("id").primaryKey().default(1),
+  data: jsonb("data").notNull(),
+  computed_at: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Member Invitations ──────────────────────────────────────────────────────
 
 export const memberInvitations = pgTable(
@@ -784,5 +793,31 @@ export const voteParticipation = pgTable(
   (t) => [
     uniqueIndex("idx_vote_participation_unique").on(t.question_id, t.member_id),
     index("idx_vote_participation_member").on(t.member_id),
+  ]
+);
+
+// ─── Dog Audit Logs ───────────────────────────────────────────────────────
+
+export const dogAuditLogs = pgTable(
+  "dog_audit_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    dog_id: uuid("dog_id")
+      .notNull()
+      .references(() => dogs.id, { onDelete: "cascade" }),
+    member_id: uuid("member_id")
+      .notNull()
+      .references(() => members.id),
+    action: varchar("action", { length: 30 }).notNull(),
+    changes: jsonb("changes").notNull().$type<{ field: string; old: unknown; new: unknown }[]>(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_dog_audit_dog").on(t.dog_id),
+    index("idx_dog_audit_member").on(t.member_id),
+    index("idx_dog_audit_created").on(t.club_id, t.created_at),
   ]
 );

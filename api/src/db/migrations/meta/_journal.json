@@ -127,6 +127,20 @@
       "when": 1775800000000,
       "tag": "0017_breeding_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775900000000,
+      "tag": "0018_registry_admin_and_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776000000000,
+      "tag": "0019_health_statistics_cache",
+      "breakpoints": true
     }
   ]
 }

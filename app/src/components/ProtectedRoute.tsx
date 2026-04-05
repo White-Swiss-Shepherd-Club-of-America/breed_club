@@ -13,7 +13,7 @@ interface ProtectedRouteProps {
   /** Minimum tier level required. Defaults to requiring any auth. */
   minLevel?: number;
   /** Required permission flag. */
-  flag?: "is_breeder" | "can_approve_members" | "can_approve_clearances";
+  flag?: "is_breeder" | "can_approve_members" | "can_approve_clearances" | "can_manage_registry";
 }
 
 export function ProtectedRoute({ children, minLevel, flag }: ProtectedRouteProps) {

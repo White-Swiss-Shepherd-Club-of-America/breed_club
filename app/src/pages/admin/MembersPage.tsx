@@ -264,6 +264,17 @@ export function MembersPage() {
                       }
                     />
                     <FlagToggle
+                      label="Manage Registry"
+                      active={member.can_manage_registry}
+                      onClick={() =>
+                        handleUpdate(
+                          member.id,
+                          "can_manage_registry",
+                          !member.can_manage_registry
+                        )
+                      }
+                    />
+                    <FlagToggle
                       label="Verified Breeder"
                       active={member.verified_breeder}
                       onClick={() =>

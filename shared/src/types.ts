@@ -133,6 +133,7 @@ export interface Member {
   is_breeder: boolean;
   can_approve_members: boolean;
   can_approve_clearances: boolean;
+  can_manage_registry: boolean;
   show_in_directory: boolean;
   verified_breeder: boolean;
   logo_url: string | null;
@@ -604,4 +605,23 @@ export interface HealthStampData {
     certificate_number: string | null;
     verified: boolean;
   }>;
+}
+
+// --- Audit Trail ---
+
+export interface AuditChange {
+  field: string;
+  old: unknown;
+  new: unknown;
+}
+
+export interface DogAuditLog {
+  id: string;
+  club_id: string;
+  dog_id: string;
+  member_id: string;
+  action: "update" | "approve" | "reject";
+  changes: AuditChange[];
+  created_at: string;
+  member_name?: string;
 }

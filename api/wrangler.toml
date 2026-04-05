@@ -19,6 +19,10 @@ BUILD_VERSION = "development"
 ENVIRONMENT = "production"
 CLUB_SLUG = "wssca"
 
+# Cron triggers — refresh health statistics cache hourly
+[triggers]
+crons = ["0 * * * *"]
+
 # R2 storage for certificate uploads
 [[r2_buckets]]
 binding = "CERTIFICATES_BUCKET"
@@ -29,8 +33,6 @@ bucket_name = "breed-club-certificates"
 # CLERK_SECRET_KEY
 # CLERK_PUBLISHABLE_KEY
 # CLERK_JWKS_URL
-# SUPABASE_URL
-# SUPABASE_SERVICE_KEY
 # STRIPE_SECRET_KEY
 # STRIPE_WEBHOOK_SECRET
 # RESEND_API_KEY

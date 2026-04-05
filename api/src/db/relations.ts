@@ -27,6 +27,7 @@ import {
   voteRecords,
   voteParticipation,
   membershipTiers,
+  dogAuditLogs,
 } from "./schema.js";
 
 // ─── Club relations ─────────────────────────────────────────────────────────
@@ -355,6 +356,18 @@ export const voteQuestionsRelations = relations(voteQuestions, ({ one, many }) =
   options: many(voteOptions),
   records: many(voteRecords),
   participation: many(voteParticipation),
+}));
+
+// ─── Dog Audit Log relations ──────────────────────────────────────────────
+
+export const dogAuditLogsRelations = relations(dogAuditLogs, ({ one }) => ({
+  club: one(clubs, { fields: [dogAuditLogs.club_id], references: [clubs.id] }),
+  dog: one(dogs, { fields: [dogAuditLogs.dog_id], references: [dogs.id] }),
+  member: one(members, {
+    fields: [dogAuditLogs.member_id],
+    references: [members.id],
+    relationName: "auditLogMember",
+  }),
 }));
 
 // ─── Vote Option relations ─────────────────────────────────────────────────

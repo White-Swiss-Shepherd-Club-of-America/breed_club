@@ -241,7 +241,7 @@ export function App() {
               <Route
                 path="/dogs/:id/edit"
                 element={
-                  <ProtectedRoute minLevel={20} flag="can_approve_clearances">
+                  <ProtectedRoute minLevel={20} flag="can_manage_registry">
                     <DogEditPage />
                   </ProtectedRoute>
                 }
