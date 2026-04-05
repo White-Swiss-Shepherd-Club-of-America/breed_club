@@ -188,7 +188,7 @@ export function requireFlag(flag: keyof AuthContext["flags"]) {
       );
     }
 
-    if (!auth.flags[flag]) {
+    if (!auth.flags[flag] && auth.tierLevel < 100) {
       return c.json(
         { error: { code: "FORBIDDEN", message: `Requires ${flag} permission` } },
         403
