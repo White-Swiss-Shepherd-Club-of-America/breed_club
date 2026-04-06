@@ -479,6 +479,7 @@ export interface DogProgenyResponse {
 export interface DogFilterOptions {
   coat_types: string[];
   colors: string[];
+  breeding_statuses: BreedingStatus[];
 }
 
 // --- API Response Types ---

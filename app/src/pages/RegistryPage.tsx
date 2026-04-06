@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useDogs, useDogFilterOptions } from "@/hooks/useDogs";
-import type { Dog } from "@breed-club/shared";
+import type { BreedingStatus, Dog } from "@breed-club/shared";
 import { formatDate } from "@/lib/utils";
 
 type SortKey = "registered_name" | "sex" | "date_of_birth" | "health_score" | "breeder";
@@ -56,6 +56,20 @@ const RATING_COLOR_MAP: Record<string, string> = {
   blue: "bg-blue-500",
 };
 
+const BREEDING_STATUS_LABELS: Record<BreedingStatus, string> = {
+  not_published: "Not Published",
+  breeding: "Breeding",
+  retired: "Retired",
+  altered: "Altered",
+};
+
+const BREEDING_STATUS_BADGE_CLASS: Record<BreedingStatus, string> = {
+  not_published: "bg-gray-100 text-gray-700 border-gray-200",
+  breeding: "bg-green-100 text-green-800 border-green-200",
+  retired: "bg-amber-100 text-amber-800 border-amber-200",
+  altered: "bg-blue-100 text-blue-800 border-blue-200",
+};
+
 const INPUT_CLASS = "px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent";
 
 export function RegistryPage() {
@@ -66,6 +80,7 @@ export function RegistryPage() {
   const [searchInput, setSearchInput] = useState(() => searchParams.get("search") || "");
   const [debouncedSearch, setDebouncedSearch] = useState(searchInput);
   const [sexFilter, setSexFilter] = useState<"male" | "female" | "">(() => (searchParams.get("sex") as "male" | "female" | "") || "");
+  const [breedingStatus, setBreedingStatus] = useState<BreedingStatus | "">(() => (searchParams.get("breeding_status") as BreedingStatus | "") || "");
   const [coatType, setCoatType] = useState(() => searchParams.get("coat_type") || "");
   const [color, setColor] = useState(() => searchParams.get("color") || "");
   const [dobFrom, setDobFrom] = useState(() => searchParams.get("dob_from") || "");
@@ -102,6 +117,7 @@ export function RegistryPage() {
     if (page > 1) p.set("page", String(page));
     if (debouncedSearch) p.set("search", debouncedSearch);
     if (sexFilter) p.set("sex", sexFilter);
+    if (breedingStatus) p.set("breeding_status", breedingStatus);
     if (coatType) p.set("coat_type", coatType);
     if (color) p.set("color", color);
     if (dobFrom) p.set("dob_from", dobFrom);
@@ -113,10 +129,10 @@ export function RegistryPage() {
     if (sortKey !== "registered_name") p.set("sort_by", sortKey);
     if (sortDir !== "asc") p.set("sort_dir", sortDir);
     setSearchParams(p, { replace: true });
-  }, [page, debouncedSearch, sexFilter, coatType, color, dobFrom, dobTo, debouncedBreeder, debouncedOwner, healthMin, healthMax, sortKey, sortDir, setSearchParams]);
+  }, [page, debouncedSearch, sexFilter, breedingStatus, coatType, color, dobFrom, dobTo, debouncedBreeder, debouncedOwner, healthMin, healthMax, sortKey, sortDir, setSearchParams]);
 
   // Count active filters (excluding search, sort, and page)
-  const activeFilterCount = [sexFilter, coatType, color, dobFrom, dobTo, debouncedBreeder, debouncedOwner, healthMin, healthMax].filter(Boolean).length;
+  const activeFilterCount = [sexFilter, breedingStatus, coatType, color, dobFrom, dobTo, debouncedBreeder, debouncedOwner, healthMin, healthMax].filter(Boolean).length;
 
   // Auto-open filter panel if URL has active filters
   useEffect(() => {
@@ -130,6 +146,7 @@ export function RegistryPage() {
     page,
     search: debouncedSearch || undefined,
     sex: sexFilter || undefined,
+    breedingStatus: breedingStatus || undefined,
     healthScoreMin: healthMin ? parseFloat(healthMin) : undefined,
     healthScoreMax: healthMax ? parseFloat(healthMax) : undefined,
     dobFrom: dobFrom || undefined,
@@ -159,6 +176,7 @@ export function RegistryPage() {
 
   const clearFilters = () => {
     setSexFilter("");
+    setBreedingStatus("");
     setCoatType("");
     setColor("");
     setDobFrom("");
@@ -228,6 +246,23 @@ export function RegistryPage() {
                 <option value="">All</option>
                 <option value="male">Male</option>
                 <option value="female">Female</option>
+              </select>
+            </div>
+
+            {/* Breeding Status */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Breeding Status</label>
+              <select
+                value={breedingStatus}
+                onChange={(e) => { setBreedingStatus(e.target.value as BreedingStatus | ""); resetPage(); }}
+                className={`w-full ${INPUT_CLASS}`}
+              >
+                <option value="">All</option>
+                {filterOptions?.breeding_statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {BREEDING_STATUS_LABELS[status]}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -373,6 +408,7 @@ export function RegistryPage() {
                   <SortHeader label="Registered Name" sortKey="registered_name" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} className="pl-4" />
                   <SortHeader label="Sex" sortKey="sex" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} className="hidden md:table-cell" />
                   <SortHeader label="DOB" sortKey="date_of_birth" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} className="hidden sm:table-cell" />
+                  <th className="pb-3 font-medium text-left text-gray-500">Status</th>
                   <SortHeader label="Health" sortKey="health_score" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} className="hidden sm:table-cell" />
                   <SortHeader label="Breeder" sortKey="breeder" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} className="hidden md:table-cell" />
                 </tr>
@@ -401,6 +437,17 @@ export function RegistryPage() {
                       <td className="py-3 text-gray-600 capitalize hidden md:table-cell">{dog.sex || "—"}</td>
                       <td className="py-3 text-gray-600 hidden sm:table-cell">
                         {formatDate(dog.date_of_birth)}
+                      </td>
+                      <td className="py-3 text-gray-600">
+                        {dog.breeding_status ? (
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${BREEDING_STATUS_BADGE_CLASS[dog.breeding_status]}`}
+                          >
+                            {BREEDING_STATUS_LABELS[dog.breeding_status]}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="py-3 text-gray-600 hidden sm:table-cell">
                         {dog.health_rating ? (

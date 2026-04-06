@@ -42,6 +42,7 @@ export interface DogFilters {
   page?: number;
   search?: string;
   sex?: "male" | "female";
+  breedingStatus?: BreedingStatus;
   ownedOnly?: boolean;
   includeHistorical?: boolean;
   healthScoreMin?: number;
@@ -69,6 +70,7 @@ export function useDogs(filters: DogFilters = {}) {
           page: filters.page || 1,
           search: filters.search,
           sex: filters.sex,
+          breeding_status: filters.breedingStatus,
           owned_only: filters.ownedOnly ? "true" : undefined,
           include_historical: filters.includeHistorical ? "true" : undefined,
           health_score_min: filters.healthScoreMin,

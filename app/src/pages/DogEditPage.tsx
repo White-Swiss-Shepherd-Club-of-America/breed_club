@@ -8,7 +8,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { updateDogSchema } from "@breed-club/shared/validation.js";
-import { useDog, useDogPedigree, useAdminUpdateDog } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useAdminUpdateDog, useUpdateBreedingMetadata } from "@/hooks/useDogs";
 import { useContacts } from "@/hooks/useContacts";
 import {
   PedigreeEditor,
@@ -18,7 +18,7 @@ import {
   type PedigreeSlotData,
 } from "@/components/PedigreeEditor";
 import type { z } from "zod";
-import type { Contact } from "@breed-club/shared";
+import type { BreedingStatus, Contact } from "@breed-club/shared";
 
 type DogForm = z.infer<typeof updateDogSchema>;
 
@@ -108,10 +108,14 @@ export function DogEditPage() {
   const { data, isLoading, error } = useDog(id);
   const { data: pedigreeData } = useDogPedigree(id, 3);
   const updateMutation = useAdminUpdateDog();
+  const updateBreedingMutation = useUpdateBreedingMetadata();
   const [generalError, setGeneralError] = useState<string | null>(null);
 
   const [pedigreeSlots, setPedigreeSlots] = useState<PedigreeSlotData[]>(createEmptySlots());
   const [pedigreeInitialized, setPedigreeInitialized] = useState(false);
+  const [breedingStatus, setBreedingStatus] = useState<BreedingStatus>("not_published");
+  const [studServiceAvailable, setStudServiceAvailable] = useState(false);
+  const [frozenSemenAvailable, setFrozenSemenAvailable] = useState(false);
 
   const dog = data?.dog;
 
@@ -123,10 +127,18 @@ export function DogEditPage() {
     }
   }, [pedigreeData, pedigreeInitialized]);
 
+  useEffect(() => {
+    if (!dog) return;
+    setBreedingStatus(dog.breeding_status || "not_published");
+    setStudServiceAvailable(!!dog.stud_service_available);
+    setFrozenSemenAvailable(!!dog.frozen_semen_available);
+  }, [dog]);
+
   const {
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<DogForm>({
     resolver: zodResolver(updateDogSchema),
@@ -182,6 +194,7 @@ export function DogEditPage() {
 
       // Convert pedigree slots to tree structure
       const pedigree = slotsToTree(pedigreeSlots);
+      const effectiveSex = formData.sex ?? dog?.sex;
 
       await updateMutation.mutateAsync({
         id: id!,
@@ -190,6 +203,12 @@ export function DogEditPage() {
         sire_id: undefined,
         dam_id: undefined,
         pedigree,
+      });
+      await updateBreedingMutation.mutateAsync({
+        dogId: id!,
+        breeding_status: breedingStatus,
+        stud_service_available: effectiveSex === "male" ? studServiceAvailable : false,
+        frozen_semen_available: effectiveSex === "male" ? frozenSemenAvailable : false,
       });
       navigate(`/dogs/${id}`);
     } catch {
@@ -385,6 +404,49 @@ export function DogEditPage() {
           <label htmlFor="is_public" className="text-sm text-gray-700">
             Make this dog's profile public (visible to non-members)
           </label>
+        </div>
+
+        {/* Breeding Status */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900">Breeding Status</h2>
+          <div>
+            <label htmlFor="breeding_status" className="block text-sm font-medium text-gray-700 mb-1">
+              Status
+            </label>
+            <select
+              id="breeding_status"
+              value={breedingStatus}
+              onChange={(e) => setBreedingStatus(e.target.value as BreedingStatus)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            >
+              <option value="not_published">Not Published</option>
+              <option value="breeding">Breeding</option>
+              <option value="retired">Retired</option>
+              <option value="altered">Altered</option>
+            </select>
+          </div>
+          {(dog.sex === "male" || watch("sex") === "male") && (
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={studServiceAvailable}
+                  onChange={(e) => setStudServiceAvailable(e.target.checked)}
+                  className="rounded"
+                />
+                Stud service available
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={frozenSemenAvailable}
+                  onChange={(e) => setFrozenSemenAvailable(e.target.checked)}
+                  className="rounded"
+                />
+                Frozen semen available
+              </label>
+            </div>
+          )}
         </div>
 
         {generalError && (

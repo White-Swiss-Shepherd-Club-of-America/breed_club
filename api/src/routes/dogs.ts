@@ -275,7 +275,7 @@ dogRoutes.get("/filter-options", requireLevel(20), async (c) => {
 
   const approvedInClub = and(eq(dogs.club_id, clubId), eq(dogs.status, "approved"));
 
-  const [coatTypes, colors] = await Promise.all([
+  const [coatTypes, colors, breedingStatuses] = await Promise.all([
     db
       .selectDistinct({ value: dogs.coat_type })
       .from(dogs)
@@ -286,11 +286,17 @@ dogRoutes.get("/filter-options", requireLevel(20), async (c) => {
       .from(dogs)
       .where(and(approvedInClub, isNotNull(dogs.color)))
       .orderBy(asc(dogs.color)),
+    db
+      .selectDistinct({ value: dogs.breeding_status })
+      .from(dogs)
+      .where(and(approvedInClub, isNotNull(dogs.breeding_status)))
+      .orderBy(asc(dogs.breeding_status)),
   ]);
 
   return c.json({
     coat_types: coatTypes.map((r) => r.value).filter(Boolean),
     colors: colors.map((r) => r.value).filter(Boolean),
+    breeding_statuses: breedingStatuses.map((r) => r.value).filter(Boolean),
   });
 });
 
@@ -329,6 +335,7 @@ dogRoutes.get("/", requireLevel(10), async (c) => {
   const ownerSearch = c.req.query("owner");
   const coatType = c.req.query("coat_type");
   const color = c.req.query("color");
+  const breedingStatus = c.req.query("breeding_status");
 
   if (healthScoreMinParam) {
     const min = parseFloat(healthScoreMinParam);
@@ -370,6 +377,21 @@ dogRoutes.get("/", requireLevel(10), async (c) => {
   }
   if (color) {
     conditions.push(eq(dogs.color, color));
+  }
+  if (breedingStatus) {
+    if (breedingStatus === "breeding") {
+      conditions.push(
+        or(
+          eq(dogs.breeding_status, "breeding"),
+          and(
+            eq(dogs.frozen_semen_available, true),
+            or(eq(dogs.breeding_status, "retired"), eq(dogs.is_deceased, true))!
+          )!
+        )!
+      );
+    } else {
+      conditions.push(eq(dogs.breeding_status, breedingStatus));
+    }
   }
 
   // --- Server-side sorting ---
@@ -955,7 +977,11 @@ dogRoutes.patch("/:id/breeding", requireLevel(10), async (c) => {
 
   if (!dog) throw notFound("Dog");
 
-  if (!isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>)) {
+  const canEditBreeding =
+    isDogOwner(auth, dog, (club?.settings ?? {}) as Record<string, unknown>) ||
+    auth.member.can_manage_registry;
+
+  if (!canEditBreeding) {
     throw forbidden("Only the owner or an admin can update breeding metadata");
   }
 

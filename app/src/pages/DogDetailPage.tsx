@@ -417,7 +417,7 @@ function BreedingInfoSection({ dog, canEdit }: { dog: Dog; canEdit: boolean }) {
   );
 }
 
-function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearances: boolean }) {
+function OverviewTab({ dog, canEditBreeding }: { dog: Dog; canEditBreeding: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
       {/* Metadata Grid */}
@@ -483,7 +483,7 @@ function OverviewTab({ dog, canManageClearances }: { dog: Dog; canManageClearanc
       </div>
 
       {/* Breeding Information */}
-      <BreedingInfoSection dog={dog} canEdit={canManageClearances} />
+      <BreedingInfoSection dog={dog} canEdit={canEditBreeding} />
 
       {/* Registrations */}
       {dog.registrations && dog.registrations.length > 0 && (
@@ -1450,7 +1450,7 @@ export function DogDetailPage() {
 
       {/* Tab Content */}
       {activeTab === "overview" && (
-        <OverviewTab dog={dog} canManageClearances={!!data.canManageClearances} />
+        <OverviewTab dog={dog} canEditBreeding={!!data.canManageClearances || !!canEdit} />
       )}
       {activeTab === "pedigree" && id && dog.status === "approved" && (
         <PedigreeTab dogId={id} />
