@@ -47,7 +47,7 @@ export function HealthSelectPage() {
         {dogs.map((dog: Dog) => (
           <Link
             key={dog.id}
-            to={`/health/${dog.id}`}
+            to={`/health/clearances?add=1&dog=${dog.id}`}
             className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition"
           >
             <div>

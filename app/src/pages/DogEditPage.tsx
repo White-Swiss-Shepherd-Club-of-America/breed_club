@@ -414,7 +414,7 @@ export function DogEditPage() {
       {/* Health Clearances link */}
       <div className="mt-8 pt-6 border-t border-gray-200">
         <Link
-          to={`/health/${id}`}
+          to={`/health/clearances?add=1&dog=${id}`}
           className="text-sm text-purple-600 hover:text-purple-700 font-medium"
         >
           Manage Health Clearances &rarr;

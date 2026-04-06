@@ -115,7 +115,6 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
       result: dogHealthClearances.result,
       test_date: dogHealthClearances.test_date,
       certificate_number: dogHealthClearances.certificate_number,
-      certificate_url: dogHealthClearances.certificate_url,
       verified_at: dogHealthClearances.verified_at,
       organization_name: organizations.name,
       organization_type: organizations.type,
@@ -145,7 +144,6 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
         test_date: null,
         organization: null,
         verified: false,
-        certificate_url: null,
       }];
     }
     return typeClearances.map((c) => ({
@@ -156,7 +154,6 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
       test_date: c.test_date || null,
       organization: c.organization_name || null,
       verified: !!c.verified_at,
-      certificate_url: c.certificate_url || null,
     }));
   });
 
@@ -444,14 +441,7 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
               }
               const isVerified = test.verified;
               const isNotTested = test.result === "Not tested";
-              const certHref = test.certificate_url
-                ? test.certificate_url.startsWith("http")
-                  ? test.certificate_url
-                  : `/api/uploads/certificate/${test.certificate_url}`
-                : null;
-              const certLink = certHref
-                ? `<a href="${certHref}" target="_blank" class="cert-link">View</a>`
-                : isVerified ? '<span class="verified-check">✓</span>' : "";
+              const certLink = isVerified ? '<span class="verified-check">✓</span>' : "";
               acc.push(
                 `<tr class="test-row${isNotTested ? " not-tested" : ""}">` +
                 `<td class="test-name">${test.short_name}</td>` +

@@ -20,6 +20,7 @@ import { DogCreatePage } from "@/pages/DogCreatePage";
 import { DogDetailPage } from "@/pages/DogDetailPage";
 import { DogEditPage } from "@/pages/DogEditPage";
 import { HealthPage } from "@/pages/HealthPage";
+import { HealthClearancesPage } from "@/pages/HealthClearancesPage";
 import { HealthSelectPage } from "@/pages/HealthSelectPage";
 import { LittersPage } from "@/pages/LittersPage";
 import { LitterCreatePage } from "@/pages/LitterCreatePage";
@@ -251,6 +252,14 @@ export function App() {
                 element={
                   <ProtectedRoute minLevel={1}>
                     <HealthSelectPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/health/clearances"
+                element={
+                  <ProtectedRoute minLevel={1}>
+                    <HealthClearancesPage />
                   </ProtectedRoute>
                 }
               />

@@ -24,7 +24,7 @@ if (!CLUB_SLUG) {
   process.exit(1);
 }
 
-const client = postgres(DATABASE_URL, { prepare: false });
+const client = postgres(DATABASE_URL);
 const db = drizzle(client);
 
 async function seed() {

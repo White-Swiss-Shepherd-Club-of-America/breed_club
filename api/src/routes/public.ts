@@ -301,7 +301,7 @@ publicRoutes.get("/dogs/:dog_id/health", async (c) => {
       organization: clearance?.organization || null,
       verified_at: clearance?.verified_at || null,
       certificate_number: clearance?.certificate_number || null,
-      certificate_url: clearance?.certificate_url || null,
+      certificate_url: null,
     };
   });
 

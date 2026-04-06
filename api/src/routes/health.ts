@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count } from "drizzle-orm";
 import { z } from "zod";
 import type { Env, ApiContext } from "../lib/types.js";
 import { notFound, unauthorized, badRequest, conflict, forbidden } from "../lib/errors.js";
@@ -54,6 +54,14 @@ const batchClearanceItemSchema = z.object({
 const batchClearanceSchema = z.object({
   clearances: z.array(batchClearanceItemSchema).min(1).max(20),
   certificate_url: z.string().max(500).optional(),
+});
+
+const myClearanceQuerySchema = z.object({
+  status: z.enum(["all", "pending", "approved", "rejected"]).default("all"),
+  sort_by: z.enum(["created_at", "test_date", "status", "dog_name", "test_type"]).default("created_at"),
+  sort_dir: z.enum(["asc", "desc"]).default("desc"),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 // ─── Result Summary Helpers ─────────────────────────────────────────────────
@@ -496,12 +504,117 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
   return c.json({ clearances: created }, 201);
 });
 
+// ─── GET /api/health/clearances — list current user's submitted clearances ──
+
+healthRoutes.get("/clearances", async (c: ApiContext) => {
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
+
+  const member = auth.member;
+  const db = getDb(c.env);
+
+  const query = myClearanceQuerySchema.parse({
+    status: c.req.query("status") ?? "all",
+    sort_by: c.req.query("sort_by") ?? "created_at",
+    sort_dir: c.req.query("sort_dir") ?? "desc",
+    page: c.req.query("page") ?? 1,
+    limit: c.req.query("limit") ?? 20,
+  });
+
+  const filters = [
+    eq(dogs.club_id, club.id),
+    eq(dogHealthClearances.submitted_by, member.id),
+  ];
+
+  if (query.status !== "all") {
+    filters.push(eq(dogHealthClearances.status, query.status));
+  }
+
+  const orderByMap = {
+    created_at: dogHealthClearances.created_at,
+    test_date: dogHealthClearances.test_date,
+    status: dogHealthClearances.status,
+    dog_name: dogs.registered_name,
+    test_type: healthTestTypes.short_name,
+  } as const;
+  const sortColumn = orderByMap[query.sort_by];
+  const sortOrder = query.sort_dir === "asc" ? asc(sortColumn) : desc(sortColumn);
+
+  const [countResult] = await db
+    .select({ value: count() })
+    .from(dogHealthClearances)
+    .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
+    .where(and(...filters));
+  const total = Number(countResult?.value || 0);
+  const pages = Math.max(1, Math.ceil(total / query.limit));
+  const page = Math.min(query.page, pages);
+
+  const clearances = await db
+    .select({
+      id: dogHealthClearances.id,
+      dog_id: dogHealthClearances.dog_id,
+      result: dogHealthClearances.result,
+      result_data: dogHealthClearances.result_data,
+      result_detail: dogHealthClearances.result_detail,
+      result_score: dogHealthClearances.result_score,
+      result_score_left: dogHealthClearances.result_score_left,
+      result_score_right: dogHealthClearances.result_score_right,
+      test_date: dogHealthClearances.test_date,
+      expiration_date: dogHealthClearances.expiration_date,
+      certificate_number: dogHealthClearances.certificate_number,
+      certificate_url: dogHealthClearances.certificate_url,
+      status: dogHealthClearances.status,
+      verified_at: dogHealthClearances.verified_at,
+      notes: dogHealthClearances.notes,
+      created_at: dogHealthClearances.created_at,
+      can_edit: sql<boolean>`${dogHealthClearances.status} <> 'approved'`,
+      dog: {
+        id: dogs.id,
+        registered_name: dogs.registered_name,
+        call_name: dogs.call_name,
+        health_rating: dogs.health_rating,
+      },
+      test_type: {
+        id: healthTestTypes.id,
+        name: healthTestTypes.name,
+        short_name: healthTestTypes.short_name,
+        category: healthTestTypes.category,
+      },
+      organization: {
+        id: organizations.id,
+        name: organizations.name,
+        type: organizations.type,
+      },
+    })
+    .from(dogHealthClearances)
+    .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
+    .innerJoin(healthTestTypes, eq(dogHealthClearances.health_test_type_id, healthTestTypes.id))
+    .innerJoin(organizations, eq(dogHealthClearances.organization_id, organizations.id))
+    .where(and(...filters))
+    .orderBy(sortOrder, desc(dogHealthClearances.created_at))
+    .limit(query.limit)
+    .offset((page - 1) * query.limit);
+
+  return c.json({
+    clearances,
+    meta: {
+      page,
+      limit: query.limit,
+      total,
+      pages,
+    },
+  });
+});
+
 // ─── GET /api/dogs/:id/clearances — list clearances ────────────────────────
 
 healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   const club = c.get("club");
-  if (!club) throw badRequest("Club context required");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
 
+  const member = auth.member;
   const dogId = c.req.param("dog_id");
   const db = getDb(c.env);
 
@@ -511,6 +624,8 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   if (!dog || dog.club_id !== club.id) {
     throw notFound("Dog");
   }
+
+  const canManageDog = isDogOwner(auth, dog, club.settings as Record<string, unknown>);
 
   // Fetch clearances with test type and org details
   const clearances = await db
@@ -530,6 +645,7 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       verified_at: dogHealthClearances.verified_at,
       notes: dogHealthClearances.notes,
       created_at: dogHealthClearances.created_at,
+      submitted_by: dogHealthClearances.submitted_by,
       test_type: {
         id: healthTestTypes.id,
         name: healthTestTypes.name,
@@ -548,7 +664,21 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
     .where(eq(dogHealthClearances.dog_id, dogId))
     .orderBy(desc(dogHealthClearances.created_at));
 
-  return c.json({ clearances });
+  const hasSubmittedForDog = clearances.some((c2) => c2.submitted_by === member.id);
+  if (!canManageDog && !hasSubmittedForDog) {
+    throw forbidden("Insufficient permissions");
+  }
+
+  const sanitized = clearances.map((clearance) => {
+    const { submitted_by: _submittedBy, ...rest } = clearance;
+    return {
+      ...rest,
+      certificate_url:
+        canManageDog || clearance.submitted_by === member.id ? clearance.certificate_url : null,
+    };
+  });
+
+  return c.json({ clearances: sanitized });
 });
 
 // ─── PATCH /api/dogs/:dog_id/clearances/:id — update clearance ─────────────
@@ -588,6 +718,10 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
 
   if (!canEdit) {
     throw forbidden("Insufficient permissions");
+  }
+
+  if (clearance.status === "approved") {
+    throw conflict("Approved clearances cannot be edited");
   }
 
   // Block if dog has a pending ownership transfer
@@ -638,11 +772,7 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
   // Update clearance
   const [updated] = await db
     .update(dogHealthClearances)
-    .set({
-      ...updateData,
-      // If updating after approval, reset status to pending
-      ...(clearance.status === "approved" && { status: "pending", verified_by: null, verified_at: null }),
-    })
+    .set(updateData)
     .where(eq(dogHealthClearances.id, clearanceId))
     .returning();
 
@@ -650,6 +780,65 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
   recomputeHealthRating(db, dogId).catch(() => {});
 
   return c.json({ clearance: updated });
+});
+
+// ─── DELETE /api/dogs/:dog_id/clearances/:id — delete clearance ─────────────
+
+healthRoutes.delete("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContext) => {
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
+
+  const member = auth.member;
+  const dogId = c.req.param("dog_id");
+  const clearanceId = c.req.param("clearance_id");
+  const db = getDb(c.env);
+
+  const [clearance] = await db
+    .select()
+    .from(dogHealthClearances)
+    .where(eq(dogHealthClearances.id, clearanceId))
+    .limit(1);
+
+  if (!clearance || clearance.dog_id !== dogId) {
+    throw notFound("Clearance");
+  }
+
+  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  if (!dog) throw notFound("Dog");
+
+  const canDelete =
+    isDogOwner(auth, dog, club.settings as Record<string, unknown>) ||
+    clearance.submitted_by === member.id;
+
+  if (!canDelete) {
+    throw forbidden("Insufficient permissions");
+  }
+
+  if (clearance.status === "approved") {
+    throw conflict("Approved clearances cannot be deleted");
+  }
+
+  const [pendingTransfer] = await db
+    .select()
+    .from(dogOwnershipTransfers)
+    .where(
+      and(
+        eq(dogOwnershipTransfers.dog_id, dogId),
+        eq(dogOwnershipTransfers.status, "pending")
+      )
+    )
+    .limit(1);
+
+  if (pendingTransfer) {
+    throw forbidden("Dog has a pending ownership transfer and is locked");
+  }
+
+  await db.delete(dogHealthClearances).where(eq(dogHealthClearances.id, clearanceId));
+
+  recomputeHealthRating(db, dogId).catch(() => {});
+
+  return c.json({ ok: true });
 });
 
 // ─── POST /api/dogs/:id/conditions — report health condition ───────────────

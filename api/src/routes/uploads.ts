@@ -8,10 +8,13 @@
  */
 
 import { Hono } from "hono";
+import { and, eq } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireLevel } from "../middleware/rbac.js";
+import { dogHealthClearances, dogs, clubs } from "../db/schema.js";
+import { isDogOwner } from "../lib/ownership.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES: Record<string, string> = {
@@ -94,16 +97,67 @@ uploadRoutes.post("/certificate", requireLevel(10), async (c) => {
 
 /**
  * GET /certificate/* — retrieve a certificate file by key.
- * No auth required — keys are unguessable UUIDs, and certificates
- * need to be openable directly in the browser (no Bearer token support).
+ * Access restricted to admins, dog owners, or submitting users.
  */
 uploadRoutes.get("/certificate/*", async (c) => {
+  const auth = c.get("auth");
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  if (!auth?.member) {
+    return c.json(
+      { error: { code: "UNAUTHORIZED", message: "Authentication required" } },
+      401
+    );
+  }
+
   const key = c.req.path.replace("/api/uploads/certificate/", "");
 
   if (!key || !key.startsWith("certificates/")) {
     return c.json(
       { error: { code: "NOT_FOUND", message: "File not found" } },
       404
+    );
+  }
+
+  // Resolve the clearance that owns this certificate key.
+  const linked = await db
+    .select({
+      clearance_id: dogHealthClearances.id,
+      submitted_by: dogHealthClearances.submitted_by,
+      owner_id: dogs.owner_id,
+      dog_submitted_by: dogs.submitted_by,
+      club_settings: clubs.settings,
+    })
+    .from(dogHealthClearances)
+    .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
+    .innerJoin(clubs, eq(dogs.club_id, clubs.id))
+    .where(and(eq(dogs.club_id, clubId), eq(dogHealthClearances.certificate_url, key)))
+    .limit(1);
+
+  const [record] = linked;
+  if (!record) {
+    return c.json(
+      { error: { code: "NOT_FOUND", message: "File not found" } },
+      404
+    );
+  }
+
+  const canAccess =
+    record.submitted_by === auth.member.id ||
+    isDogOwner(
+      auth,
+      {
+        owner_id: record.owner_id,
+        submitted_by: record.dog_submitted_by,
+      },
+      (record.club_settings ?? {}) as Record<string, unknown>
+    );
+
+  if (!canAccess) {
+    return c.json(
+      { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
+      403
     );
   }
 

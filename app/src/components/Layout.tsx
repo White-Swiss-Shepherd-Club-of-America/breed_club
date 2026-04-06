@@ -62,6 +62,7 @@ export function Layout() {
     { to: "/", label: "Home", icon: Home, show: true },
     { to: "/dashboard", label: "Dashboard", icon: Home, show: !!member },
     { to: "/registry", label: "Dog Registry", icon: PawPrint, show: !!isMemberOrHigher },
+    { to: "/health/clearances", label: "My Health Clearances", icon: HeartPulse, show: !!isCertificateOrHigher },
     { to: "/health-stats", label: "Health Statistics", icon: BarChart3, show: !!isMemberOrHigher },
     { to: "/directory", label: "Breeder Directory", icon: Users, show: true },
     { to: "/voting", label: "Voting", icon: Vote, show: !!isCertificateOrHigher },
@@ -186,7 +187,7 @@ export function Layout() {
                     Register Dog
                   </Link>
                   <Link
-                    to="/health"
+                    to="/health/clearances?add=1"
                     className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition text-gray-600 hover:bg-gray-50 hover:text-gray-900 mt-1"
                   >
                     <HeartPulse className="h-4 w-4" />

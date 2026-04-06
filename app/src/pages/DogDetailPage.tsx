@@ -693,7 +693,7 @@ function HealthRecordsTab({
         <h2 className="text-lg font-semibold text-gray-900">Health Records</h2>
         {showAddClearance && (
           <Link
-            to={`/health/${dog.id}`}
+            to={`/health/clearances?add=1&dog=${dog.id}`}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
           >
             <Plus className="h-3.5 w-3.5" />
