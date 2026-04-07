@@ -62,8 +62,8 @@ async function setup() {
       primary_color: args.color || "#655e7a",
       settings: {
         fees: {
-          create_dog: { certificate: 1500, member: 500 },
-          add_clearance: { certificate: 500, member: 0 },
+          create_dog: { non_member: 1500, member: 500 },
+          add_clearance: { non_member: 500, member: 0 },
         },
       },
     })
@@ -82,9 +82,8 @@ async function setup() {
     const defaultTiers = [
       { slug: "public", label: "Public", level: 0, sort_order: 0 },
       { slug: "non_member", label: "Non-Member", level: 1, is_default: true, sort_order: 1 },
-      { slug: "certificate", label: "Certificate", level: 10, sort_order: 2 },
-      { slug: "member", label: "Member", level: 20, sort_order: 3 },
-      { slug: "admin", label: "Admin", level: 100, is_system: true, sort_order: 4 },
+      { slug: "member", label: "Member", level: 20, sort_order: 2 },
+      { slug: "admin", label: "Admin", level: 100, is_system: true, sort_order: 3 },
     ];
 
     await db.insert(membershipTiers).values(

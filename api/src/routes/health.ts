@@ -13,12 +13,14 @@ import {
   dogOwnershipTransfers,
   healthConditions,
   dogs,
+  memberHealthStatsCache,
 } from "../db/schema.js";
 import type { ResultSchema } from "../db/schema.js";
 import { computeResultScores } from "../lib/scoring.js";
 import { recomputeHealthRating } from "../lib/rating.js";
 import { healthStatisticsCache } from "../db/schema.js";
 import { computeHealthStatistics, refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
+import { computeMemberHealthStats, refreshMemberHealthStatsCache } from "../lib/compute-member-health-stats.js";
 
 const healthRoutes = new Hono<{ Bindings: Env }>();
 
@@ -288,14 +290,13 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   // Check if payment is required
   const feeConfig = club.settings as any;
   const fees = feeConfig?.fees || {};
-  const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
+  const tierFees = fees.add_clearance || { non_member: 500, member: 0 };
 
-  // Check for fee bypass
   const amountCents = member.skip_fees
     ? 0
     : auth.tierLevel >= 20
     ? tierFees.member || 0
-    : tierFees.certificate || 500;
+    : tierFees.non_member || 500;
 
   // If payment required, return payment info instead of creating clearance
   if (amountCents > 0) {
@@ -441,13 +442,13 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
   // Check if payment is required
   const feeConfig = club.settings as any;
   const fees = feeConfig?.fees || {};
-  const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
+  const tierFees = fees.add_clearance || { non_member: 500, member: 0 };
 
   const perClearance = member.skip_fees
     ? 0
     : auth.tierLevel >= 20
     ? tierFees.member || 0
-    : tierFees.certificate || 500;
+    : tierFees.non_member || 500;
 
   const totalAmountCents = perClearance * items.length;
 
@@ -1008,6 +1009,36 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
   // Cache miss (first load) — compute live and cache for next time
   const data = await computeHealthStatistics(db, club.id);
   c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, club.id));
+
+  return c.json(data);
+});
+
+// ─── GET /api/health/my-stats — per-member health stats (cached) ────────────
+
+healthRoutes.get("/my-stats", async (c: ApiContext) => {
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
+
+  const auth = c.get("auth") as { memberId: string; contactId: string; flags: { is_breeder: boolean } } | null;
+  if (!auth) throw unauthorized("Authentication required");
+
+  const db = getDb(c.env);
+
+  const cached = await db
+    .select()
+    .from(memberHealthStatsCache)
+    .where(eq(memberHealthStatsCache.member_id, auth.memberId))
+    .limit(1);
+
+  if (cached.length > 0) {
+    return c.json({
+      ...cached[0].data as Record<string, unknown>,
+      _cached_at: cached[0].computed_at,
+    });
+  }
+
+  const data = await computeMemberHealthStats(db, club.id, auth.memberId, auth.contactId, auth.flags.is_breeder);
+  c.executionCtx.waitUntil(refreshMemberHealthStatsCache(db, auth.memberId, club.id, auth.contactId, auth.flags.is_breeder));
 
   return c.json(data);
 });

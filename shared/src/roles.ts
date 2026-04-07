@@ -15,7 +15,6 @@ export const SYSTEM_LEVELS = {
 export const DEFAULT_LEVELS = {
   public: 0,
   non_member: 1,
-  certificate: 10,
   member: 20,
   admin: 100,
 } as const;
@@ -23,7 +22,7 @@ export const DEFAULT_LEVELS = {
 /**
  * @deprecated Use level-based checks instead. Kept for transition.
  */
-export const TIERS = ["public", "non_member", "certificate", "member", "admin"] as const;
+export const TIERS = ["public", "non_member", "member", "admin"] as const;
 
 /**
  * @deprecated Use `string` instead. Tier slugs are now club-configurable.
@@ -36,7 +35,6 @@ export type Tier = string;
 export const TIER_LEVEL: Record<string, number> = {
   public: 0,
   non_member: 1,
-  certificate: 2,
   member: 3,
   admin: 4,
 };
@@ -105,8 +103,8 @@ export const PERMISSIONS = {
   "health:verify": { minLevel: 20, flag: "can_approve_clearances" as const },
 
   // Litters
-  "litters:create": { minLevel: 10, flag: "is_breeder" as const },  // certificate+
-  "litters:read_own": { minLevel: 10 },
+  "litters:create": { minLevel: 20, flag: "is_breeder" as const },
+  "litters:read_own": { minLevel: 20 },
   "litters:read_all": { minLevel: 20 },
 
   // Members
@@ -124,8 +122,8 @@ export const PERMISSIONS = {
 
   // Elections / Voting
   "elections:manage": { minLevel: SYSTEM_LEVELS.ADMIN },
-  "elections:vote": { minLevel: 10 },
-  "elections:view": { minLevel: 10 },
+  "elections:vote": { minLevel: 20 },
+  "elections:view": { minLevel: 20 },
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

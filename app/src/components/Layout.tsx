@@ -14,7 +14,6 @@ import {
   Users,
   UserPlus,
   Settings,
-  Shield,
   LogIn,
   BarChart3,
   HeartPulse,
@@ -55,23 +54,21 @@ export function Layout() {
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
   const canManageRegistry = isAdmin || member?.can_manage_registry;
 
-  const isCertificateOrHigher = member && tierLevel >= 10;
   const isMemberOrHigher = member && tierLevel >= 20;
 
   const navItems = [
     { to: "/", label: "Home", icon: Home, show: true },
     { to: "/dashboard", label: "Dashboard", icon: Home, show: !!member },
     { to: "/registry", label: "Dog Registry", icon: PawPrint, show: !!isMemberOrHigher },
-    { to: "/health/clearances", label: "My Health Clearances", icon: HeartPulse, show: !!isCertificateOrHigher },
+    { to: "/health/clearances", label: "My Health Clearances", icon: HeartPulse, show: !!member },
     { to: "/health-stats", label: "Health Statistics", icon: BarChart3, show: !!isMemberOrHigher },
     { to: "/directory", label: "Breeder Directory", icon: Users, show: true },
-    { to: "/voting", label: "Voting", icon: Vote, show: !!isCertificateOrHigher },
+    { to: "/voting", label: "Voting", icon: Vote, show: !!isMemberOrHigher },
     { to: "/apply", label: "Apply for Membership", icon: UserPlus, show: !!member && tierLevel <= 1 },
     { to: "/settings", label: "Settings", icon: Settings, show: !!member },
   ];
 
   const adminItems = [
-    { to: "/admin", label: "Admin Dashboard", icon: Shield, show: isAdmin },
     { to: "/admin/members", label: "Members", icon: Users, show: isAdmin },
     { to: "/admin/approvals", label: "Approvals", icon: ClipboardCheck, show: canApproveClearances || canApproveMembers },
     { to: "/admin/litters", label: "Litters", icon: List, show: canApproveClearances },
@@ -173,7 +170,7 @@ export function Layout() {
                   );
                 })}
 
-              {isCertificateOrHigher && (
+              {member && (
                 <>
                   <div className="border-t border-gray-200 my-3" />
                   <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -193,7 +190,7 @@ export function Layout() {
                     <HeartPulse className="h-4 w-4" />
                     Add Health Clearance
                   </Link>
-                  {member?.is_breeder && (
+                  {isMemberOrHigher && member?.is_breeder && (
                     <Link
                       to="/litters"
                       className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition text-gray-600 hover:bg-gray-50 hover:text-gray-900 mt-1"

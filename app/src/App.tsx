@@ -9,7 +9,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { ApplyPage } from "@/pages/ApplyPage";
 import { SettingsPage as UserSettingsPage } from "@/pages/SettingsPage";
 import { DirectoryPage } from "@/pages/DirectoryPage";
-import { AdminDashboard } from "@/pages/admin/AdminDashboard";
+// AdminDashboard removed — /admin now redirects to /dashboard
 import { MembersPage } from "@/pages/admin/MembersPage";
 import { HealthTestsPage } from "@/pages/admin/HealthTestsPage";
 import { ApprovalsPage } from "@/pages/admin/ApprovalsPage";
@@ -102,14 +102,7 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedRoute minLevel={100}>
-                    <AdminDashboard />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
               <Route
                 path="/admin/members"
                 element={
@@ -185,7 +178,7 @@ export function App() {
               <Route
                 path="/voting"
                 element={
-                  <ProtectedRoute minLevel={10}>
+                  <ProtectedRoute minLevel={20}>
                     <VotingPage />
                   </ProtectedRoute>
                 }
@@ -193,7 +186,7 @@ export function App() {
               <Route
                 path="/voting/:id"
                 element={
-                  <ProtectedRoute minLevel={10}>
+                  <ProtectedRoute minLevel={20}>
                     <ElectionVotePage />
                   </ProtectedRoute>
                 }
@@ -201,7 +194,7 @@ export function App() {
               <Route
                 path="/voting/:id/results"
                 element={
-                  <ProtectedRoute minLevel={10}>
+                  <ProtectedRoute minLevel={20}>
                     <ElectionResultsPage />
                   </ProtectedRoute>
                 }
@@ -274,7 +267,7 @@ export function App() {
               <Route
                 path="/litters"
                 element={
-                  <ProtectedRoute minLevel={10} flag="is_breeder">
+                  <ProtectedRoute minLevel={20} flag="is_breeder">
                     <LittersPage />
                   </ProtectedRoute>
                 }
@@ -282,7 +275,7 @@ export function App() {
               <Route
                 path="/litters/new"
                 element={
-                  <ProtectedRoute minLevel={10} flag="is_breeder">
+                  <ProtectedRoute minLevel={20} flag="is_breeder">
                     <LitterCreatePage />
                   </ProtectedRoute>
                 }
@@ -290,7 +283,7 @@ export function App() {
               <Route
                 path="/litters/:id"
                 element={
-                  <ProtectedRoute minLevel={10} flag="is_breeder">
+                  <ProtectedRoute minLevel={20} flag="is_breeder">
                     <LitterDetailPage />
                   </ProtectedRoute>
                 }

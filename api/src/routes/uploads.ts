@@ -41,7 +41,7 @@ const uploadRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
  * Accepts multipart/form-data with a "file" field.
  * Returns { key } which can be stored as certificate_url.
  */
-uploadRoutes.post("/certificate", requireLevel(10), async (c) => {
+uploadRoutes.post("/certificate", requireLevel(1), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
@@ -185,7 +185,7 @@ uploadRoutes.get("/certificate/*", async (c) => {
  * Accepts multipart/form-data with a "file" field (JPEG/PNG only).
  * Returns { key } which can be stored as photo_url.
  */
-uploadRoutes.post("/photo", requireLevel(10), async (c) => {
+uploadRoutes.post("/photo", requireLevel(1), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
@@ -273,7 +273,7 @@ uploadRoutes.get("/photo/*", async (c) => {
 /**
  * POST /logo — upload a breeder logo (JPEG/PNG, max 2MB).
  */
-uploadRoutes.post("/logo", requireLevel(10), async (c) => {
+uploadRoutes.post("/logo", requireLevel(1), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 
@@ -346,7 +346,7 @@ uploadRoutes.get("/logo/*", async (c) => {
 /**
  * POST /banner — upload a breeder banner image (JPEG/PNG, max 5MB).
  */
-uploadRoutes.post("/banner", requireLevel(10), async (c) => {
+uploadRoutes.post("/banner", requireLevel(1), async (c) => {
   const auth = c.get("auth");
   const clubId = c.get("clubId");
 

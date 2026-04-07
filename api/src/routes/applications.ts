@@ -36,7 +36,7 @@ const reviewSchema = z.object({
   status: z.enum(["approved", "rejected", "needs_revision"]),
   review_notes: z.string().max(2000).nullish(),
   // If approving, optionally set the tier + membership_type
-  tier: z.enum(["non_member", "certificate", "member"]).optional(),
+  tier: z.enum(["non_member", "member"]).optional(),
   membership_type: z.string().max(50).optional(),
 });
 

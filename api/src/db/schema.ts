@@ -573,6 +573,20 @@ export const healthStatisticsCache = pgTable("health_statistics_cache", {
   computed_at: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Member Health Stats Cache ───────────────────────────────────────────────
+
+export const memberHealthStatsCache = pgTable(
+  "member_health_stats_cache",
+  {
+    member_id: uuid("member_id")
+      .primaryKey()
+      .references(() => members.id, { onDelete: "cascade" }),
+    data: jsonb("data").notNull(),
+    computed_at: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("idx_member_health_stats_member").on(t.member_id)]
+);
+
 // ─── Member Invitations ──────────────────────────────────────────────────────
 
 export const memberInvitations = pgTable(

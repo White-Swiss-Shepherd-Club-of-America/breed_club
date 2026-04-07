@@ -161,7 +161,6 @@ export function requireTier(minTier: string) {
   const levelMap: Record<string, number> = {
     public: 0,
     non_member: 1,
-    certificate: 10,
     member: 20,
     admin: SYSTEM_LEVELS.ADMIN,
   };

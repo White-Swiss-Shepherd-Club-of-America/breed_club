@@ -37,6 +37,7 @@ import {
   litters,
   clubs,
   membershipTiers,
+  membershipApplications,
 } from "../db/schema.js";
 import { createMembershipTierSchema, updateMembershipTierSchema } from "@breed-club/shared";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
@@ -1653,6 +1654,63 @@ adminRoutes.delete("/membership-tiers/:id", requireLevel(100), async (c) => {
   await db.delete(membershipTiers).where(eq(membershipTiers.id, id));
 
   return c.json({ success: true });
+});
+
+// ─── Dashboard Counts ─────────────────────────────────────────────────────────
+
+/**
+ * GET /dashboard-counts — pending counts for all approval queues.
+ * Available to anyone with any approval permission.
+ */
+adminRoutes.get("/dashboard-counts", requireLevel(20), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+
+  if (!auth) return c.json({ error: { code: "FORBIDDEN", message: "Auth required" } }, 403);
+
+  const hasAnyApproval =
+    auth.tierLevel >= 100 ||
+    auth.flags.can_approve_members ||
+    auth.flags.can_approve_clearances ||
+    auth.flags.can_manage_registry;
+
+  if (!hasAnyApproval) {
+    return c.json({ applications: 0, dogs: 0, clearances: 0, litters: 0, transfers: 0 });
+  }
+
+  const [apps, pendingDogs, clearances, pendingLitters, transfers] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(membershipApplications)
+      .where(and(eq(membershipApplications.club_id, clubId), eq(membershipApplications.status, "submitted"))),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(dogs)
+      .where(and(eq(dogs.club_id, clubId), eq(dogs.status, "pending"))),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(dogHealthClearances)
+      .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
+      .where(and(eq(dogs.club_id, clubId), eq(dogHealthClearances.status, "pending"))),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(litters)
+      .where(and(eq(litters.club_id, clubId), eq(litters.approved, false))),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(dogOwnershipTransfers)
+      .innerJoin(dogs, eq(dogOwnershipTransfers.dog_id, dogs.id))
+      .where(and(eq(dogs.club_id, clubId), eq(dogOwnershipTransfers.status, "pending"))),
+  ]);
+
+  return c.json({
+    applications: apps[0]?.count ?? 0,
+    dogs: pendingDogs[0]?.count ?? 0,
+    clearances: clearances[0]?.count ?? 0,
+    litters: pendingLitters[0]?.count ?? 0,
+    transfers: transfers[0]?.count ?? 0,
+  });
 });
 
 export { adminRoutes };

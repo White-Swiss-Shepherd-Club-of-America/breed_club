@@ -60,30 +60,28 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
   let description = "";
 
   if (resource_type === "dog_create") {
-    const tierFees = fees.create_dog || { certificate: 1500, member: 500 };
-    // Check for fee bypass
+    const tierFees = fees.create_dog || { non_member: 1500, member: 500 };
     amountCents = auth.member?.skip_fees
       ? 0
       : auth.tierLevel >= 20
       ? tierFees.member || 500
-      : tierFees.certificate || 1500;
+      : tierFees.non_member || 1500;
     description = "Dog Registration Fee";
   } else if (resource_type === "clearance_submit") {
-    const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
-    // Check for fee bypass
+    const tierFees = fees.add_clearance || { non_member: 500, member: 0 };
     amountCents = auth.member?.skip_fees
       ? 0
       : auth.tierLevel >= 20
       ? tierFees.member || 0
-      : tierFees.certificate || 500;
+      : tierFees.non_member || 500;
     description = "Health Clearance Submission Fee";
   } else if (resource_type === "clearance_batch_submit") {
-    const tierFees = fees.add_clearance || { certificate: 500, member: 0 };
+    const tierFees = fees.add_clearance || { non_member: 500, member: 0 };
     const perClearance = auth.member?.skip_fees
       ? 0
       : auth.tierLevel >= 20
       ? tierFees.member || 0
-      : tierFees.certificate || 500;
+      : tierFees.non_member || 500;
     const count = (metadata as any)?.clearances?.length || 1;
     amountCents = perClearance * count;
     description = `Health Clearance Submission Fee (${count} test${count > 1 ? "s" : ""})`;

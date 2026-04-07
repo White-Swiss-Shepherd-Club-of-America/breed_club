@@ -141,6 +141,20 @@
       "when": 1776000000000,
       "tag": "0019_health_statistics_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1776100000000,
+      "tag": "0020_member_health_stats_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1776200000000,
+      "tag": "0021_remove_certificate_tier",
+      "breakpoints": true
     }
   ]
 }

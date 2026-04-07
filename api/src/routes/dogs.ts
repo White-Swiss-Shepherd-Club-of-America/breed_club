@@ -1,8 +1,8 @@
 /**
  * Dog routes.
  *
- * - POST   /                    — register new dog (certificate+, pending approval)
- * - GET    /                    — list dogs (own dogs for certificate+, all approved dogs for member+)
+ * - POST   /                    — register new dog (non_member+, pending approval)
+ * - GET    /                    — list dogs (own dogs for non_member+, all approved dogs for member+)
  * - GET    /search              — full-text search with filters (member+ only)
  * - GET    /:id                 — dog detail with registrations, clearances, pedigree links
  * - PATCH  /:id                 — update own dog (before approval)
@@ -79,14 +79,13 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
 
   const feeConfig = club.settings as any;
   const fees = feeConfig?.fees || {};
-  const tierFees = fees.create_dog || { certificate: 1500, member: 500 };
+  const tierFees = fees.create_dog || { non_member: 1500, member: 500 };
 
-  // Check for fee bypass — admins always bypass fees
   const amountCents = auth.member.skip_fees || auth.tierLevel >= 100
     ? 0
     : auth.tierLevel >= 20
     ? tierFees.member || 500
-    : tierFees.certificate || 1500;
+    : tierFees.non_member || 1500;
 
   // If payment required, return payment info instead of creating dog
   if (amountCents > 0) {
@@ -513,7 +512,7 @@ dogRoutes.get("/:id", requireLevel(10), async (c) => {
     throw notFound("Dog");
   }
 
-  // RBAC: certificate tier can only view own dogs, member+ can view all approved dogs
+  // RBAC: non-members can only view own dogs, member+ can view all approved dogs
   // Admins and members with can_approve_clearances can also view pending dogs
   if ((auth?.tierLevel ?? 0) < 20 && dog.submitted_by !== auth?.member?.id) {
     throw forbidden("You can only view your own dogs");

@@ -37,7 +37,7 @@ const sendInviteSchema = z.object({
 const directInviteSchema = z.object({
   email: z.string().email(),
   name: z.string().max(255).optional(),
-  tier: z.enum(["non_member", "certificate", "member"]).default("member"),
+  tier: z.enum(["non_member", "member"]).default("member"),
 });
 
 /** Generate a URL-safe random token */
