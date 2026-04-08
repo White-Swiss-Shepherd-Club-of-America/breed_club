@@ -21,6 +21,7 @@ export interface Env {
   ENVIRONMENT: "development" | "staging" | "production";
   CLUB_SLUG: string; // For single-club deployments, identifies which club
   BUILD_VERSION?: string; // Injected at deploy time via --var; shows git tag/hash
+  USE_NEON_DRIVER?: string; // "true" to use neon-http driver instead of postgres.js
   CERTIFICATES_BUCKET: R2Bucket;
 }
 

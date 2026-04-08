@@ -18,6 +18,7 @@ BUILD_VERSION = "development"
 [env.production.vars]
 ENVIRONMENT = "production"
 CLUB_SLUG = "wssca"
+USE_NEON_DRIVER = "true"
 
 # Cron triggers — refresh health statistics cache hourly
 [triggers]

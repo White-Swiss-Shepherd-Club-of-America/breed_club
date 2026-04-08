@@ -1,13 +1,13 @@
 import { createMiddleware } from "hono/factory";
 import { eq } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
-import { createDb } from "../db/client.js";
+import { createDb, type Database } from "../db/client.js";
 import { clubs } from "../db/schema.js";
 
 type ClubVariables = {
   clubId: string;
   club: typeof clubs.$inferSelect;
-  db: ReturnType<typeof createDb>;
+  db: Database;
 };
 
 /**
@@ -23,7 +23,7 @@ export const clubContext = createMiddleware<{
   Bindings: Env;
   Variables: ClubVariables;
 }>(async (c, next) => {
-  const db = createDb(c.env.DATABASE_URL);
+  const db = await createDb(c.env.DATABASE_URL, c.env.USE_NEON_DRIVER === "true");
   c.set("db", db);
 
   const slug = c.env.CLUB_SLUG;

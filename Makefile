@@ -3,7 +3,7 @@ export
 
 LOCAL_DB_URL := postgresql://postgres:postgres@localhost:5433/breed_club
 
-.PHONY: up down dev dev-all db-migrate db-setup db-seed db-sync db-reset use-local-db use-supabase-db
+.PHONY: up down dev dev-all db-migrate db-setup db-seed db-sync db-reset use-local-db use-supabase-db test-neon
 
 # ─── Docker ───────────────────────────────────────────────
 up:                        ## Start local PostgreSQL
@@ -56,3 +56,7 @@ dev-all:                   ## Start Hugo + App + API (full local stack)
 		"cd ../web && hugo server -D --environment local" \
 		"npm run dev:app" \
 		"npm run dev:api"
+
+test-neon:                  ## Test API against Neon with neon-http driver
+	@test -n "$(NEON_DB_URL)" || (echo "Set NEON_DB_URL in .env or env"; exit 1)
+	cd api && USE_NEON_DRIVER=true DATABASE_URL=$(NEON_DB_URL) npx wrangler dev

@@ -20,6 +20,7 @@
     "@breed-club/shared": "*",
     "@clerk/backend": "^1.21.0",
     "@hono/zod-validator": "^0.4.1",
+    "@neondatabase/serverless": "^1.0.2",
     "drizzle-orm": "^0.38.0",
     "hono": "^4.6.0",
     "postgres": "^3.4.0",
