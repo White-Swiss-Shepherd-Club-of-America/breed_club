@@ -1,33 +1,37 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
 import * as schema from "./schema.js";
 import * as relations from "./relations.js";
 
-/**
- * Create a Drizzle database client from a connection string.
- *
- * In Cloudflare Workers, we create a new connection per request.
- */
-export function createDb(connectionString: string) {
+const schemaObj = { ...schema, ...relations };
+
+async function createPostgresDb(connectionString: string) {
+  const { default: postgres } = await import("postgres");
+  const { drizzle } = await import("drizzle-orm/postgres-js");
   const client = postgres(connectionString, {
     idle_timeout: 20,
     max_lifetime: 60 * 5,
   });
-
-  return drizzle(client, { schema: { ...schema, ...relations } });
+  return drizzle(client, { schema: schemaObj });
 }
 
-export type Database = ReturnType<typeof createDb>;
+async function createNeonDb(connectionString: string) {
+  const { neon } = await import("@neondatabase/serverless");
+  const { drizzle } = await import("drizzle-orm/neon-http");
+  const sql = neon(connectionString);
+  return drizzle(sql, { schema: schemaObj });
+}
 
-/**
- * Helper to get DB from context (when using clubContext middleware)
- * or create a new connection from env (for one-off scripts/routes).
- */
-export function getDb(envOrDb: any): Database {
-  // If it's already a db instance (from context), return it
-  if (envOrDb && typeof envOrDb.select === 'function') {
+export async function createDb(connectionString: string, useNeon = false) {
+  const db = useNeon
+    ? await createNeonDb(connectionString)
+    : await createPostgresDb(connectionString);
+  return db as Awaited<ReturnType<typeof createPostgresDb>>;
+}
+
+export type Database = Awaited<ReturnType<typeof createPostgresDb>>;
+
+export async function getDb(envOrDb: any): Promise<Database> {
+  if (envOrDb && typeof envOrDb.select === "function") {
     return envOrDb;
   }
-  // Otherwise create from DATABASE_URL
-  return createDb(envOrDb.DATABASE_URL);
+  return createDb(envOrDb.DATABASE_URL, envOrDb.USE_NEON_DRIVER === "true");
 }

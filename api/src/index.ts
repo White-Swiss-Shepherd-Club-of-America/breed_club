@@ -148,7 +148,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    const db = createDb(env.DATABASE_URL);
+    const db = await createDb(env.DATABASE_URL, env.USE_NEON_DRIVER === "true");
     const [club] = await db
       .select({ id: clubs.id })
       .from(clubs)

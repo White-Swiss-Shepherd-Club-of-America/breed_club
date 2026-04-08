@@ -55,7 +55,7 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
   if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
-  const db = getDb(c.env);
+  const db = await getDb(c.env);
 
   // Fetch dog (including health_rating)
   const [dog] = await db
@@ -475,7 +475,7 @@ healthStampRoutes.get("/dogs/:dog_id/badge.svg", async (c: ApiContext) => {
   if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
-  const db = getDb(c.env);
+  const db = await getDb(c.env);
 
   // Fetch dog with health rating
   const [dog] = await db
