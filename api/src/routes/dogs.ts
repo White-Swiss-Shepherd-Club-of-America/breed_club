@@ -81,7 +81,7 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
   const fees = feeConfig?.fees || {};
   const tierFees = fees.create_dog || { non_member: 1500, member: 500 };
 
-  const amountCents = auth.member.skip_fees || auth.tierLevel >= 100
+  const amountCents = auth.member.skip_fees || auth.isAdmin
     ? 0
     : auth.tierLevel >= 20
     ? tierFees.member || 500

@@ -49,7 +49,7 @@ export function Layout() {
 
   const club = clubData?.club;
   const tierLevel = member?.tierLevel ?? 0;
-  const isAdmin = tierLevel >= 100;
+  const isAdmin = !!member && (member.is_admin === true || tierLevel >= 100);
   const canApproveMembers = isAdmin || member?.can_approve_members;
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
   const canManageRegistry = isAdmin || member?.can_manage_registry;

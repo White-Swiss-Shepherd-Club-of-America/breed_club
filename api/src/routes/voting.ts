@@ -327,7 +327,7 @@ votingRoutes.get("/elections", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const auth = c.get("auth")!;
-  const isAdmin = auth.tierLevel >= 100;
+  const isAdmin = auth.isAdmin;
 
   const allElections = await db.query.elections.findMany({
     where: eq(elections.club_id, clubId),

@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 import { AddClearanceModal } from "@/components/AddClearanceModal";
 import {
+  type BreedingStatusFilter,
   type ClearanceSortBy,
   type ClearanceSortDir,
   type ClearanceStatusFilter,
@@ -180,12 +181,23 @@ export function HealthClearancesPage() {
   const dogIdForAdd = searchParams.get("dog") || undefined;
 
   const status = (searchParams.get("status") as ClearanceStatusFilter) || "all";
+  const breedingStatus =
+    (searchParams.get("breeding_status") as BreedingStatusFilter) || "all";
   const sortBy = (searchParams.get("sort_by") as ClearanceSortBy) || "created_at";
   const sortDir = (searchParams.get("sort_dir") as ClearanceSortDir) || "desc";
   const page = Math.max(1, Number(searchParams.get("page") || "1"));
+  const limit = Math.max(1, Number(searchParams.get("limit") || "20"));
 
-  const { data, isLoading } = useMyClearances({ status, sortBy, sortDir, page, limit: 20 });
+  const { data, isLoading } = useMyClearances({
+    status,
+    breedingStatus,
+    sortBy,
+    sortDir,
+    page,
+    limit,
+  });
   const clearances = data?.clearances || [];
+  const dogsList = data?.dogs || [];
   const meta = data?.meta;
 
   useEffect(() => {
@@ -195,18 +207,14 @@ export function HealthClearancesPage() {
   }, [searchParams]);
 
   const grouped = useMemo(() => {
-    const map = new Map<string, { dog: MyClearance["dog"]; items: MyClearance[] }>();
+    const byDog = new Map<string, MyClearance[]>();
     for (const clearance of clearances) {
-      const key = clearance.dog.id;
-      const existing = map.get(key);
-      if (existing) {
-        existing.items.push(clearance);
-      } else {
-        map.set(key, { dog: clearance.dog, items: [clearance] });
-      }
+      const list = byDog.get(clearance.dog.id);
+      if (list) list.push(clearance);
+      else byDog.set(clearance.dog.id, [clearance]);
     }
-    return Array.from(map.values());
-  }, [clearances]);
+    return dogsList.map((dog) => ({ dog, items: byDog.get(dog.id) || [] }));
+  }, [clearances, dogsList]);
 
   useEffect(() => {
     setCollapsedByDog((prev) => {
@@ -221,7 +229,7 @@ export function HealthClearancesPage() {
   }, [grouped]);
 
   const updateParams = (
-    next: Partial<Record<"status" | "sort_by" | "sort_dir" | "add" | "page", string>>
+    next: Partial<Record<"status" | "breeding_status" | "sort_by" | "sort_dir" | "add" | "page" | "limit" | "dog", string>>
   ) => {
     const params = new URLSearchParams(searchParams);
     for (const [key, value] of Object.entries(next)) {
@@ -284,7 +292,23 @@ export function HealthClearancesPage() {
 
       <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4 flex flex-wrap gap-3 items-end">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Dog Status</label>
+          <select
+            value={breedingStatus}
+            onChange={(e) =>
+              updateParams({ breeding_status: e.target.value, add: "", page: "1" })
+            }
+            className="px-3 py-2 border rounded-lg text-sm"
+          >
+            <option value="all">All</option>
+            <option value="breeding">Breeding</option>
+            <option value="retired">Retired</option>
+            <option value="altered">Altered</option>
+            <option value="not_published">Not Published</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Clearance Status</label>
           <select
             value={status}
             onChange={(e) => updateParams({ status: e.target.value, add: "", page: "1" })}
@@ -321,6 +345,19 @@ export function HealthClearancesPage() {
             <option value="asc">Asc</option>
           </select>
         </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Per page</label>
+          <select
+            value={String(limit)}
+            onChange={(e) => updateParams({ limit: e.target.value, page: "1" })}
+            className="px-3 py-2 border rounded-lg text-sm"
+          >
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
       </div>
 
       {isLoading && <p className="text-gray-500">Loading clearances...</p>}
@@ -336,7 +373,12 @@ export function HealthClearancesPage() {
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-semibold text-gray-900">{group.dog.registered_name}</h2>
+                  <Link
+                    to={`/dogs/${group.dog.id}`}
+                    className="font-semibold text-gray-900 hover:text-purple-700 hover:underline"
+                  >
+                    {group.dog.registered_name}
+                  </Link>
                   <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${ratingBgClass(group.dog.health_rating)}`}>
                     {group.dog.health_rating?.score ?? "N/A"}
                   </span>
@@ -360,7 +402,21 @@ export function HealthClearancesPage() {
               </Link>
             </div>
 
-            {!collapsedByDog[group.dog.id] && (
+            {!collapsedByDog[group.dog.id] && group.items.length === 0 && (
+              <div className="px-4 py-3 text-sm text-gray-500 flex items-center justify-between">
+                <span>No clearances submitted yet.</span>
+                <button
+                  onClick={() => {
+                    setIsAddOpen(true);
+                    updateParams({ add: "1", dog: group.dog.id });
+                  }}
+                  className="text-purple-600 hover:underline text-sm"
+                >
+                  Add Health Clearance
+                </button>
+              </div>
+            )}
+            {!collapsedByDog[group.dog.id] && group.items.length > 0 && (
               <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
@@ -450,7 +506,7 @@ export function HealthClearancesPage() {
             Previous
           </button>
           <span className="text-sm text-gray-600">
-            Page {meta.page} of {meta.pages} ({meta.total} total)
+            Page {meta.page} of {meta.pages} ({meta.total} dogs)
           </span>
           <button
             onClick={() => updateParams({ page: String(Math.min(meta.pages, meta.page + 1)) })}

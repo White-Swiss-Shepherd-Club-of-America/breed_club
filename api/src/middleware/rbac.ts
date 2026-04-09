@@ -61,10 +61,12 @@ export const loadMember = createMiddleware<{
     columns: { level: true },
   });
   const tierLevel = tierRow?.level ?? 0;
+  const isAdmin = tierLevel >= SYSTEM_LEVELS.ADMIN || member.is_admin === true;
 
   const authCtx: AuthContext = {
     tier: member.tier,
     tierLevel,
+    isAdmin,
     flags: {
       is_breeder: member.is_breeder,
       can_approve_members: member.can_approve_members,
@@ -78,6 +80,7 @@ export const loadMember = createMiddleware<{
       id: member.id,
       tier: member.tier,
       tierLevel,
+      is_admin: member.is_admin,
       verified_breeder: member.verified_breeder,
       is_breeder: member.is_breeder,
       can_approve_members: member.can_approve_members,
@@ -143,7 +146,12 @@ export function requireLevel(minLevel: number) {
       );
     }
 
-    if (!hasTierLevel(auth.tierLevel, minLevel)) {
+    // The is_admin flag grants admin-equivalent access, so it satisfies any
+    // level check at or below ADMIN.
+    const meetsLevel =
+      hasTierLevel(auth.tierLevel, minLevel) ||
+      (auth.isAdmin && minLevel <= SYSTEM_LEVELS.ADMIN);
+    if (!meetsLevel) {
       return c.json(
         { error: { code: "FORBIDDEN", message: `Requires tier level ${minLevel} or higher` } },
         403
@@ -187,7 +195,7 @@ export function requireFlag(flag: keyof AuthContext["flags"]) {
       );
     }
 
-    if (!auth.flags[flag] && auth.tierLevel < 100) {
+    if (!auth.flags[flag] && !auth.isAdmin) {
       return c.json(
         { error: { code: "FORBIDDEN", message: `Requires ${flag} permission` } },
         403

@@ -238,6 +238,7 @@ export const updateMemberSchema = z.object({
   show_in_directory: z.boolean().optional(),
   verified_breeder: z.boolean().optional(),
   skip_fees: z.boolean().optional(),
+  is_admin: z.boolean().optional(),
 });
 
 // --- Organizations (admin) ---

@@ -86,6 +86,7 @@ export const members = pgTable(
     pup_status: varchar("pup_status", { length: 20 }),
     pup_expected_date: date("pup_expected_date"),
     skip_fees: boolean("skip_fees").notNull().default(false),
+    is_admin: boolean("is_admin").notNull().default(false),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

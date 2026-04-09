@@ -1,10 +1,11 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { HealthRating } from "@breed-club/shared";
+import type { BreedingStatus, HealthRating } from "@breed-club/shared";
 
 export type ClearanceStatus = "pending" | "approved" | "rejected";
 export type ClearanceStatusFilter = ClearanceStatus | "all";
+export type BreedingStatusFilter = BreedingStatus | "all";
 export type ClearanceSortBy = "created_at" | "test_date" | "status" | "dog_name" | "test_type";
 export type ClearanceSortDir = "asc" | "desc";
 
@@ -45,7 +46,16 @@ export interface MyClearance {
   };
 }
 
+export interface MyClearancesDog {
+  id: string;
+  registered_name: string;
+  call_name?: string | null;
+  health_rating?: HealthRating | null;
+  breeding_status?: BreedingStatus | null;
+}
+
 interface MyClearancesResponse {
+  dogs: MyClearancesDog[];
   clearances: MyClearance[];
   meta: {
     page: number;
@@ -57,6 +67,7 @@ interface MyClearancesResponse {
 
 export function useMyClearances(filters: {
   status: ClearanceStatusFilter;
+  breedingStatus: BreedingStatusFilter;
   sortBy: ClearanceSortBy;
   sortDir: ClearanceSortDir;
   page: number;
@@ -72,6 +83,7 @@ export function useMyClearances(filters: {
         token,
         params: {
           status: filters.status,
+          breeding_status: filters.breedingStatus,
           sort_by: filters.sortBy,
           sort_dir: filters.sortDir,
           page: filters.page,

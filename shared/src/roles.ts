@@ -51,6 +51,8 @@ export interface PermissionFlags {
 export interface AuthContext {
   tier: string;
   tierLevel: number;
+  /** Effective admin: tierLevel >= ADMIN OR members.is_admin flag set. */
+  isAdmin: boolean;
   flags: PermissionFlags;
   memberId: string;
   contactId: string;
@@ -60,6 +62,7 @@ export interface AuthContext {
     id: string;
     tier: string;
     tierLevel: number;
+    is_admin: boolean;
     verified_breeder: boolean;
     is_breeder: boolean;
     can_approve_members: boolean;
@@ -133,7 +136,7 @@ export type Permission = keyof typeof PERMISSIONS;
  */
 export function hasPermission(auth: AuthContext, permission: Permission): boolean {
   // Admin always has access
-  if (auth.tierLevel >= SYSTEM_LEVELS.ADMIN) return true;
+  if (auth.isAdmin) return true;
 
   const req = PERMISSIONS[permission];
   if (auth.tierLevel < req.minLevel) return false;

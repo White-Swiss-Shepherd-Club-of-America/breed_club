@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql, count } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Env, ApiContext } from "../lib/types.js";
 import { notFound, unauthorized, badRequest, conflict, forbidden } from "../lib/errors.js";
@@ -60,6 +60,9 @@ const batchClearanceSchema = z.object({
 
 const myClearanceQuerySchema = z.object({
   status: z.enum(["all", "pending", "approved", "rejected"]).default("all"),
+  breeding_status: z
+    .enum(["all", "not_published", "altered", "retired", "breeding"])
+    .default("all"),
   sort_by: z.enum(["created_at", "test_date", "status", "dog_name", "test_type"]).default("created_at"),
   sort_dir: z.enum(["asc", "desc"]).default("desc"),
   page: z.coerce.number().int().min(1).default(1),
@@ -510,94 +513,137 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
 healthRoutes.get("/clearances", async (c: ApiContext) => {
   const club = c.get("club");
   const auth = c.get("auth");
-  if (!club || !auth?.member) throw unauthorized();
+  if (!club || !auth?.member || !auth.contactId) throw unauthorized();
 
-  const member = auth.member;
   const db = await getDb(c.env);
 
   const query = myClearanceQuerySchema.parse({
     status: c.req.query("status") ?? "all",
+    breeding_status: c.req.query("breeding_status") ?? "all",
     sort_by: c.req.query("sort_by") ?? "created_at",
     sort_dir: c.req.query("sort_dir") ?? "desc",
     page: c.req.query("page") ?? 1,
     limit: c.req.query("limit") ?? 20,
   });
 
-  const filters = [
+  // Filter to dogs the current member owns within this club.
+  const dogFilters = [
     eq(dogs.club_id, club.id),
-    eq(dogHealthClearances.submitted_by, member.id),
+    eq(dogs.owner_id, auth.contactId),
+    eq(dogs.is_historical, false),
   ];
 
-  if (query.status !== "all") {
-    filters.push(eq(dogHealthClearances.status, query.status));
+  if (query.breeding_status !== "all") {
+    dogFilters.push(eq(dogs.breeding_status, query.breeding_status));
   }
 
-  const orderByMap = {
-    created_at: dogHealthClearances.created_at,
-    test_date: dogHealthClearances.test_date,
-    status: dogHealthClearances.status,
-    dog_name: dogs.registered_name,
-    test_type: healthTestTypes.short_name,
-  } as const;
-  const sortColumn = orderByMap[query.sort_by];
-  const sortOrder = query.sort_dir === "asc" ? asc(sortColumn) : desc(sortColumn);
+  // Clearance status filter restricts to dogs with at least one matching clearance.
+  if (query.status !== "all") {
+    dogFilters.push(
+      sql`EXISTS (SELECT 1 FROM ${dogHealthClearances} WHERE ${dogHealthClearances.dog_id} = ${dogs.id} AND ${dogHealthClearances.status} = ${query.status})`
+    );
+  }
+
+  // Sort dogs. Clearance-level sorts fall back to dog name (the dog list is
+  // the primary unit of pagination; clearances are nested below).
+  const dogSortColumn =
+    query.sort_by === "dog_name"
+      ? dogs.registered_name
+      : query.sort_by === "created_at"
+        ? dogs.created_at
+        : dogs.registered_name;
+  const dogSortOrder = query.sort_dir === "asc" ? asc(dogSortColumn) : desc(dogSortColumn);
 
   const [countResult] = await db
     .select({ value: count() })
-    .from(dogHealthClearances)
-    .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
-    .where(and(...filters));
+    .from(dogs)
+    .where(and(...dogFilters));
   const total = Number(countResult?.value || 0);
   const pages = Math.max(1, Math.ceil(total / query.limit));
   const page = Math.min(query.page, pages);
 
-  const clearances = await db
+  const dogRows = await db
     .select({
-      id: dogHealthClearances.id,
-      dog_id: dogHealthClearances.dog_id,
-      result: dogHealthClearances.result,
-      result_data: dogHealthClearances.result_data,
-      result_detail: dogHealthClearances.result_detail,
-      result_score: dogHealthClearances.result_score,
-      result_score_left: dogHealthClearances.result_score_left,
-      result_score_right: dogHealthClearances.result_score_right,
-      test_date: dogHealthClearances.test_date,
-      expiration_date: dogHealthClearances.expiration_date,
-      certificate_number: dogHealthClearances.certificate_number,
-      certificate_url: dogHealthClearances.certificate_url,
-      status: dogHealthClearances.status,
-      verified_at: dogHealthClearances.verified_at,
-      notes: dogHealthClearances.notes,
-      created_at: dogHealthClearances.created_at,
-      can_edit: sql<boolean>`${dogHealthClearances.status} <> 'approved'`,
-      dog: {
-        id: dogs.id,
-        registered_name: dogs.registered_name,
-        call_name: dogs.call_name,
-        health_rating: dogs.health_rating,
-      },
-      test_type: {
-        id: healthTestTypes.id,
-        name: healthTestTypes.name,
-        short_name: healthTestTypes.short_name,
-        category: healthTestTypes.category,
-      },
-      organization: {
-        id: organizations.id,
-        name: organizations.name,
-        type: organizations.type,
-      },
+      id: dogs.id,
+      registered_name: dogs.registered_name,
+      call_name: dogs.call_name,
+      health_rating: dogs.health_rating,
+      breeding_status: dogs.breeding_status,
     })
-    .from(dogHealthClearances)
-    .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
-    .innerJoin(healthTestTypes, eq(dogHealthClearances.health_test_type_id, healthTestTypes.id))
-    .innerJoin(organizations, eq(dogHealthClearances.organization_id, organizations.id))
-    .where(and(...filters))
-    .orderBy(sortOrder, desc(dogHealthClearances.created_at))
+    .from(dogs)
+    .where(and(...dogFilters))
+    .orderBy(dogSortOrder, asc(dogs.id))
     .limit(query.limit)
     .offset((page - 1) * query.limit);
 
+  const dogIds = dogRows.map((d) => d.id);
+
+  // Order clearances within a dog by the requested clearance-level field.
+  const clearanceOrderMap = {
+    created_at: dogHealthClearances.created_at,
+    test_date: dogHealthClearances.test_date,
+    status: dogHealthClearances.status,
+    dog_name: dogHealthClearances.created_at,
+    test_type: healthTestTypes.short_name,
+  } as const;
+  const clearanceSortColumn = clearanceOrderMap[query.sort_by];
+  const clearanceSortOrder =
+    query.sort_dir === "asc" ? asc(clearanceSortColumn) : desc(clearanceSortColumn);
+
+  const clearanceFilters = [inArray(dogHealthClearances.dog_id, dogIds)];
+  if (query.status !== "all") {
+    clearanceFilters.push(eq(dogHealthClearances.status, query.status));
+  }
+
+  const clearances =
+    dogIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: dogHealthClearances.id,
+            dog_id: dogHealthClearances.dog_id,
+            result: dogHealthClearances.result,
+            result_data: dogHealthClearances.result_data,
+            result_detail: dogHealthClearances.result_detail,
+            result_score: dogHealthClearances.result_score,
+            result_score_left: dogHealthClearances.result_score_left,
+            result_score_right: dogHealthClearances.result_score_right,
+            test_date: dogHealthClearances.test_date,
+            expiration_date: dogHealthClearances.expiration_date,
+            certificate_number: dogHealthClearances.certificate_number,
+            certificate_url: dogHealthClearances.certificate_url,
+            status: dogHealthClearances.status,
+            verified_at: dogHealthClearances.verified_at,
+            notes: dogHealthClearances.notes,
+            created_at: dogHealthClearances.created_at,
+            can_edit: sql<boolean>`${dogHealthClearances.status} <> 'approved'`,
+            dog: {
+              id: dogs.id,
+              registered_name: dogs.registered_name,
+              call_name: dogs.call_name,
+              health_rating: dogs.health_rating,
+            },
+            test_type: {
+              id: healthTestTypes.id,
+              name: healthTestTypes.name,
+              short_name: healthTestTypes.short_name,
+              category: healthTestTypes.category,
+            },
+            organization: {
+              id: organizations.id,
+              name: organizations.name,
+              type: organizations.type,
+            },
+          })
+          .from(dogHealthClearances)
+          .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
+          .innerJoin(healthTestTypes, eq(dogHealthClearances.health_test_type_id, healthTestTypes.id))
+          .innerJoin(organizations, eq(dogHealthClearances.organization_id, organizations.id))
+          .where(and(...clearanceFilters))
+          .orderBy(clearanceSortOrder, desc(dogHealthClearances.created_at));
+
   return c.json({
+    dogs: dogRows,
     clearances,
     meta: {
       page,

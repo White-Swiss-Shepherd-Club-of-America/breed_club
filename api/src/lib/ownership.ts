@@ -13,7 +13,7 @@ export function isDogOwner(
   dog: { owner_id: string | null; submitted_by: string | null },
   clubSettings?: Record<string, unknown>
 ): boolean {
-  if (auth.tierLevel >= 100) return true;
+  if (auth.isAdmin) return true;
   if (auth.flags.can_approve_clearances) return true;
   if (dog.owner_id && auth.contactId === dog.owner_id) return true;
   if (!dog.owner_id && !dog.submitted_by && clubSettings?.allow_member_edit_unowned_dogs) return true;

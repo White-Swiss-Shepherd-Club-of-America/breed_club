@@ -37,7 +37,7 @@ export function DashboardPage() {
   if (!member) return null;
 
   const tierLevel = member.tierLevel ?? 0;
-  const isAdmin = tierLevel >= 100;
+  const isAdmin = member.is_admin === true || tierLevel >= 100;
   const isMember = tierLevel >= 20;
   const hasApprovalPerms =
     isAdmin ||

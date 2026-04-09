@@ -89,7 +89,7 @@ export function DogCreatePage() {
   const { data: orgsData } = usePublicOrganizations();
   const organizations = orgsData?.data || [];
 
-  const isAdmin = (member?.tierLevel ?? 0) >= 100;
+  const isAdmin = member?.is_admin === true || (member?.tierLevel ?? 0) >= 100;
   const requiresRegistration = !isAdmin;
 
   const [pedigreeSlots, setPedigreeSlots] = useState<PedigreeSlotData[]>(createEmptySlots());

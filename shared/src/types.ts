@@ -143,6 +143,7 @@ export interface Member {
   pup_status: "available" | "expected" | "none" | null;
   pup_expected_date: string | null;
   skip_fees: boolean;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
   // Joined from contacts

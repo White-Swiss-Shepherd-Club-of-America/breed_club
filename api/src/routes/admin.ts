@@ -122,10 +122,16 @@ adminRoutes.get("/members/:id", requireLevel(100), async (c) => {
 adminRoutes.patch("/members/:id", requirePermission("members:manage"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
+  const auth = c.get("auth");
   const id = c.req.param("id");
 
   const body = await c.req.json();
   const data = updateMemberSchema.parse(body);
+
+  // Don't let an admin revoke their own is_admin flag (avoid self-lockout).
+  if (data.is_admin === false && auth?.member?.id === id) {
+    throw badRequest("Cannot revoke your own admin access");
+  }
 
   if (Object.keys(data).length === 0) {
     throw badRequest("No fields to update");
@@ -1670,7 +1676,7 @@ adminRoutes.get("/dashboard-counts", requireLevel(20), async (c) => {
   if (!auth) return c.json({ error: { code: "FORBIDDEN", message: "Auth required" } }, 403);
 
   const hasAnyApproval =
-    auth.tierLevel >= 100 ||
+    auth.isAdmin ||
     auth.flags.can_approve_members ||
     auth.flags.can_approve_clearances ||
     auth.flags.can_manage_registry;

@@ -6,7 +6,6 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useTiers } from "@/hooks/useTiers";
-import { SYSTEM_LEVELS } from "@breed-club/shared";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -19,7 +18,7 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, minLevel, flag }: ProtectedRouteProps) {
   const { isSignedIn, isLoaded } = useAuth();
   const { member, isLoading } = useCurrentMember();
-  const { getTierLabel } = useTiers();
+  const { getTierLabel, isAdmin } = useTiers();
 
   if (!isLoaded || isLoading) {
     return (
@@ -40,8 +39,8 @@ export function ProtectedRoute({ children, minLevel, flag }: ProtectedRouteProps
 
     const memberLevel = member.tierLevel ?? 0;
 
-    // Admin bypasses all checks
-    if (memberLevel < SYSTEM_LEVELS.ADMIN) {
+    // Admin (by tier or by is_admin flag) bypasses all checks
+    if (!isAdmin(member)) {
       if (memberLevel < minLevel) {
         return (
           <div className="max-w-lg mx-auto mt-12 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">

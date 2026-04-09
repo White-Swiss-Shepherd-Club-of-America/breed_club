@@ -21,10 +21,15 @@ export function useTiers() {
   const getTierLabel = (slug: string): string => tierMap.get(slug)?.label ?? slug;
   const getTierColor = (slug: string): string | null => tierMap.get(slug)?.color ?? null;
   const getTierLevel = (slug: string): number => tierMap.get(slug)?.level ?? 0;
-  const isAdmin = (member: Pick<Member, "tierLevel"> | null | undefined): boolean =>
-    (member?.tierLevel ?? 0) >= SYSTEM_LEVELS.ADMIN;
-  const hasMinLevel = (member: Pick<Member, "tierLevel"> | null | undefined, level: number): boolean =>
-    (member?.tierLevel ?? 0) >= level;
+  const isAdmin = (member: Pick<Member, "tierLevel" | "is_admin"> | null | undefined): boolean =>
+    !!member && (member.is_admin === true || (member.tierLevel ?? 0) >= SYSTEM_LEVELS.ADMIN);
+  const hasMinLevel = (
+    member: Pick<Member, "tierLevel" | "is_admin"> | null | undefined,
+    level: number
+  ): boolean =>
+    !!member &&
+    ((member.tierLevel ?? 0) >= level ||
+      (member.is_admin === true && level <= SYSTEM_LEVELS.ADMIN));
 
   /** All tiers except "public", sorted by level */
   const assignableTiers = useMemo(

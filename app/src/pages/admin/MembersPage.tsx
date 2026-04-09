@@ -295,6 +295,13 @@ export function MembersPage() {
                         handleUpdate(member.id, "skip_fees", !member.skip_fees)
                       }
                     />
+                    <FlagToggle
+                      label="Admin"
+                      active={member.is_admin}
+                      onClick={() =>
+                        handleUpdate(member.id, "is_admin", !member.is_admin)
+                      }
+                    />
                   </div>
                 </td>
                 <td className="px-4 py-3">

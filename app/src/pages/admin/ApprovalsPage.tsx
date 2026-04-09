@@ -22,7 +22,7 @@ const TAB_DEFS: { key: Tab; label: string; permission: "members" | "clearances" 
 
 export function ApprovalsPage() {
   const { member } = useCurrentMember();
-  const isAdmin = (member?.tierLevel ?? 0) >= 100;
+  const isAdmin = member?.is_admin === true || (member?.tierLevel ?? 0) >= 100;
   const canApproveMembers = isAdmin || member?.can_approve_members;
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
 
