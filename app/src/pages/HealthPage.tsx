@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { useDog } from "@/hooks/useDogs";
 import { useDeleteClearance, useUpdateClearance } from "@/hooks/useHealthClearances";
 import { formatDate } from "@/lib/utils";
-import { AddClearanceModal } from "@/components/AddClearanceModal";
+import { AddHealthCertificateModal } from "@/components/health/AddHealthCertificateModal";
 
 interface Clearance {
   id: string;
@@ -372,7 +372,7 @@ export function HealthPage() {
         )}
       </div>
 
-      <AddClearanceModal open={isAddOpen} onClose={() => setIsAddOpen(false)} dogId={dogId} />
+      <AddHealthCertificateModal open={isAddOpen} onClose={() => setIsAddOpen(false)} dogId={dogId} />
       {editing && dogId && (
         <EditClearanceModal
           clearance={editing}

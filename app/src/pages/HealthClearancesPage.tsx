@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
-import { AddClearanceModal } from "@/components/AddClearanceModal";
+import { AddHealthCertificateModal } from "@/components/health/AddHealthCertificateModal";
 import {
   type BreedingStatusFilter,
   type ClearanceSortBy,
@@ -518,7 +518,7 @@ export function HealthClearancesPage() {
         </div>
       )}
 
-      <AddClearanceModal open={isAddOpen} onClose={closeAddModal} initialDogId={dogIdForAdd} />
+      <AddHealthCertificateModal open={isAddOpen} onClose={closeAddModal} initialDogId={dogIdForAdd} />
       {editing && <EditClearanceModal clearance={editing} onClose={() => setEditing(null)} />}
     </div>
   );
