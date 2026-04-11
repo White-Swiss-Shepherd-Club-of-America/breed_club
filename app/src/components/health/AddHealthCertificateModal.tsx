@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dna, Bone, Heart, FlaskConical, ScanEye, SmilePlus, X, Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Dna, Bone, Heart, FlaskConical, ScanEye, SmilePlus, X, Plus, Trash2, ArrowLeft, ScanLine, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useDogs } from "@/hooks/useDogs";
 import {
@@ -11,6 +11,8 @@ import {
   computeResultSummary,
 } from "./ResultForms";
 import { OrgTypeahead } from "./OrgTypeahead";
+import { preparePageImages } from "@/lib/pdf-to-images";
+import { CertDraftReview, type ExtractionResponse, type SubmitClearance } from "./CertDraftReview";
 
 interface AddHealthCertificateModalProps {
   open: boolean;
@@ -19,7 +21,7 @@ interface AddHealthCertificateModalProps {
   initialDogId?: string;
 }
 
-type Step = "dog" | "category" | "results" | "upload";
+type Step = "dog" | "category" | "results" | "upload" | "scanning" | "review";
 
 interface PendingTest {
   id: string;
@@ -81,6 +83,11 @@ export function AddHealthCertificateModal({
 
   // Finalized pending tests (built from testRows when moving to upload step)
   const [pendingTests, setPendingTests] = useState<PendingTest[]>([]);
+
+  // Cert extraction state
+  const [extractionResult, setExtractionResult] = useState<ExtractionResponse | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [scanFile, setScanFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -153,6 +160,9 @@ export function AddHealthCertificateModal({
     setCertificateFile(null);
     setCertificateUrl("");
     setUploading(false);
+    setExtractionResult(null);
+    setExtractionError(null);
+    setScanFile(null);
   };
 
   const handleClose = () => {
@@ -318,6 +328,76 @@ export function AddHealthCertificateModal({
     });
   };
 
+  // ─── Cert Scan Flow ──────────────────────────────────────────────
+  const handleScanCert = async (file: File) => {
+    const targetDogId = dogId || selectedDogId;
+    if (!targetDogId) {
+      alert("Please select a dog first");
+      return;
+    }
+
+    setScanFile(file);
+    setStep("scanning");
+    setExtractionError(null);
+
+    try {
+      // Render PDF pages to images client-side
+      // Render up to 6 pages — covers single certs (1), OFA panels (2-3),
+      // Genoscoper/Embark (4-6). Wisdom Panel (16 pages) gets first 6 which
+      // contains its full test table.
+      const { pages } = await preparePageImages(file, 6);
+
+      // Call extraction API
+      const token = await getToken();
+      const result = await api.extractCert<ExtractionResponse>(
+        targetDogId,
+        file,
+        pages,
+        { token }
+      );
+
+      setExtractionResult(result);
+
+      if (result.fallback_to_manual) {
+        // Extraction couldn't handle this cert — fall back to manual with cert uploaded
+        setCertificateUrl(result.certificate_url);
+        setExtractionError(result.fallback_reason || "Could not read this certificate automatically.");
+        setStep("category");
+      } else {
+        setStep("review");
+      }
+    } catch (err) {
+      console.error("Cert extraction failed:", err);
+      setExtractionError(
+        err instanceof Error ? err.message : "Certificate extraction failed. Please try manual entry."
+      );
+      setStep("category");
+    }
+  };
+
+  const handleExtractionSubmit = (
+    clearances: SubmitClearance[],
+    certUrl: string,
+    submissionNotes: string
+  ) => {
+    const targetDogId = dogId || selectedDogId;
+    if (!targetDogId) return;
+
+    submitBatch.mutate({
+      clearances: clearances.map((c) => ({
+        ...c,
+        notes: submissionNotes || undefined,
+      })),
+      certificate_url: certUrl,
+    });
+  };
+
+  const handleFallbackToManual = (certUrl: string) => {
+    setCertificateUrl(certUrl);
+    setExtractionResult(null);
+    setStep("category");
+  };
+
   if (!open) return null;
 
   return (
@@ -331,7 +411,7 @@ export function AddHealthCertificateModal({
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            {step !== "dog" && step !== "category" && (
+            {step !== "dog" && step !== "category" && step !== "scanning" && (
               <button
                 type="button"
                 onClick={() => {
@@ -340,6 +420,9 @@ export function AddHealthCertificateModal({
                   } else if (step === "results") {
                     setSelectedOrg(null);
                     setTestRows([]);
+                    setStep("category");
+                  } else if (step === "review") {
+                    setExtractionResult(null);
                     setStep("category");
                   }
                 }}
@@ -362,6 +445,8 @@ export function AddHealthCertificateModal({
                 </>
               )}
               {step === "upload" && "Upload Certificate"}
+              {step === "scanning" && "Scanning Certificate"}
+              {step === "review" && "Review Extracted Data"}
             </h2>
           </div>
           <button
@@ -419,30 +504,97 @@ export function AddHealthCertificateModal({
 
         {/* Step: Category selection */}
         {step === "category" && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {availableCategories.map((cat) => {
-              const config = CATEGORY_CONFIG[cat];
-              if (!config) return null;
-              const Icon = config.icon;
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => {
-                    setSelectedCategory(cat);
-                    setSelectedOrg(null);
-                    setTestRows([]);
-                    setStep("results");
+          <div className="space-y-4">
+            {/* Scan certificate option */}
+            <div>
+              <label
+                htmlFor="cert-scan-input"
+                className="flex items-center gap-3 p-4 border-2 border-dashed border-purple-300 rounded-xl cursor-pointer hover:border-purple-500 hover:bg-purple-50 transition-colors"
+              >
+                <ScanLine className="w-8 h-8 text-purple-600 shrink-0" />
+                <div>
+                  <span className="font-medium text-sm text-gray-900 block">
+                    Scan Certificate
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    Upload a PDF or photo and we'll read it automatically
+                  </span>
+                </div>
+                <input
+                  id="cert-scan-input"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleScanCert(f);
+                    e.target.value = "";
                   }}
-                  className="flex flex-col items-center gap-2 p-4 border-2 border-gray-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-colors"
-                >
-                  <Icon className="w-8 h-8 text-purple-600" />
-                  <span className="font-medium text-sm text-gray-900">{config.label}</span>
-                  <span className="text-xs text-gray-500 text-center">{config.description}</span>
-                </button>
-              );
-            })}
+                />
+              </label>
+            </div>
+
+            {/* Extraction error banner */}
+            {extractionError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
+                {extractionError} You can enter the details manually below.
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 border-t border-gray-200" />
+              <span className="text-xs text-gray-400">or enter manually</span>
+              <div className="flex-1 border-t border-gray-200" />
+            </div>
+
+            {/* Category buttons */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {availableCategories.map((cat) => {
+                const config = CATEGORY_CONFIG[cat];
+                if (!config) return null;
+                const Icon = config.icon;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory(cat);
+                      setSelectedOrg(null);
+                      setTestRows([]);
+                      setStep("results");
+                    }}
+                    className="flex flex-col items-center gap-2 p-4 border-2 border-gray-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-colors"
+                  >
+                    <Icon className="w-8 h-8 text-purple-600" />
+                    <span className="font-medium text-sm text-gray-900">{config.label}</span>
+                    <span className="text-xs text-gray-500 text-center">{config.description}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {/* Step: Scanning (loading state) */}
+        {step === "scanning" && (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <Loader2 className="w-10 h-10 text-purple-600 animate-spin" />
+            <p className="text-sm text-gray-600">Reading certificate...</p>
+            <p className="text-xs text-gray-400">
+              {scanFile?.name}
+            </p>
+          </div>
+        )}
+
+        {/* Step: Review extraction drafts */}
+        {step === "review" && extractionResult && (
+          <CertDraftReview
+            extraction={extractionResult}
+            allTestTypes={allTestTypes}
+            onSubmit={handleExtractionSubmit}
+            onFallbackToManual={handleFallbackToManual}
+          />
         )}
 
         {/* Step: Results entry */}
@@ -707,6 +859,15 @@ export function AddHealthCertificateModal({
               </p>
             )}
           </form>
+        )}
+
+        {/* Show batch submit errors on review step too */}
+        {step === "review" && submitBatch.isError && (
+          <p className="text-red-600 text-sm mt-2">
+            {(submitBatch.error as { status?: number })?.status === 409
+              ? "One or more of these tests already exists for this dog."
+              : "Something went wrong submitting. Please try again."}
+          </p>
         )}
       </div>
     </div>

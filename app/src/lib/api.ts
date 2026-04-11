@@ -116,6 +116,49 @@ class ApiClient {
 
     return response.json();
   }
+
+  /**
+   * Upload a certificate file + pre-rendered page images to the extraction endpoint.
+   * Returns draft clearance rows with confidence scores and verification flags.
+   */
+  async extractCert<T>(
+    dogId: string,
+    file: File,
+    pageImages: Blob[],
+    options?: { token?: string | null }
+  ): Promise<T> {
+    const formData = new FormData();
+    formData.append("file", file);
+    for (const page of pageImages) {
+      formData.append("pages[]", page, "page.png");
+    }
+
+    const headers: Record<string, string> = {};
+    if (options?.token) {
+      headers["Authorization"] = `Bearer ${options.token}`;
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/health/dogs/${dogId}/extract`,
+      {
+        method: "POST",
+        headers,
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const responseData = await response.json().catch(() => ({
+        error: { code: "UNKNOWN", message: response.statusText },
+      }));
+      throw new ApiRequestError(
+        response.status,
+        responseData.error || responseData
+      );
+    }
+
+    return response.json();
+  }
 }
 
 export class ApiRequestError extends Error {

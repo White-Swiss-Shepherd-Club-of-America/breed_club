@@ -21,6 +21,13 @@ import { recomputeHealthRating } from "../lib/rating.js";
 import { healthStatisticsCache } from "../db/schema.js";
 import { computeHealthStatistics, refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
 import { computeMemberHealthStats, refreshMemberHealthStatsCache } from "../lib/compute-member-health-stats.js";
+import { createLLMProvider, getModelConfig } from "../lib/llm/index.js";
+import { loadTestOrgCatalog } from "../lib/extraction/catalog.js";
+import { classifyCert } from "../lib/extraction/classifier.js";
+import { extractResults } from "../lib/extraction/extractor.js";
+import { verifyDogIdentity } from "../lib/extraction/verifier.js";
+import { buildDraftRows } from "../lib/extraction/draft-builder.js";
+import type { ExtractionResponse, VerificationFlag } from "../lib/extraction/types.js";
 
 const healthRoutes = new Hono<{ Bindings: Env }>();
 
@@ -1087,6 +1094,190 @@ healthRoutes.get("/my-stats", async (c: ApiContext) => {
   c.executionCtx.waitUntil(refreshMemberHealthStatsCache(db, auth.memberId, club.id, auth.contactId, auth.flags.is_breeder));
 
   return c.json(data);
+});
+
+// ─── POST /api/health/dogs/:id/extract — LLM cert extraction ───────────────
+//
+// Accepts multipart/form-data with:
+//   - "file" (PDF/JPEG/PNG) — the original certificate
+//   - "pages[]" (one or more PNGs) — pre-rendered page images from client
+//
+// Returns ExtractionResponse with draft clearance rows + flags.
+// Does NOT write to the database — the user reviews and submits via /clearances/batch.
+
+healthRoutes.post("/dogs/:dog_id/extract", async (c: ApiContext) => {
+  const club = c.get("club");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
+
+  // Check that LLM is configured
+  if (!c.env.LLM_API_KEY) {
+    throw badRequest("Certificate extraction is not configured (LLM_API_KEY not set)");
+  }
+
+  const dogId = c.req.param("dog_id");
+  const db = await getDb(c.env);
+
+  // Verify dog exists and user has permission
+  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  if (!dog) throw notFound("Dog");
+  if (dog.club_id !== club.id) throw notFound("Dog");
+
+  if (!isDogOwner(auth, dog, club.settings as Record<string, unknown>)) {
+    throw forbidden("You can only submit clearances for dogs you own");
+  }
+
+  // Parse multipart form data
+  const formData = await c.req.formData();
+  const file = formData.get("file") as File | null;
+
+  if (!file) {
+    throw badRequest("No certificate file uploaded");
+  }
+
+  // Validate file type and size
+  const allowedTypes = ["application/pdf", "image/jpeg", "image/png"];
+  if (!allowedTypes.includes(file.type)) {
+    throw badRequest("File must be PDF, JPEG, or PNG");
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    throw badRequest("File must be under 10MB");
+  }
+
+  // Store the original file to R2
+  const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+  const certKey = `certificates/${club.id}/${crypto.randomUUID()}.${ext}`;
+  await c.env.CERTIFICATES_BUCKET.put(certKey, file.stream(), {
+    httpMetadata: { contentType: file.type },
+    customMetadata: {
+      uploadedBy: auth.member.id,
+      originalName: file.name,
+    },
+  });
+
+  // Collect page images from the multipart form
+  const pageImages: string[] = [];
+  const pageEntries = formData.getAll("pages[]");
+  for (const entry of pageEntries) {
+    if (entry instanceof File) {
+      const buffer = await entry.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(buffer).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          ""
+        )
+      );
+      pageImages.push(base64);
+    }
+  }
+
+  // If no pre-rendered pages, and it's an image, use the file itself
+  if (pageImages.length === 0 && file.type.startsWith("image/")) {
+    const buffer = await file.arrayBuffer();
+    const base64 = btoa(
+      new Uint8Array(buffer).reduce(
+        (data, byte) => data + String.fromCharCode(byte),
+        ""
+      )
+    );
+    pageImages.push(base64);
+  }
+
+  if (pageImages.length === 0) {
+    // PDF without pre-rendered pages — can't extract
+    return c.json({
+      certificate_url: certKey,
+      drafts: [],
+      fallback_to_manual: true,
+      fallback_reason: "No page images provided. Please ensure your browser rendered the PDF to images.",
+    } satisfies ExtractionResponse);
+  }
+
+  // Set up LLM
+  const llm = createLLMProvider({
+    provider: c.env.LLM_PROVIDER || "anthropic",
+    apiKey: c.env.LLM_API_KEY,
+    modelFast: c.env.LLM_MODEL_FAST || "claude-haiku-4-5-20251001",
+    modelStrong: c.env.LLM_MODEL_STRONG || "claude-sonnet-4-6",
+  });
+  const models = getModelConfig(c.env);
+
+  // Load catalog
+  const catalog = await loadTestOrgCatalog(db, club.id);
+
+  // ─── Classify ───────────────────────────────────────────────────
+  const classification = await classifyCert(llm, pageImages, catalog, models);
+
+  // No matches at all — cert type may be unknown or no catalog entries
+  if (classification.matches.length === 0) {
+    // If the classifier named tests that aren't in our catalog, give a helpful message
+    const unmatchedNames = classification.unmatched_tests;
+    const fallback_reason = unmatchedNames.length > 0
+      ? `This certificate contains tests (${unmatchedNames.join(", ")}) that aren't configured in your club yet. Please ask your administrator to add them to the health test catalog.`
+      : "Could not identify any recognized tests on this certificate.";
+
+    return c.json({
+      certificate_url: certKey,
+      drafts: [],
+      fallback_to_manual: true,
+      fallback_reason,
+    } satisfies ExtractionResponse);
+  }
+
+  // Filter to high-enough confidence matches
+  const viableMatches = classification.matches.filter((m) => m.confidence >= 0.5);
+  if (viableMatches.length === 0) {
+    return c.json({
+      certificate_url: certKey,
+      drafts: [],
+      fallback_to_manual: true,
+      fallback_reason: "Identified possible tests but confidence was too low for automatic extraction.",
+    } satisfies ExtractionResponse);
+  }
+
+  // ─── Extract ──────────────────────────────────────────────────
+  const extractions = await extractResults(
+    llm,
+    pageImages,
+    viableMatches,
+    catalog,
+    { registered_name: dog.registered_name },
+    models
+  );
+
+  if (extractions.length === 0) {
+    return c.json({
+      certificate_url: certKey,
+      drafts: [],
+      fallback_to_manual: true,
+      fallback_reason: "Classification succeeded but result extraction failed.",
+    } satisfies ExtractionResponse);
+  }
+
+  // ─── Verify ───────────────────────────────────────────────────
+  const verificationFlagsByPair = new Map<string, VerificationFlag[]>();
+  for (const ext of extractions) {
+    const flags = verifyDogIdentity(ext, {
+      registered_name: dog.registered_name,
+      microchip_number: dog.microchip_number,
+      date_of_birth: dog.date_of_birth,
+    });
+    verificationFlagsByPair.set(ext.pair_id, flags);
+  }
+
+  // ─── Build drafts ─────────────────────────────────────────────
+  const drafts = buildDraftRows(
+    classification,
+    extractions,
+    verificationFlagsByPair,
+    certKey
+  );
+
+  return c.json({
+    certificate_url: certKey,
+    drafts,
+    fallback_to_manual: false,
+  } satisfies ExtractionResponse);
 });
 
 export { healthRoutes };

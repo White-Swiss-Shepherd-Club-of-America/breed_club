@@ -12,6 +12,10 @@ port = 8887
 ENVIRONMENT = "development"
 CLUB_SLUG = "wssca"
 BUILD_VERSION = "development"
+# LLM extraction (optional — feature disabled if LLM_API_KEY secret is not set)
+LLM_PROVIDER = "anthropic"
+LLM_MODEL_FAST = "claude-haiku-4-5-20251001"
+LLM_MODEL_STRONG = "claude-sonnet-4-6"
 
 # Production environment
 [env.production]
@@ -19,6 +23,9 @@ BUILD_VERSION = "development"
 ENVIRONMENT = "production"
 CLUB_SLUG = "wssca"
 USE_NEON_DRIVER = "true"
+LLM_PROVIDER = "anthropic"
+LLM_MODEL_FAST = "claude-haiku-4-5-20251001"
+LLM_MODEL_STRONG = "claude-sonnet-4-6"
 
 # Cron triggers — refresh health statistics cache hourly
 [triggers]
@@ -39,3 +46,4 @@ bucket_name = "breed-club-certificates"
 # RESEND_API_KEY
 # EMAIL_FROM
 # APP_URL
+# LLM_API_KEY

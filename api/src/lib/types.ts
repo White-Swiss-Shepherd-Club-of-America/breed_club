@@ -23,6 +23,11 @@ export interface Env {
   BUILD_VERSION?: string; // Injected at deploy time via --var; shows git tag/hash
   USE_NEON_DRIVER?: string; // "true" to use neon-http driver instead of postgres.js
   CERTIFICATES_BUCKET: R2Bucket;
+  // LLM extraction (optional — feature disabled if LLM_API_KEY is not set)
+  LLM_API_KEY?: string; // Secret: API key for the configured LLM provider
+  LLM_PROVIDER?: string; // "anthropic" (default) — which LLM provider to use
+  LLM_MODEL_FAST?: string; // Cheap model for easy certs (default: claude-haiku-4-5-20250315)
+  LLM_MODEL_STRONG?: string; // Expensive model for hard certs (default: claude-sonnet-4-6-20250514)
 }
 
 /**
