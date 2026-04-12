@@ -20,8 +20,10 @@ interface Clearance {
   result_score_left?: number | null;
   result_score_right?: number | null;
   test_date: string;
-  certificate_number?: string;
+  certificate_number?: string | null;
   certificate_url?: string | null;
+  is_preliminary?: boolean;
+  application_number?: string | null;
   status: string;
   verified_at?: string;
   notes?: string;
@@ -290,37 +292,46 @@ export function HealthPage() {
                         <td className="py-1.5 px-3 text-purple-700 text-xs font-medium">{scoreDisplay}</td>
                         <td className="py-1.5 px-3 text-gray-500 text-xs">{c.organization.name}</td>
                         <td className="py-1.5 px-3 text-gray-500 text-xs">{formatDate(c.test_date)}</td>
-                        <td className="py-1.5 px-3">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                              c.status === "approved"
-                                ? "bg-green-100 text-green-800"
-                                : c.status === "rejected"
-                                  ? "bg-red-100 text-red-800"
-                                  : "bg-yellow-100 text-yellow-800"
-                            }`}
-                          >
-                            {c.status === "approved"
-                              ? "Verified"
-                              : c.status === "rejected"
-                                ? "Rejected"
-                                : "Pending"}
-                          </span>
-                        </td>
-                        <td className="py-1.5 px-3">
-                          {certUrl ? (
-                            <a
-                              href={certUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-purple-600 hover:underline text-xs"
-                            >
-                              View
-                            </a>
-                          ) : c.certificate_number ? (
-                            <span className="text-gray-500 text-xs">{c.certificate_number}</span>
-                          ) : null}
-                        </td>
+                         <td className="py-1.5 px-3">
+                           <div className="flex items-center gap-1 flex-wrap">
+                             <span
+                               className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                 c.status === "approved"
+                                   ? "bg-green-100 text-green-800"
+                                   : c.status === "rejected"
+                                     ? "bg-red-100 text-red-800"
+                                     : "bg-yellow-100 text-yellow-800"
+                               }`}
+                             >
+                               {c.status === "approved"
+                                 ? "Verified"
+                                 : c.status === "rejected"
+                                   ? "Rejected"
+                                   : "Pending"}
+                             </span>
+                             {c.is_preliminary && (
+                               <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                                 Prelim
+                               </span>
+                             )}
+                           </div>
+                         </td>
+                         <td className="py-1.5 px-3">
+                           {certUrl ? (
+                             <a
+                               href={certUrl}
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               className="text-purple-600 hover:underline text-xs"
+                             >
+                               View
+                             </a>
+                           ) : c.application_number ? (
+                             <span className="text-gray-500 text-xs" title="OFA Application #">{c.application_number}</span>
+                           ) : c.certificate_number ? (
+                             <span className="text-gray-500 text-xs">{c.certificate_number}</span>
+                           ) : null}
+                         </td>
                         <td className="py-1.5 px-3">
                           {c.status === "pending" ? (
                             <div className="flex items-center gap-2">

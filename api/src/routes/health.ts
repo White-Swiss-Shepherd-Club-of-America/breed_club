@@ -44,9 +44,30 @@ const createClearanceSchema = z.object({
   certificate_number: z.string().optional(),
   certificate_url: z.string().max(500).optional(),
   notes: z.string().optional(),
-});
+  // OFA Preliminary (Consultation) result — not counted toward health rating
+  is_preliminary: z.boolean().optional().default(false),
+  // OFA application number for preliminary results (no official OFA number issued yet)
+  application_number: z.string().optional(),
+}).refine(
+  (data) => !data.is_preliminary || !data.certificate_number,
+  { message: "Preliminary results cannot have an OFA certificate number", path: ["certificate_number"] }
+);
 
-const updateClearanceSchema = createClearanceSchema.partial();
+// updateClearanceSchema is defined manually (createClearanceSchema uses .refine() so .partial() is unavailable on ZodEffects)
+const updateClearanceSchema = z.object({
+  health_test_type_id: z.string().uuid().optional(),
+  organization_id: z.string().uuid().optional(),
+  result: z.string().min(1).optional(),
+  result_data: z.record(z.unknown()).nullish(),
+  result_detail: z.string().optional(),
+  test_date: z.string().optional(),
+  expiration_date: z.string().optional(),
+  certificate_number: z.string().optional(),
+  certificate_url: z.string().max(500).optional(),
+  notes: z.string().optional(),
+  is_preliminary: z.boolean().optional(),
+  application_number: z.string().optional(),
+});
 
 const batchClearanceItemSchema = z.object({
   health_test_type_id: z.string().uuid(),
@@ -58,7 +79,12 @@ const batchClearanceItemSchema = z.object({
   expiration_date: z.string().optional(),
   certificate_number: z.string().optional(),
   notes: z.string().optional(),
-});
+  is_preliminary: z.boolean().optional().default(false),
+  application_number: z.string().optional(),
+}).refine(
+  (data) => !data.is_preliminary || !data.certificate_number,
+  { message: "Preliminary results cannot have an OFA certificate number", path: ["certificate_number"] }
+);
 
 const batchClearanceSchema = z.object({
   clearances: z.array(batchClearanceItemSchema).min(1).max(20),
@@ -257,7 +283,7 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
     throw forbidden("Dog has a pending ownership transfer and is locked");
   }
 
-  // Check for duplicate clearance (one per dog + test type + org + date)
+  // Check for duplicate clearance (one per dog + test type + org + date + preliminary status)
   const existing = await db
     .select()
     .from(dogHealthClearances)
@@ -266,7 +292,8 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
         eq(dogHealthClearances.dog_id, dogId),
         eq(dogHealthClearances.health_test_type_id, data.health_test_type_id),
         eq(dogHealthClearances.organization_id, data.organization_id),
-        eq(dogHealthClearances.test_date, data.test_date)
+        eq(dogHealthClearances.test_date, data.test_date),
+        eq(dogHealthClearances.is_preliminary, data.is_preliminary ?? false)
       )
     )
     .limit(1);
@@ -289,11 +316,8 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
 
   const resultSchema = orgLink?.result_schema as ResultSchema | null;
 
-  const computedResult = computeResultSummary(
-    data.result,
-    data.result_data,
-    resultSchema
-  );
+  const baseResult = computeResultSummary(data.result, data.result_data, resultSchema);
+  const computedResult = data.is_preliminary ? `${baseResult} (Prelim)` : baseResult;
 
   const scores = computeResultScores(data.result, data.result_data, resultSchema);
 
@@ -341,8 +365,10 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       result_score_right: scores.result_score_right,
       test_date: data.test_date,
       expiration_date: data.expiration_date,
-      certificate_number: data.certificate_number,
+      certificate_number: data.is_preliminary ? null : (data.certificate_number ?? null),
       certificate_url: data.certificate_url,
+      is_preliminary: data.is_preliminary ?? false,
+      application_number: data.application_number ?? null,
       notes: data.notes,
       status: "pending",
       submitted_by: member.id,
@@ -394,10 +420,10 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
     throw forbidden("Dog has a pending ownership transfer and is locked");
   }
 
-  // Check for intra-batch duplicates (same test_type + org + date)
+  // Check for intra-batch duplicates (same test_type + org + date + preliminary status)
   const seen = new Set<string>();
   for (let i = 0; i < items.length; i++) {
-    const key = `${items[i].health_test_type_id}:${items[i].organization_id}:${items[i].test_date}`;
+    const key = `${items[i].health_test_type_id}:${items[i].organization_id}:${items[i].test_date}:${items[i].is_preliminary ?? false}`;
     if (seen.has(key)) {
       throw badRequest(`Duplicate test in batch at index ${i} (same test type, organization, and date)`);
     }
@@ -412,7 +438,7 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
   }> = [];
 
   for (const item of items) {
-    // Check for existing duplicate in DB
+    // Check for existing duplicate in DB (includes is_preliminary in the match)
     const existing = await db
       .select()
       .from(dogHealthClearances)
@@ -421,7 +447,8 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
           eq(dogHealthClearances.dog_id, dogId),
           eq(dogHealthClearances.health_test_type_id, item.health_test_type_id),
           eq(dogHealthClearances.organization_id, item.organization_id),
-          eq(dogHealthClearances.test_date, item.test_date)
+          eq(dogHealthClearances.test_date, item.test_date),
+          eq(dogHealthClearances.is_preliminary, item.is_preliminary ?? false)
         )
       )
       .limit(1);
@@ -443,7 +470,8 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
       .limit(1);
 
     const resultSchema = orgLink?.result_schema as ResultSchema | null;
-    const computedResult = computeResultSummary(item.result, item.result_data, resultSchema);
+    const baseResult = computeResultSummary(item.result, item.result_data, resultSchema);
+    const computedResult = (item.is_preliminary ?? false) ? `${baseResult} (Prelim)` : baseResult;
     const scores = computeResultScores(item.result, item.result_data, resultSchema);
 
     prepared.push({ item, computedResult, scores });
@@ -497,8 +525,10 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
           result_score_right: scores.result_score_right,
           test_date: item.test_date,
           expiration_date: item.expiration_date,
-          certificate_number: item.certificate_number,
+          certificate_number: item.is_preliminary ? null : (item.certificate_number ?? null),
           certificate_url,
+          is_preliminary: item.is_preliminary ?? false,
+          application_number: item.application_number ?? null,
           notes: item.notes,
           status: "pending",
           submitted_by: member.id,
@@ -619,6 +649,8 @@ healthRoutes.get("/clearances", async (c: ApiContext) => {
             expiration_date: dogHealthClearances.expiration_date,
             certificate_number: dogHealthClearances.certificate_number,
             certificate_url: dogHealthClearances.certificate_url,
+            is_preliminary: dogHealthClearances.is_preliminary,
+            application_number: dogHealthClearances.application_number,
             status: dogHealthClearances.status,
             verified_at: dogHealthClearances.verified_at,
             notes: dogHealthClearances.notes,
@@ -695,6 +727,8 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
       expiration_date: dogHealthClearances.expiration_date,
       certificate_number: dogHealthClearances.certificate_number,
       certificate_url: dogHealthClearances.certificate_url,
+      is_preliminary: dogHealthClearances.is_preliminary,
+      application_number: dogHealthClearances.application_number,
       status: dogHealthClearances.status,
       verified_at: dogHealthClearances.verified_at,
       notes: dogHealthClearances.notes,

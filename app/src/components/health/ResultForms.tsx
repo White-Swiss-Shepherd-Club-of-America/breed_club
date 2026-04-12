@@ -367,6 +367,236 @@ export function EnumLRForm({
   );
 }
 
+// ─── OFA Preliminary Findings Types ─────────────────────────────────────────
+
+export interface PrelimHipFindings {
+  subluxation?: boolean;
+  remodeling_femoral_head_neck?: boolean;
+  osteoarthritis_djd?: boolean;
+  shallow_acetabula?: boolean;
+  acetabular_rim_edge_change?: boolean;
+  unilateral_pathology_left?: boolean;
+  unilateral_pathology_right?: boolean;
+  transitional_vertebra?: boolean;
+  spondylosis?: boolean;
+  panosteitis?: string;
+  other?: string;
+}
+
+export interface PrelimElbowSideFindings {
+  djd?: boolean;
+  uap?: boolean;
+  fcp?: boolean;
+  osteochondrosis?: boolean;
+}
+
+export interface PrelimElbowData {
+  negative_left?: boolean;
+  negative_right?: boolean;
+  grade_left?: 1 | 2 | 3 | null;
+  grade_right?: 1 | 2 | 3 | null;
+  findings_left?: PrelimElbowSideFindings;
+  findings_right?: PrelimElbowSideFindings;
+}
+
+// ─── OFA Prelim Hip Radiographic Findings Form ───────────────────────────────
+
+export function PrelimHipFindingsForm({
+  value,
+  onChange,
+}: {
+  value: Record<string, unknown>;
+  onChange: (v: Record<string, unknown>) => void;
+}) {
+  const findings = (value.findings as PrelimHipFindings) || {};
+
+  const updateFinding = (key: keyof PrelimHipFindings, val: boolean | string) => {
+    onChange({ ...value, findings: { ...findings, [key]: val } });
+  };
+
+  const checkbox = (key: keyof PrelimHipFindings, label: string) => (
+    <label key={key} className="flex items-center gap-2 text-sm py-0.5">
+      <input
+        type="checkbox"
+        checked={!!(findings[key])}
+        onChange={(e) => updateFinding(key, e.target.checked)}
+        className="w-4 h-4 rounded border-gray-300"
+      />
+      {label}
+    </label>
+  );
+
+  return (
+    <div className="space-y-2 border rounded-lg p-3 bg-amber-50 border-amber-200">
+      <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+        Hip Radiographic Findings
+      </div>
+      <div className="space-y-0.5">
+        {checkbox("subluxation", "Subluxation")}
+        {checkbox("remodeling_femoral_head_neck", "Remodeling of femoral head/neck")}
+        {checkbox("osteoarthritis_djd", "Osteoarthritis / degenerative joint disease")}
+        {checkbox("shallow_acetabula", "Shallow acetabula")}
+        {checkbox("acetabular_rim_edge_change", "Acetabular rim/edge change")}
+        {checkbox("unilateral_pathology_left", "Unilateral pathology — Left")}
+        {checkbox("unilateral_pathology_right", "Unilateral pathology — Right")}
+        {checkbox("transitional_vertebra", "Transitional vertebra")}
+        {checkbox("spondylosis", "Spondylosis")}
+        <div className="flex items-center gap-2 text-sm py-0.5">
+          <input
+            type="checkbox"
+            checked={!!findings.panosteitis}
+            onChange={(e) => updateFinding("panosteitis", e.target.checked ? " " : "")}
+            className="w-4 h-4 rounded border-gray-300"
+          />
+          <span>Panosteitis</span>
+          {findings.panosteitis !== undefined && findings.panosteitis !== "" && (
+            <input
+              type="text"
+              value={typeof findings.panosteitis === "string" ? findings.panosteitis.trim() : ""}
+              onChange={(e) => updateFinding("panosteitis", e.target.value || " ")}
+              className="px-2 py-0.5 border rounded text-xs flex-1"
+              placeholder="notes (e.g. right ulna)"
+            />
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-sm py-0.5">
+          <input
+            type="checkbox"
+            checked={!!findings.other}
+            onChange={(e) => updateFinding("other", e.target.checked ? " " : "")}
+            className="w-4 h-4 rounded border-gray-300"
+          />
+          <span>Other</span>
+          {findings.other !== undefined && findings.other !== "" && (
+            <input
+              type="text"
+              value={typeof findings.other === "string" ? findings.other.trim() : ""}
+              onChange={(e) => updateFinding("other", e.target.value || " ")}
+              className="px-2 py-0.5 border rounded text-xs flex-1"
+              placeholder="describe"
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── OFA Prelim Elbow Findings Form ──────────────────────────────────────────
+
+function ElbowSideFindingsRow({
+  side,
+  data,
+  onUpdate,
+}: {
+  side: "left" | "right";
+  data: PrelimElbowData;
+  onUpdate: (updates: Partial<PrelimElbowData>) => void;
+}) {
+  const label = side === "left" ? "Left" : "Right";
+  const negKey = side === "left" ? "negative_left" : "negative_right";
+  const gradeKey = side === "left" ? "grade_left" : "grade_right";
+  const findingsKey = side === "left" ? "findings_left" : "findings_right";
+  const isNegative = !!data[negKey];
+  const grade = data[gradeKey] ?? null;
+  const findings = data[findingsKey] || {};
+
+  const setNegative = (v: boolean) => {
+    onUpdate({ [negKey]: v, ...(v ? { [gradeKey]: null } : {}) });
+  };
+
+  const setGrade = (v: number | null) => {
+    onUpdate({ [gradeKey]: v as 1 | 2 | 3 | null, ...(v != null ? { [negKey]: false } : {}) });
+  };
+
+  const setFinding = (key: keyof PrelimElbowSideFindings, val: boolean) => {
+    onUpdate({ [findingsKey]: { ...findings, [key]: val } });
+  };
+
+  return (
+    <div className="border rounded p-2 space-y-1.5">
+      <div className="text-xs font-semibold text-gray-600">{label}</div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={isNegative}
+          onChange={(e) => setNegative(e.target.checked)}
+          className="w-4 h-4"
+        />
+        Negative for elbow dysplasia
+      </label>
+      {!isNegative && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-600">Grade:</span>
+          {([1, 2, 3] as const).map((g) => (
+            <label key={g} className="flex items-center gap-1">
+              <input
+                type="radio"
+                name={`elbow-grade-${side}`}
+                checked={grade === g}
+                onChange={() => setGrade(g)}
+                className="w-3.5 h-3.5"
+              />
+              {g}
+            </label>
+          ))}
+          {grade !== null && (
+            <button type="button" onClick={() => setGrade(null)} className="text-xs text-gray-400 hover:text-gray-600 ml-1">
+              clear
+            </button>
+          )}
+        </div>
+      )}
+      <div className="text-xs font-medium text-gray-500 mt-1">Radiographic findings:</div>
+      {(["djd", "uap", "fcp", "osteochondrosis"] as const).map((key) => {
+        const labels: Record<string, string> = {
+          djd: "Degenerative joint disease (DJD)",
+          uap: "Ununited anconeal process (UAP)",
+          fcp: "Fragmented coronoid process (FCP)",
+          osteochondrosis: "Osteochondrosis",
+        };
+        return (
+          <label key={key} className="flex items-center gap-2 text-sm py-0.5">
+            <input
+              type="checkbox"
+              checked={!!(findings[key])}
+              onChange={(e) => setFinding(key, e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            {labels[key]}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+export function PrelimElbowFindingsForm({
+  value,
+  onChange,
+}: {
+  value: Record<string, unknown>;
+  onChange: (v: Record<string, unknown>) => void;
+}) {
+  const data = value as PrelimElbowData;
+
+  const update = (updates: Partial<PrelimElbowData>) => {
+    onChange({ ...value, ...updates });
+  };
+
+  return (
+    <div className="space-y-2 border rounded-lg p-3 bg-amber-50 border-amber-200">
+      <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+        Elbow Radiographic Findings
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <ElbowSideFindingsRow side="left" data={data} onUpdate={update} />
+        <ElbowSideFindingsRow side="right" data={data} onUpdate={update} />
+      </div>
+    </div>
+  );
+}
+
 export function computeResultSummary(
   resultData: Record<string, unknown>,
   schema: ResultSchema

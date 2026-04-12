@@ -306,8 +306,13 @@ export interface DogHealthClearance {
   result_score_right: number | null;
   test_date: string;
   expiration_date: string | null;
+  // For final OFA results; null for preliminary results (no OFA number issued yet)
   certificate_number: string | null;
   certificate_url: string | null;
+  // True for OFA Preliminary (Consultation) results — not counted toward health rating
+  is_preliminary: boolean;
+  // OFA application number from preliminary reports (distinct from the final certificate number)
+  application_number: string | null;
   status: DogStatus;
   submitted_by: string | null;
   verified_by: string | null;
@@ -606,6 +611,7 @@ export interface HealthStampData {
     test_date: string | null;
     certificate_number: string | null;
     verified: boolean;
+    is_preliminary: boolean;
   }>;
 }
 

@@ -1056,7 +1056,7 @@ adminRoutes.get("/export/health", requireLevel(100), async (c) => {
     throw badRequest("Only CSV format is supported");
   }
 
-  // Fetch all approved clearances
+  // Fetch all approved clearances (includes preliminary results)
   const allClearances = await db
     .select({
       clearance_id: dogHealthClearances.id,
@@ -1070,7 +1070,9 @@ adminRoutes.get("/export/health", requireLevel(100), async (c) => {
       result_detail: dogHealthClearances.result_detail,
       test_date: dogHealthClearances.test_date,
       expiration_date: dogHealthClearances.expiration_date,
+      is_preliminary: dogHealthClearances.is_preliminary,
       certificate_number: dogHealthClearances.certificate_number,
+      application_number: dogHealthClearances.application_number,
       certificate_url: dogHealthClearances.certificate_url,
       status: dogHealthClearances.status,
       verified_at: dogHealthClearances.verified_at,
@@ -1095,7 +1097,9 @@ adminRoutes.get("/export/health", requireLevel(100), async (c) => {
     "Result Detail",
     "Test Date",
     "Expiration Date",
+    "Preliminary",
     "Certificate Number",
+    "Application Number",
     "Certificate URL",
     "Status",
     "Verified At",
@@ -1115,7 +1119,9 @@ adminRoutes.get("/export/health", requireLevel(100), async (c) => {
     c.result_detail || "",
     c.test_date || "",
     c.expiration_date || "",
+    c.is_preliminary ? "Yes" : "No",
     c.certificate_number || "",
+    c.application_number || "",
     c.certificate_url || "",
     c.status,
     c.verified_at?.toISOString() || "",

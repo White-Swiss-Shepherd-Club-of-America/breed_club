@@ -8,6 +8,8 @@ import {
   type GradingOrg,
   type TestType,
   ResultFormRouter,
+  PrelimHipFindingsForm,
+  PrelimElbowFindingsForm,
   computeResultSummary,
 } from "./ResultForms";
 import { OrgTypeahead } from "./OrgTypeahead";
@@ -73,6 +75,10 @@ export function AddHealthCertificateModal({
   const [certificateNumber, setCertificateNumber] = useState("");
   const [notes, setNotes] = useState("");
 
+  // OFA Preliminary result fields
+  const [isPrelim, setIsPrelim] = useState(false);
+  const [applicationNumber, setApplicationNumber] = useState("");
+
   // Test rows (multiple results in one session)
   const [testRows, setTestRows] = useState<TestRow[]>([]);
 
@@ -132,6 +138,10 @@ export function AddHealthCertificateModal({
     return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [allTestTypes, selectedCategory]);
 
+  // Whether the "Preliminary Results" checkbox should be shown
+  // Only OFA + orthopedic supports prelim reports
+  const showPrelimOption = selectedOrg?.name === "OFA" && selectedCategory === "orthopedic";
+
   // Test types filtered by category + selected org
   const availableTestTypes = useMemo(() => {
     if (!selectedCategory || !selectedOrg) return [];
@@ -155,6 +165,8 @@ export function AddHealthCertificateModal({
     setTestDate("");
     setCertificateNumber("");
     setNotes("");
+    setIsPrelim(false);
+    setApplicationNumber("");
     setTestRows([]);
     setPendingTests([]);
     setCertificateFile(null);
@@ -180,6 +192,8 @@ export function AddHealthCertificateModal({
         test_date: string;
         certificate_number?: string;
         notes?: string;
+        is_preliminary?: boolean;
+        application_number?: string;
       }>;
       certificate_url?: string;
     }) => {
@@ -321,8 +335,10 @@ export function AddHealthCertificateModal({
         result: t.result,
         result_data: t.resultData,
         test_date: testDate,
-        certificate_number: certificateNumber || undefined,
+        certificate_number: isPrelim ? undefined : (certificateNumber || undefined),
         notes: notes || undefined,
+        is_preliminary: isPrelim || undefined,
+        application_number: isPrelim ? (applicationNumber || undefined) : undefined,
       })),
       certificate_url: finalCertificateUrl,
     });
@@ -629,17 +645,40 @@ export function AddHealthCertificateModal({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Certificate #
+                      {isPrelim ? "Application #" : "Certificate #"}
                     </label>
                     <input
                       type="text"
-                      value={certificateNumber}
-                      onChange={(e) => setCertificateNumber(e.target.value)}
+                      value={isPrelim ? applicationNumber : certificateNumber}
+                      onChange={(e) =>
+                        isPrelim
+                          ? setApplicationNumber(e.target.value)
+                          : setCertificateNumber(e.target.value)
+                      }
                       className="w-full px-2 py-1.5 border rounded-lg text-sm"
-                      placeholder="e.g., OFA123456"
+                      placeholder={isPrelim ? "e.g., 1900325" : "e.g., WSS-HD123/4F-VPI"}
                     />
                   </div>
                 </div>
+
+                {/* OFA Preliminary checkbox — only shown for OFA + orthopedic */}
+                {showPrelimOption && (
+                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isPrelim}
+                      onChange={(e) => {
+                        setIsPrelim(e.target.checked);
+                        // Clear cert # when switching to prelim (no OFA # issued)
+                        if (e.target.checked) setCertificateNumber("");
+                        else setApplicationNumber("");
+                      }}
+                      className="w-4 h-4 rounded border-gray-300 text-amber-500"
+                    />
+                    <span className="font-medium text-amber-700">Preliminary Results</span>
+                    <span className="text-xs text-gray-400">(OFA Preliminary Consultation Report — no OFA # issued)</span>
+                  </label>
+                )}
 
                 {/* Test result rows */}
                 <div className="space-y-3">
@@ -703,14 +742,30 @@ export function AddHealthCertificateModal({
                         </div>
 
                         {testType && (
-                          <ResultFormRouter
-                            schema={schema}
-                            enumOptions={enumOptions}
-                            resultValue={row.result}
-                            resultData={row.resultData}
-                            onResultChange={(v) => updateTestRow(row.id, { result: v })}
-                            onResultDataChange={(v) => updateTestRow(row.id, { resultData: v })}
-                          />
+                          <>
+                            <ResultFormRouter
+                              schema={schema}
+                              enumOptions={enumOptions}
+                              resultValue={row.result}
+                              resultData={row.resultData}
+                              onResultChange={(v) => updateTestRow(row.id, { result: v })}
+                              onResultDataChange={(v) => updateTestRow(row.id, { resultData: v })}
+                            />
+                            {/* OFA prelim radiographic findings forms */}
+                            {isPrelim && testType.category === "orthopedic" && (
+                              (testType.name.toLowerCase().includes("hip") || testType.short_name.toLowerCase() === "hips")
+                                ? <PrelimHipFindingsForm
+                                    value={row.resultData}
+                                    onChange={(v) => updateTestRow(row.id, { resultData: v })}
+                                  />
+                                : (testType.name.toLowerCase().includes("elbow") || testType.short_name.toLowerCase() === "elbows")
+                                  ? <PrelimElbowFindingsForm
+                                      value={row.resultData}
+                                      onChange={(v) => updateTestRow(row.id, { resultData: v })}
+                                    />
+                                  : null
+                            )}
+                          </>
                         )}
                       </div>
                     );

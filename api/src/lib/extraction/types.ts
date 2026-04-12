@@ -51,6 +51,10 @@ export interface EnumExtractionRaw {
   certificate_number_confidence: number;
   cert_registered_name: string | null;
   cert_microchip: string | null;
+  // OFA Preliminary (Consultation) reports only
+  is_preliminary?: boolean;
+  application_number?: string | null;
+  age_at_eval_months?: number | null;
 }
 
 /** Raw extraction output from the LLM for LR-type schemas. */
@@ -87,6 +91,10 @@ export interface ExtractionResult {
   cert_microchip: string | null;
 
   escalated: boolean;
+
+  // OFA Preliminary (Consultation) reports only
+  is_preliminary?: boolean;
+  application_number?: string | null;
 }
 
 // ─── Verification Flags ─────────────────────────────────────────────────────
@@ -120,6 +128,10 @@ export interface ExtractionDraft {
   extraction_reliable: boolean;
   flags: VerificationFlag[];
   raw_result_text?: string;
+
+  // OFA Preliminary (Consultation) reports only
+  is_preliminary?: boolean;
+  application_number?: string | null;
 }
 
 export interface ExtractionResponse {

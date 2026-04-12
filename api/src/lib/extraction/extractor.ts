@@ -60,14 +60,14 @@ export async function extractResults(
 async function extractSingleResult(
   llm: LLMProvider,
   pageImages: string[],
-  pair: { id: string; health_test_type_id: string; organization_id: string; test_name: string; test_short_name: string; org_name: string },
+  pair: { id: string; health_test_type_id: string; organization_id: string; test_name: string; test_short_name: string; org_name: string; category?: string },
   schema: ResultSchema,
   dog: { registered_name: string },
   models: LLMModelConfig
 ): Promise<ExtractionResult | null> {
   const prompt = buildExtractionPrompt(
     schema,
-    { name: pair.test_name, short_name: pair.test_short_name },
+    { name: pair.test_name, short_name: pair.test_short_name, category: pair.category },
     { name: pair.org_name },
     dog
   );
@@ -211,6 +211,17 @@ function normalizeExtraction(
       }
     }
 
+    // Check for OFA prelim fields (set by buildOfaPrelimHipPrompt / buildOfaPrelimElbowPrompt)
+    const isPrelim = enumRaw.is_preliminary === true;
+    const applicationNumber = typeof enumRaw.application_number === "string" ? enumRaw.application_number : null;
+    if (isPrelim) {
+      console.log(`[extractor] OFA prelim detected: is_preliminary=${isPrelim}, application_number=${applicationNumber}`);
+    }
+    // For prelim reports the LLM returns result_data with findings — preserve it
+    const prelimResultData = (isPrelim && raw.result_data && typeof raw.result_data === "object")
+      ? raw.result_data as Record<string, unknown>
+      : null;
+
     return {
       pair_id: pair.id,
       health_test_type_id: pair.health_test_type_id,
@@ -219,18 +230,19 @@ function normalizeExtraction(
       test_short_name: pair.test_short_name,
       org_name: pair.org_name,
       result: validatedResult,
-      result_data: null,
+      result_data: prelimResultData,
       test_date: testDate,
-      certificate_number: certNumber,
+      certificate_number: isPrelim ? null : certNumber,
       raw_result_text: typeof enumRaw.raw_result_text === "string" ? enumRaw.raw_result_text : undefined,
       field_confidences: {
         result: resultConf,
         test_date: testDateConfidence,
-        certificate_number: certNumConfidence,
+        certificate_number: isPrelim ? 0 : certNumConfidence,
       },
       cert_registered_name: certName,
       cert_microchip: certChip,
       escalated,
+      ...(isPrelim && { is_preliminary: true, application_number: applicationNumber }),
     };
   }
 

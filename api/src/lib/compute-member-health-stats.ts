@@ -67,7 +67,8 @@ export async function computeMemberHealthStats(
       .where(
         and(
           inArray(dogHealthClearances.dog_id, ownDogIds),
-          eq(dogHealthClearances.status, "approved")
+          eq(dogHealthClearances.status, "approved"),
+          eq(dogHealthClearances.is_preliminary, false)
         )
       )
       .groupBy(dogHealthClearances.dog_id);
@@ -128,7 +129,8 @@ export async function computeMemberHealthStats(
           eq(dogs.club_id, clubId),
           eq(dogs.breeder_id, contactId),
           eq(dogs.status, "approved"),
-          eq(dogHealthClearances.status, "approved")
+          eq(dogHealthClearances.status, "approved"),
+          eq(dogHealthClearances.is_preliminary, false)
         )
       );
 

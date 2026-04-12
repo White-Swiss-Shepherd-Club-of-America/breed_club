@@ -42,6 +42,9 @@ export interface ExtractionDraft {
   extraction_reliable: boolean;
   flags: VerificationFlag[];
   raw_result_text?: string;
+  // OFA Preliminary (Consultation) reports
+  is_preliminary?: boolean;
+  application_number?: string | null;
 }
 
 export interface ExtractionResponse {
@@ -70,6 +73,9 @@ export interface SubmitClearance {
   result_data: Record<string, unknown> | null;
   test_date: string;
   certificate_number?: string;
+  // OFA Preliminary (Consultation) reports
+  is_preliminary?: boolean;
+  application_number?: string;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -93,7 +99,10 @@ export function CertDraftReview({
       result: d.result,
       resultData: d.result_data ?? {},
       testDate: d.test_date ?? "",
-      certificateNumber: d.certificate_number ?? "",
+      // For prelim drafts, use application_number since certificate_number is null
+      certificateNumber: d.is_preliminary
+        ? (d.application_number ?? "")
+        : (d.certificate_number ?? ""),
     }))
   );
 
@@ -139,6 +148,9 @@ export function CertDraftReview({
       if (orgSchema && orgSchema.type !== "enum") {
         finalResult = computeResultSummary(editable.resultData, orgSchema) || editable.result;
         finalResultData = editable.resultData;
+      } else if (draft.is_preliminary && editable.resultData && Object.keys(editable.resultData).length > 0) {
+        // Prelim enum result — preserve result_data (contains findings)
+        finalResultData = editable.resultData;
       }
 
       return {
@@ -147,7 +159,11 @@ export function CertDraftReview({
         result: finalResult,
         result_data: finalResultData,
         test_date: editable.testDate,
-        certificate_number: editable.certificateNumber || undefined,
+        certificate_number: draft.is_preliminary ? undefined : (editable.certificateNumber || undefined),
+        ...(draft.is_preliminary && {
+          is_preliminary: true,
+          application_number: editable.certificateNumber || undefined,
+        }),
       };
     });
 
@@ -189,13 +205,18 @@ export function CertDraftReview({
           >
             {/* Header: test type + org */}
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-sm text-gray-900">
                   {draft.health_test_type_name}
                 </span>
-                <span className="text-sm text-gray-500 ml-2">
+                <span className="text-sm text-gray-500">
                   via {draft.organization_name}
                 </span>
+                {draft.is_preliminary && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                    Prelim
+                  </span>
+                )}
               </div>
               <button
                 type="button"
@@ -268,7 +289,7 @@ export function CertDraftReview({
                 )}
               >
                 <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Certificate #
+                  {draft.is_preliminary ? "Application #" : "Certificate #"}
                 </label>
                 <input
                   type="text"

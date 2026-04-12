@@ -42,6 +42,7 @@ export async function computeHealthStatistics(db: Database, clubId: string) {
             eq(dogHealthClearances.health_test_type_id, row.test_type_id),
             eq(dogHealthClearances.organization_id, row.org_id),
             eq(dogHealthClearances.status, "approved"),
+            eq(dogHealthClearances.is_preliminary, false),
             eq(dogs.club_id, clubId),
             eq(dogs.status, "approved")
           )
@@ -59,6 +60,7 @@ export async function computeHealthStatistics(db: Database, clubId: string) {
             eq(dogHealthClearances.health_test_type_id, row.test_type_id),
             eq(dogHealthClearances.organization_id, row.org_id),
             eq(dogHealthClearances.status, "approved"),
+            eq(dogHealthClearances.is_preliminary, false),
             eq(dogs.club_id, clubId),
             eq(dogs.status, "approved")
           )
@@ -117,6 +119,7 @@ export async function computeHealthStatistics(db: Database, clubId: string) {
     .where(
       and(
         eq(dogHealthClearances.status, "approved"),
+        eq(dogHealthClearances.is_preliminary, false),
         eq(dogs.club_id, clubId),
         eq(dogs.status, "approved")
       )

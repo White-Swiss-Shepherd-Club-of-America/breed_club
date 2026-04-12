@@ -338,14 +338,15 @@ async function determineCertVersion(
     // Deceased dog: cap at date of death
     evaluationDate = dateOfDeath;
   } else {
-    // Living dog: use most recent approved test_date
+    // Living dog: use most recent approved non-preliminary test_date
     const [latestTest] = await db
       .select({ latest: max(dogHealthClearances.test_date) })
       .from(dogHealthClearances)
       .where(
         and(
           eq(dogHealthClearances.dog_id, dogId),
-          eq(dogHealthClearances.status, "approved")
+          eq(dogHealthClearances.status, "approved"),
+          eq(dogHealthClearances.is_preliminary, false)
         )
       );
     evaluationDate = latestTest?.latest ?? new Date().toISOString().split("T")[0];
@@ -432,7 +433,7 @@ export async function recomputeHealthRating(
     is_required: requiredIdSet ? true : tt.is_required,
   }));
 
-  // Fetch all clearances for this dog (include result/result_data for score backfill)
+  // Fetch all non-preliminary clearances for this dog (prelims never count toward health rating)
   const allClearances = await db
     .select({
       health_test_type_id: dogHealthClearances.health_test_type_id,
@@ -445,7 +446,12 @@ export async function recomputeHealthRating(
       status: dogHealthClearances.status,
     })
     .from(dogHealthClearances)
-    .where(eq(dogHealthClearances.dog_id, dogId));
+    .where(
+      and(
+        eq(dogHealthClearances.dog_id, dogId),
+        eq(dogHealthClearances.is_preliminary, false)
+      )
+    );
 
   // Fetch thresholds and result_schema for relevant test type + org combos
   const testTypeIds = allTestTypes.map((tt) => tt.id);

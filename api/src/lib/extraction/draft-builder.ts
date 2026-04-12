@@ -69,7 +69,7 @@ export function buildDraftRows(
       });
     }
 
-    // Check for result not in options (for enum types)
+    // Check for result not in options (for enum types — skip if result_data present, e.g. prelim)
     if (ext.result && ext.field_confidences.result === 0 && !ext.result_data) {
       allFlags.push({
         code: "result_not_in_options",
@@ -77,6 +77,15 @@ export function buildDraftRows(
         message: `Extracted result "${ext.result}" does not match any valid option`,
         field: "result",
         extracted: ext.result,
+      });
+    }
+
+    // Add an info flag for preliminary results so reviewers know what they're approving
+    if (ext.is_preliminary) {
+      allFlags.push({
+        code: "ofa_preliminary",
+        severity: "info",
+        message: "This is an OFA Preliminary (Consultation) result. No OFA number will be issued until the dog is re-evaluated at 24+ months.",
       });
     }
 
@@ -98,6 +107,11 @@ export function buildDraftRows(
       extraction_reliable: conf >= RELIABLE_THRESHOLD,
       flags: allFlags,
       raw_result_text: ext.raw_result_text,
+      // Propagate prelim fields if detected
+      ...(ext.is_preliminary && {
+        is_preliminary: true,
+        application_number: ext.application_number ?? null,
+      }),
     };
   });
 }

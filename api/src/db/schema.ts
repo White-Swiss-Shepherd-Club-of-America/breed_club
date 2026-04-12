@@ -421,8 +421,13 @@ export const dogHealthClearances = pgTable(
     result_score_right: integer("result_score_right"), // 0-100, for bilateral tests (L/R)
     test_date: date("test_date").notNull(),
     expiration_date: date("expiration_date"),
+    // For final OFA results; null for preliminary results (no OFA number issued yet)
     certificate_number: varchar("certificate_number", { length: 100 }),
     certificate_url: varchar("certificate_url", { length: 500 }),
+    // Flags this as an OFA Preliminary (Consultation) result — not yet certified, not counted in health rating
+    is_preliminary: boolean("is_preliminary").notNull().default(false),
+    // OFA application number from preliminary reports (distinct from the final OFA certificate number)
+    application_number: varchar("application_number", { length: 100 }),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     submitted_by: uuid("submitted_by").references(() => members.id),
     verified_by: uuid("verified_by").references(() => members.id),
@@ -431,7 +436,8 @@ export const dogHealthClearances = pgTable(
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("idx_clearances_dog_test_org_date").on(t.dog_id, t.health_test_type_id, t.organization_id, t.test_date),
+    // Include is_preliminary so a prelim and a final can coexist for the same dog/test/org/date
+    uniqueIndex("idx_clearances_dog_test_org_date").on(t.dog_id, t.health_test_type_id, t.organization_id, t.test_date, t.is_preliminary),
     index("idx_clearances_status").on(t.status),
   ]
 );

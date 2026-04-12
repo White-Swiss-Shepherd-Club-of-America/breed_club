@@ -29,8 +29,10 @@ interface Clearance {
   result_score_left?: number | null;
   result_score_right?: number | null;
   test_date?: string;
-  certificate_number?: string;
+  certificate_number?: string | null;
   certificate_url?: string;
+  is_preliminary?: boolean;
+  application_number?: string | null;
   status: string;
   notes?: string;
   created_at: string;
@@ -254,7 +256,17 @@ export function HealthQueuePanel() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-700">Result</p>
-                        <p className="text-lg font-semibold text-green-600">{clearance.result}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-lg font-semibold text-green-600">{clearance.result}</p>
+                          {clearance.is_preliminary && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                              Prelim
+                            </span>
+                          )}
+                        </div>
+                        {clearance.is_preliminary && clearance.application_number && (
+                          <p className="text-xs text-gray-500">App #{clearance.application_number}</p>
+                        )}
                         {clearance.result_data && (
                           <ResultDataSummary data={clearance.result_data} />
                         )}

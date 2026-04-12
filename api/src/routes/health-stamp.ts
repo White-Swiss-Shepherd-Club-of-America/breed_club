@@ -107,7 +107,7 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
     ? allTestTypes.filter((tt) => certVersionTestIds!.has(tt.id))
     : allTestTypes;
 
-  // Fetch approved clearances for this dog
+  // Fetch approved clearances for this dog (includes prelims, displayed with label)
   const clearances = await db
     .select({
       id: dogHealthClearances.id,
@@ -116,6 +116,7 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
       test_date: dogHealthClearances.test_date,
       certificate_number: dogHealthClearances.certificate_number,
       verified_at: dogHealthClearances.verified_at,
+      is_preliminary: dogHealthClearances.is_preliminary,
       organization_name: organizations.name,
       organization_type: organizations.type,
     })
@@ -144,16 +145,19 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
         test_date: null,
         organization: null,
         verified: false,
+        is_preliminary: false,
       }];
     }
     return typeClearances.map((c) => ({
       test_type: testType.name,
       short_name: testType.short_name,
       category: testType.category,
+      // Prelim results are shown but clearly labelled — they do not affect scoring
       result: c.result || "Not tested",
       test_date: c.test_date || null,
       organization: c.organization_name || null,
       verified: !!c.verified_at,
+      is_preliminary: c.is_preliminary,
     }));
   });
 
@@ -377,6 +381,17 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
     }
     .result-badge.verified { background: #d4edda; color: #155724; }
     .result-badge.not-tested { background: #e2e3e5; color: #6c757d; }
+    .prelim-badge {
+      display: inline-block;
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: #fff3cd;
+      color: #856404;
+      margin-left: 0.3rem;
+      vertical-align: middle;
+    }
     .meta { font-size: 0.8rem; color: #6c757d; }
     .cert-link { font-size: 0.8rem; color: ${club.primary_color || "#655e7a"}; text-decoration: none; }
     .cert-link:hover { text-decoration: underline; }
@@ -441,11 +456,13 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
               }
               const isVerified = test.verified;
               const isNotTested = test.result === "Not tested";
+              const isPrelim = (test as { is_preliminary?: boolean }).is_preliminary ?? false;
               const certLink = isVerified ? '<span class="verified-check">✓</span>' : "";
+              const prelimBadge = isPrelim ? '<span class="prelim-badge">Prelim</span>' : "";
               acc.push(
                 `<tr class="test-row${isNotTested ? " not-tested" : ""}">` +
                 `<td class="test-name">${test.short_name}</td>` +
-                `<td><span class="result-badge ${isVerified ? "verified" : "not-tested"}">${test.result}</span></td>` +
+                `<td><span class="result-badge ${isVerified ? "verified" : "not-tested"}">${test.result}</span>${prelimBadge}</td>` +
                 `<td class="meta">${test.organization || ""}</td>` +
                 `<td class="meta">${test.test_date ? new Date(test.test_date).toLocaleDateString() : ""}</td>` +
                 `<td>${certLink}</td>` +
