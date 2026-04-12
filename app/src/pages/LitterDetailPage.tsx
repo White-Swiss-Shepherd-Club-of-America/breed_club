@@ -3,8 +3,8 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useLitter, useAddPup, useUpdatePup, useSellPup, useUpdateLitter } from "@/hooks/useLitters";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useLitter, useAddPup, useUpdatePup, useSellPup, useUpdateLitter, useDeleteLitter } from "@/hooks/useLitters";
 import { useDogs } from "@/hooks/useDogs";
 import { useSearchContacts } from "@/hooks/useContacts";
 import type { LitterPup, Contact, Litter, Dog } from "@breed-club/shared";
@@ -569,10 +569,18 @@ function SellPupModal({
 
 export function LitterDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data: litter, isLoading, error } = useLitter(id);
+  const deleteLitter = useDeleteLitter(id ?? "");
   const [showAddPup, setShowAddPup] = useState(false);
   const [showEditLitter, setShowEditLitter] = useState(false);
   const [sellPupTarget, setSellPupTarget] = useState<LitterPup | null>(null);
+
+  const handleDeleteLitter = async () => {
+    if (!confirm("Are you sure you want to delete this litter? This cannot be undone.")) return;
+    await deleteLitter.mutateAsync();
+    navigate("/litters");
+  };
 
   if (isLoading) {
     return (
@@ -624,12 +632,21 @@ export function LitterDetailPage() {
           </div>
           <div className="flex gap-3">
             {!litter.approved && (
-              <button
-                onClick={() => setShowEditLitter(true)}
-                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-              >
-                Edit Litter
-              </button>
+              <>
+                <button
+                  onClick={handleDeleteLitter}
+                  disabled={deleteLitter.isPending}
+                  className="px-4 py-2 bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition disabled:opacity-50"
+                >
+                  {deleteLitter.isPending ? "Deleting..." : "Delete Litter"}
+                </button>
+                <button
+                  onClick={() => setShowEditLitter(true)}
+                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Edit Litter
+                </button>
+              </>
             )}
             {litter.approved && (
               <button

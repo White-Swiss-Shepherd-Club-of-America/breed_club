@@ -17,7 +17,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, sql, ilike, inArray } from "drizzle-orm";
+import { eq, and, sql, ilike, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
@@ -1708,7 +1708,14 @@ adminRoutes.get("/dashboard-counts", requireLevel(20), async (c) => {
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(litters)
-      .where(and(eq(litters.club_id, clubId), eq(litters.approved, false))),
+      .where(
+        and(
+          eq(litters.club_id, clubId),
+          eq(litters.approved, false),
+          // Match the approvals page: only count litters where sire approval is resolved
+          inArray(litters.sire_approval_status, ["not_required", "approved"])
+        )
+      ),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(dogOwnershipTransfers)
@@ -1722,6 +1729,153 @@ adminRoutes.get("/dashboard-counts", requireLevel(20), async (c) => {
     clearances: clearances[0]?.count ?? 0,
     litters: pendingLitters[0]?.count ?? 0,
     transfers: transfers[0]?.count ?? 0,
+  });
+});
+
+// ─── Admin Overview Stats ──────────────────────────────────────────────────────
+
+/**
+ * GET /overview-stats — club-wide stats for the admin overview card.
+ * Admin only (level 100).
+ */
+adminRoutes.get("/overview-stats", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const [
+    totalDogsResult,
+    healthTestedResult,
+    colorDistResult,
+    membersByTierResult,
+    littersResult,
+    pendingAppsResult,
+  ] = await Promise.all([
+    // Total approved non-historical dogs
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(dogs)
+      .where(
+        and(
+          eq(dogs.club_id, clubId),
+          eq(dogs.status, "approved"),
+          eq(dogs.is_historical, false)
+        )
+      ),
+
+    // Dogs with at least one approved non-preliminary clearance
+    db
+      .select({ count: sql<number>`count(distinct ${dogs.id})::int` })
+      .from(dogs)
+      .innerJoin(dogHealthClearances, eq(dogHealthClearances.dog_id, dogs.id))
+      .where(
+        and(
+          eq(dogs.club_id, clubId),
+          eq(dogs.status, "approved"),
+          eq(dogs.is_historical, false),
+          eq(dogHealthClearances.status, "approved"),
+          eq(dogHealthClearances.is_preliminary, false)
+        )
+      ),
+
+    // Health color distribution for approved non-historical dogs
+    db
+      .select({
+        color: sql<string>`${dogs.health_rating}->>'color'`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(dogs)
+      .where(
+        and(
+          eq(dogs.club_id, clubId),
+          eq(dogs.status, "approved"),
+          eq(dogs.is_historical, false)
+        )
+      )
+      .groupBy(sql`${dogs.health_rating}->>'color'`),
+
+    // Active members by tier (excluding non-members, level >= 20)
+    db
+      .select({
+        label: membershipTiers.label,
+        level: membershipTiers.level,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(members)
+      .innerJoin(
+        membershipTiers,
+        and(
+          eq(membershipTiers.club_id, clubId),
+          eq(membershipTiers.slug, members.tier)
+        )
+      )
+      .where(
+        and(
+          eq(members.club_id, clubId),
+          eq(members.membership_status, "active"),
+          ne(members.tier, "non_member")
+        )
+      )
+      .groupBy(membershipTiers.label, membershipTiers.level)
+      .orderBy(membershipTiers.level),
+
+    // Approved litters + total puppies
+    db
+      .select({
+        total: sql<number>`count(*)::int`,
+        total_puppies: sql<number>`coalesce(sum(${litters.num_males} + ${litters.num_females}), 0)::int`,
+      })
+      .from(litters)
+      .where(and(eq(litters.club_id, clubId), eq(litters.approved, true))),
+
+    // Pending membership applications
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(membershipApplications)
+      .where(
+        and(
+          eq(membershipApplications.club_id, clubId),
+          sql`${membershipApplications.status} in ('submitted', 'under_review')`
+        )
+      ),
+  ]);
+
+  const totalDogs = totalDogsResult[0]?.count ?? 0;
+  const healthTested = healthTestedResult[0]?.count ?? 0;
+  const healthTestedPct = totalDogs > 0 ? Math.round((healthTested / totalDogs) * 100) : 0;
+
+  // Build color distribution — null health_rating comes back as a null key
+  const colorDist = { blue: 0, green: 0, yellow: 0, orange: 0, red: 0, unrated: 0 };
+  for (const row of colorDistResult) {
+    const col = row.color as keyof typeof colorDist | null;
+    if (col === null || col === undefined) {
+      colorDist.unrated += row.count;
+    } else if (col in colorDist) {
+      colorDist[col] += row.count;
+    }
+  }
+
+  const totalActive = membersByTierResult.reduce((sum, r) => sum + r.count, 0);
+
+  return c.json({
+    dogs: {
+      total: totalDogs,
+      health_tested: healthTested,
+      health_tested_pct: healthTestedPct,
+      color_distribution: colorDist,
+    },
+    members: {
+      total_active: totalActive,
+      by_tier: membersByTierResult.map((r) => ({
+        label: r.label,
+        level: r.level,
+        count: r.count,
+      })),
+    },
+    litters: {
+      total: littersResult[0]?.total ?? 0,
+      total_puppies: littersResult[0]?.total_puppies ?? 0,
+    },
+    pending_applications: pendingAppsResult[0]?.count ?? 0,
   });
 });
 

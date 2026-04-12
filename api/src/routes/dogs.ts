@@ -543,11 +543,15 @@ dogRoutes.get("/:id", requireLevel(10), async (c) => {
 });
 
 /**
- * PATCH /:id — update own dog (only if status is pending).
+ * PATCH /:id — update own dog.
+ * - Pending dogs: submitter can update all basic fields.
+ * - Approved dogs: owner can update call_name, breeding_status,
+ *   stud_service_available, frozen_semen_available only.
  */
 dogRoutes.patch("/:id", requireLevel(10), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
+  const club = c.get("club");
   const auth = c.get("auth");
   const id = c.req.param("id");
 
@@ -571,13 +575,32 @@ dogRoutes.patch("/:id", requireLevel(10), async (c) => {
     throw notFound("Dog");
   }
 
-  // Only the submitter can update, and only if pending
-  if (existing.submitted_by !== auth.member.id) {
-    throw forbidden("You can only update your own dogs");
-  }
+  const isOwner = isDogOwner(auth, existing, (club?.settings ?? {}) as Record<string, unknown>);
+  const isSubmitter = existing.submitted_by === auth.member.id;
 
-  if (existing.status !== "pending") {
-    throw forbidden("Cannot update dog after approval/rejection");
+  if (existing.status === "pending") {
+    // Only the submitter can update pending dogs
+    if (!isSubmitter) {
+      throw forbidden("You can only update your own dogs");
+    }
+  } else if (existing.status === "approved") {
+    // Owner can update a limited set of fields post-approval
+    if (!isOwner) {
+      throw forbidden("You can only update your own dogs");
+    }
+    // Parse breeding fields separately (they live in their own schema)
+    const breedingData = updateBreedingMetadataSchema.parse(body);
+    const ownerPatch: Record<string, unknown> = { updated_at: new Date() };
+    if (data.call_name !== undefined) ownerPatch.call_name = data.call_name;
+    if (breedingData.breeding_status !== undefined) ownerPatch.breeding_status = breedingData.breeding_status;
+    if (breedingData.stud_service_available !== undefined) ownerPatch.stud_service_available = breedingData.stud_service_available;
+    if (breedingData.frozen_semen_available !== undefined) ownerPatch.frozen_semen_available = breedingData.frozen_semen_available;
+
+    await db.update(dogs).set(ownerPatch).where(eq(dogs.id, id));
+    const updated = await db.query.dogs.findFirst({ where: eq(dogs.id, id) });
+    return c.json({ dog: updated });
+  } else {
+    throw forbidden("Cannot update dog after rejection");
   }
 
   // Resolve parent refs
@@ -633,6 +656,40 @@ dogRoutes.patch("/:id", requireLevel(10), async (c) => {
   });
 
   return c.json({ dog: updated });
+});
+
+/**
+ * DELETE /:id — delete own pending dog (hard delete, submitter only).
+ */
+dogRoutes.delete("/:id", requireLevel(10), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const existing = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!existing) {
+    throw notFound("Dog");
+  }
+
+  if (existing.submitted_by !== auth.member.id) {
+    throw forbidden("You can only delete your own dogs");
+  }
+
+  if (existing.status !== "pending") {
+    throw conflict("Only pending dogs can be deleted");
+  }
+
+  await db.delete(dogs).where(eq(dogs.id, id));
+
+  return c.json({ success: true });
 });
 
 /**

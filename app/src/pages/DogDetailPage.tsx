@@ -4,8 +4,8 @@
  */
 
 import { useState, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition } from "@/hooks/useDogs";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields } from "@/hooks/useDogs";
 import { RefreshCw, ExternalLink, Camera, Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
@@ -1224,10 +1224,211 @@ function EditHistoryTab({ dogId }: { dogId: string }) {
   );
 }
 
+// ─── Edit Pending Dog Modal ───────────────────────────────────────────────────
+
+function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }) {
+  const updateDog = useUpdateDog();
+  const [callName, setCallName] = useState(dog.call_name ?? "");
+  const [microchip, setMicrochip] = useState(dog.microchip_number ?? "");
+  const [color, setColor] = useState(dog.color ?? "");
+  const [notes, setNotes] = useState(dog.notes ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      await updateDog.mutateAsync({
+        id: dog.id,
+        call_name: callName || undefined,
+        microchip_number: microchip || undefined,
+        color: color || undefined,
+      });
+      onClose();
+    } catch {
+      setError("Failed to save changes. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Edit Dog</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          The registered name, sex, date of birth, and pedigree cannot be changed here. If these are incorrect, delete this submission and re-register.
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Call Name</label>
+            <input
+              type="text"
+              value={callName}
+              onChange={(e) => setCallName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Microchip Number</label>
+            <input
+              type="text"
+              value={microchip}
+              onChange={(e) => setMicrochip(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+            <input
+              type="text"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={updateDog.isPending}
+              className="flex-1 bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+            >
+              {updateDog.isPending ? "Saving..." : "Save Changes"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Owner Fields Modal (approved dogs) ──────────────────────────────────
+
+const BREEDING_STATUS_OPTIONS: { value: BreedingStatus; label: string }[] = [
+  { value: "not_published", label: "Not Published" },
+  { value: "breeding", label: "Available for Breeding" },
+  { value: "altered", label: "Altered" },
+  { value: "retired", label: "Retired" },
+];
+
+function EditOwnerFieldsModal({ dog, onClose }: { dog: Dog; onClose: () => void }) {
+  const updateOwner = useUpdateOwnerDogFields();
+  const [callName, setCallName] = useState(dog.call_name ?? "");
+  const [breedingStatus, setBreedingStatus] = useState<BreedingStatus>(dog.breeding_status ?? "not_published");
+  const [studAvailable, setStudAvailable] = useState(dog.stud_service_available ?? false);
+  const [frozenSemen, setFrozenSemen] = useState(dog.frozen_semen_available ?? false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      await updateOwner.mutateAsync({
+        id: dog.id,
+        call_name: callName || undefined,
+        breeding_status: breedingStatus,
+        stud_service_available: studAvailable,
+        frozen_semen_available: frozenSemen,
+      });
+      onClose();
+    } catch {
+      setError("Failed to save changes. Please try again.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Edit Dog</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Registry fields (registered name, sex, DOB, pedigree) can only be changed by an admin. You can update the call name and breeding availability below.
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Call Name</label>
+            <input
+              type="text"
+              value={callName}
+              onChange={(e) => setCallName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Breeding Status</label>
+            <select
+              value={breedingStatus}
+              onChange={(e) => setBreedingStatus(e.target.value as BreedingStatus)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            >
+              {BREEDING_STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          {(dog.sex === "male" || dog.sex === null) && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={studAvailable}
+                onChange={(e) => setStudAvailable(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Stud service available
+            </label>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={frozenSemen}
+              onChange={(e) => setFrozenSemen(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Frozen semen available
+          </label>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={updateOwner.isPending}
+              className="flex-1 bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+            >
+              {updateOwner.isPending ? "Saving..." : "Save Changes"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function DogDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data, isLoading, error } = useDog(id);
   const { member } = useCurrentMember();
   const { getToken } = useAuth();
@@ -1239,10 +1440,19 @@ export function DogDetailPage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [showDeceasedDialog, setShowDeceasedDialog] = useState(false);
+  const [showEditDogModal, setShowEditDogModal] = useState(false);
+  const [showEditOwnerModal, setShowEditOwnerModal] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminUpdateMutation = useAdminUpdateDog();
   const recalcMutation = useRecalculateHealthRating();
+  const deleteDogMutation = useDeleteDog();
+
+  const handleDeleteDog = async () => {
+    if (!confirm("Are you sure you want to delete this dog submission? This cannot be undone.")) return;
+    await deleteDogMutation.mutateAsync(id!);
+    navigate("/dogs");
+  };
 
   if (isLoading) {
     return (
@@ -1368,6 +1578,33 @@ export function DogDetailPage() {
               </div>
             </div>
             <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+              {/* Owner actions: pending dog — edit + delete */}
+              {!canEdit && data.canManageClearances && dog.status === "pending" && (
+                <>
+                  <button
+                    onClick={handleDeleteDog}
+                    disabled={deleteDogMutation.isPending}
+                    className="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {deleteDogMutation.isPending ? "Deleting..." : "Delete"}
+                  </button>
+                  <button
+                    onClick={() => setShowEditDogModal(true)}
+                    className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  >
+                    Edit
+                  </button>
+                </>
+              )}
+              {/* Owner actions: approved dog — edit limited fields */}
+              {!canEdit && data.canManageClearances && dog.status === "approved" && (
+                <button
+                  onClick={() => setShowEditOwnerModal(true)}
+                  className="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Edit
+                </button>
+              )}
               {canEdit && dog.is_historical && (
                 <button
                   onClick={async () => {
@@ -1494,6 +1731,16 @@ export function DogDetailPage() {
           onClose={() => setShowDeceasedDialog(false)}
           onSuccess={() => setShowDeceasedDialog(false)}
         />
+      )}
+
+      {/* Edit Pending Dog Modal (owner) */}
+      {showEditDogModal && (
+        <EditPendingDogModal dog={dog} onClose={() => setShowEditDogModal(false)} />
+      )}
+
+      {/* Edit Owner Fields Modal (approved dog, owner) */}
+      {showEditOwnerModal && (
+        <EditOwnerFieldsModal dog={dog} onClose={() => setShowEditOwnerModal(false)} />
       )}
     </div>
   );

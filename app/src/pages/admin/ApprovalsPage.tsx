@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { ApplicationsPanel } from "./ApplicationsPage";
 import { DogQueuePanel } from "./DogQueuePage";
@@ -22,6 +23,7 @@ const TAB_DEFS: { key: Tab; label: string; permission: "members" | "clearances" 
 
 export function ApprovalsPage() {
   const { member } = useCurrentMember();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = member?.is_admin === true || (member?.tierLevel ?? 0) >= 100;
   const canApproveMembers = isAdmin || member?.can_approve_members;
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
@@ -30,7 +32,18 @@ export function ApprovalsPage() {
     t.permission === "members" ? canApproveMembers : canApproveClearances
   );
 
-  const [tab, setTab] = useState<Tab>(visibleTabs[0]?.key ?? "applications");
+  const requestedTab = searchParams.get("tab") as Tab | null;
+  const defaultTab =
+    requestedTab && visibleTabs.some((t) => t.key === requestedTab)
+      ? requestedTab
+      : (visibleTabs[0]?.key ?? "applications");
+
+  const [tab, setTab] = useState<Tab>(defaultTab);
+
+  const handleTabChange = (key: Tab) => {
+    setTab(key);
+    setSearchParams({ tab: key }, { replace: true });
+  };
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -41,7 +54,7 @@ export function ApprovalsPage() {
         {visibleTabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => handleTabChange(t.key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
               tab === t.key
                 ? "border-gray-900 text-gray-900"

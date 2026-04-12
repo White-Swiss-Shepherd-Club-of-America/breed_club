@@ -1,4 +1,4 @@
-import { eq, and, count, inArray } from "drizzle-orm";
+import { eq, and, count, inArray, ne } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import {
   healthTestTypes,
@@ -106,11 +106,11 @@ export async function computeHealthStatistics(db: Database, clubId: string) {
 
   const statistics = Array.from(testTypeMap.values());
 
-  // Overall statistics
+  // Overall statistics — exclude historical pedigree stubs from the count
   const totalDogs = await db
     .select({ count: count() })
     .from(dogs)
-    .where(and(eq(dogs.club_id, clubId), eq(dogs.status, "approved")));
+    .where(and(eq(dogs.club_id, clubId), eq(dogs.status, "approved"), eq(dogs.is_historical, false)));
 
   const totalClearances = await db
     .select({ count: count() })

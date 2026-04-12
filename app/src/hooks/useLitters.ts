@@ -82,6 +82,22 @@ export function useCreateLitter() {
   });
 }
 
+export function useDeleteLitter(id: string) {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      return api.delete(`/litters/${id}`, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["litters"] });
+      queryClient.removeQueries({ queryKey: ["litter", id] });
+    },
+  });
+}
+
 export function useUpdateLitter(id: string) {
   const queryClient = useQueryClient();
   const { getToken } = useAuth();

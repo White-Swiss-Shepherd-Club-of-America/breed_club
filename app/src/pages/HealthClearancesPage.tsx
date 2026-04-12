@@ -11,6 +11,7 @@ import {
   type MyClearance,
   useMyClearances,
   useUpdateClearance,
+  useDeleteClearance,
 } from "@/hooks/useHealthClearances";
 import { formatDate } from "@/lib/utils";
 import { ratingBgClass } from "@/lib/health-colors";
@@ -178,6 +179,12 @@ export function HealthClearancesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editing, setEditing] = useState<MyClearance | null>(null);
   const [collapsedByDog, setCollapsedByDog] = useState<Record<string, boolean>>({});
+  const deleteClearance = useDeleteClearance();
+
+  const handleDeleteClearance = async (clearance: MyClearance) => {
+    if (!confirm(`Delete this ${clearance.test_type.short_name} clearance? This cannot be undone.`)) return;
+    await deleteClearance.mutateAsync({ dogId: clearance.dog_id, clearanceId: clearance.id });
+  };
   const dogIdForAdd = searchParams.get("dog") || undefined;
 
   const status = (searchParams.get("status") as ClearanceStatusFilter) || "all";
@@ -476,12 +483,21 @@ export function HealthClearancesPage() {
                       </td>
                       <td className="px-3 py-2">
                         {clearance.can_edit ? (
-                          <button
-                            onClick={() => setEditing(clearance)}
-                            className="text-purple-600 hover:underline"
-                          >
-                            Edit
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => setEditing(clearance)}
+                              className="text-purple-600 hover:underline text-sm"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClearance(clearance)}
+                              disabled={deleteClearance.isPending}
+                              className="text-red-500 hover:underline text-sm disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-xs text-gray-400">Locked</span>
                         )}

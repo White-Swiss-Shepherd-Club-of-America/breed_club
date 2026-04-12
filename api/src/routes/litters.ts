@@ -327,6 +327,45 @@ litterRoutes.get("/:id", requireAuth, requireFlag("is_breeder"), async (c) => {
 });
 
 /**
+ * DELETE /:id — delete a pending litter (breeder only, hard delete).
+ */
+litterRoutes.delete("/:id", requireAuth, requireFlag("is_breeder"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const litterId = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const litter = await db.query.litters.findFirst({
+    where: and(eq(litters.id, litterId), eq(litters.club_id, clubId)),
+  });
+
+  if (!litter) {
+    throw notFound("Litter");
+  }
+
+  // Verify ownership
+  const breederContact = await db.query.contacts.findFirst({
+    where: eq(contacts.member_id, auth.member.id),
+  });
+
+  if (!breederContact || litter.breeder_id !== breederContact.id) {
+    throw forbidden("You can only delete your own litters");
+  }
+
+  if (litter.approved) {
+    throw badRequest("Cannot delete an approved litter");
+  }
+
+  await db.delete(litters).where(eq(litters.id, litterId));
+
+  return c.json({ success: true });
+});
+
+/**
  * PATCH /:id — update litter.
  */
 litterRoutes.patch("/:id", requireAuth, requireFlag("is_breeder"), async (c) => {

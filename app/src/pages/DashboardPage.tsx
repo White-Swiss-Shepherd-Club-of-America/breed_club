@@ -4,6 +4,7 @@
  */
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useMyApplications } from "@/hooks/useApplications";
@@ -11,6 +12,7 @@ import { useDogs } from "@/hooks/useDogs";
 import { useLitters, useSireApprovals, useRespondSireApproval } from "@/hooks/useLitters";
 import { useTiers } from "@/hooks/useTiers";
 import { useDashboardCounts } from "@/hooks/useDashboardCounts";
+import { useAdminOverviewStats } from "@/hooks/useAdminOverviewStats";
 import { useMyHealthStats } from "@/hooks/useMyHealthStats";
 import { useElections } from "@/hooks/useVoting";
 import {
@@ -24,6 +26,9 @@ import {
   UserPlus,
   Vote,
   HeartPulse,
+  Users,
+  CheckCircle,
+  BarChart3,
 } from "lucide-react";
 import { ratingBgClass, scoreToColor, RATING_BG_CLASSES } from "@/lib/health-colors";
 import { formatDate } from "@/lib/utils";
@@ -52,6 +57,9 @@ export function DashboardPage() {
     <div className="max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
 
+      {/* Admin Overview Card (admin only) */}
+      {isAdmin && <AdminOverviewCard />}
+
       {/* A. Member Info Card */}
       <MemberInfoCard member={member} getTierLabel={getTierLabel} />
 
@@ -63,9 +71,9 @@ export function DashboardPage() {
       {/* C. Elections Card (members only) */}
       {isMember && <ElectionsCard />}
 
-      {/* D. Approval Queue Cards (approvers/admin) */}
+      {/* D. Pending Tasks (approvers/admin) */}
       {hasApprovalPerms && (
-        <ApprovalQueuesCard member={member} isAdmin={isAdmin} />
+        <PendingTasksCard member={member} isAdmin={isAdmin} />
       )}
 
       {/* E. Sire Approvals */}
@@ -104,6 +112,151 @@ export function DashboardPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Admin Overview Card ───────────────────────────────────────────────────
+
+function AdminOverviewCard() {
+  const { data, isLoading } = useAdminOverviewStats(true);
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 animate-pulse">
+        <div className="h-4 bg-gray-100 rounded w-32 mb-4" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-16 bg-gray-100 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { dogs, members: memberStats, litters, pending_applications } = data;
+
+  const colorTiles = [
+    { label: "Blue / Green", value: dogs.color_distribution.blue + dogs.color_distribution.green, className: "bg-green-100 text-green-800" },
+    { label: "Yellow", value: dogs.color_distribution.yellow, className: "bg-yellow-100 text-yellow-800" },
+    { label: "Orange", value: dogs.color_distribution.orange, className: "bg-orange-100 text-orange-800" },
+    { label: "Red", value: dogs.color_distribution.red, className: "bg-red-100 text-red-800" },
+    { label: "Unrated", value: dogs.color_distribution.unrated, className: "bg-gray-100 text-gray-600" },
+  ].filter((t) => t.value > 0);
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-gray-400" />
+          Club Overview
+        </h2>
+        {pending_applications > 0 && (
+          <Link
+            to="/admin/approvals?tab=applications"
+            className="flex items-center gap-1.5 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            {pending_applications} pending application{pending_applications !== 1 ? "s" : ""}
+          </Link>
+        )}
+      </div>
+
+      {/* Row 1: Registry stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+        <StatTile
+          label="Dogs in Registry"
+          value={dogs.total}
+          icon={<Dog className="h-4 w-4 text-indigo-400" />}
+        />
+        <StatTile
+          label="Active Members"
+          value={memberStats.total_active}
+          icon={<Users className="h-4 w-4 text-blue-400" />}
+          sub={
+            memberStats.by_tier.length > 0 ? (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {memberStats.by_tier.map((t) => (
+                  <span
+                    key={t.label}
+                    className="inline-block px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600"
+                  >
+                    {t.count} {t.label}
+                  </span>
+                ))}
+              </div>
+            ) : null
+          }
+        />
+        <StatTile
+          label="Litters Approved"
+          value={litters.total}
+          icon={<Baby className="h-4 w-4 text-pink-400" />}
+        />
+        <StatTile
+          label="Puppies Produced"
+          value={litters.total_puppies}
+          icon={<Heart className="h-4 w-4 text-rose-400" />}
+        />
+      </div>
+
+      {/* Row 2: Health stats */}
+      <div className="border-t border-gray-100 pt-4">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <CheckCircle className="h-3.5 w-3.5" />
+          Health Testing
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl font-bold text-gray-900">{dogs.health_tested_pct}%</span>
+            <span className="text-sm text-gray-500">tested</span>
+          </div>
+          <span className="text-gray-300 hidden sm:inline">|</span>
+          <span className="text-sm text-gray-500">
+            {dogs.health_tested} of {dogs.total} dogs have approved clearances
+          </span>
+          {colorTiles.length > 0 && (
+            <>
+              <span className="text-gray-300 hidden sm:inline">|</span>
+              <div className="flex flex-wrap gap-1.5">
+                {colorTiles.map((t) => (
+                  <span
+                    key={t.label}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${t.className}`}
+                  >
+                    {t.value} {t.label}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  icon,
+  sub,
+}: {
+  label: string;
+  value: number;
+  icon: ReactNode;
+  sub?: ReactNode;
+}) {
+  return (
+    <div className="bg-gray-50 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-1">
+        {icon}
+        <span className="text-xs text-gray-500 font-medium">{label}</span>
+      </div>
+      <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
+      {sub}
     </div>
   );
 }
@@ -246,27 +399,23 @@ function ElectionsCard() {
   );
 }
 
-// ─── Approval Queues Card ──────────────────────────────────────────────────
+// ─── Pending Tasks Card ────────────────────────────────────────────────────
 
-function ApprovalQueuesCard({
+function PendingTasksCard({
   member,
   isAdmin,
 }: {
   member: any;
   isAdmin: boolean;
 }) {
-  const { data: counts } = useDashboardCounts(true);
+  const { data: counts, isLoading } = useDashboardCounts(true);
 
-  if (!counts) return null;
-
-  const total =
-    counts.applications + counts.dogs + counts.clearances + counts.litters + counts.transfers;
-
-  if (total === 0) return null;
+  if (isLoading || !counts) return null;
 
   const queues = [
     {
       label: "Applications",
+      tab: "applications",
       count: counts.applications,
       icon: ClipboardCheck,
       color: "text-yellow-500",
@@ -274,6 +423,7 @@ function ApprovalQueuesCard({
     },
     {
       label: "Dogs",
+      tab: "dogs",
       count: counts.dogs,
       icon: Dog,
       color: "text-purple-500",
@@ -281,6 +431,7 @@ function ApprovalQueuesCard({
     },
     {
       label: "Health",
+      tab: "health",
       count: counts.clearances,
       icon: Heart,
       color: "text-red-500",
@@ -288,6 +439,7 @@ function ApprovalQueuesCard({
     },
     {
       label: "Litters",
+      tab: "litters",
       count: counts.litters,
       icon: Baby,
       color: "text-pink-500",
@@ -295,37 +447,53 @@ function ApprovalQueuesCard({
     },
     {
       label: "Transfers",
+      tab: "transfers",
       count: counts.transfers,
       icon: ArrowRightLeft,
       color: "text-orange-500",
       show: isAdmin || member.can_manage_registry,
     },
-  ].filter((q) => q.show && q.count > 0);
+  ];
 
-  if (queues.length === 0) return null;
+  const visibleQueues = queues.filter((q) => q.show);
+  const pendingQueues = visibleQueues.filter((q) => q.count > 0);
+  const allClear = pendingQueues.length === 0;
 
   return (
-    <div className="mb-6">
-      <Link
-        to="/admin/approvals"
-        className="block bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition"
-      >
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-          Pending Approvals
+    <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+      <div className={`p-5 ${!allClear ? "border-b border-amber-100" : ""}`}>
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+          Pending Tasks
         </h3>
-        <div className="flex flex-wrap gap-4">
-          {queues.map((q) => {
+      </div>
+      {allClear ? (
+        <div className="px-5 pb-5">
+          <div className="flex items-center gap-2 text-sm text-gray-500 pt-1">
+            <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+            All caught up — nothing pending.
+          </div>
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {pendingQueues.map((q) => {
             const Icon = q.icon;
             return (
-              <div key={q.label} className="flex items-center gap-2">
-                <Icon className={`h-5 w-5 ${q.color}`} />
-                <span className="text-lg font-bold text-gray-900">{q.count}</span>
-                <span className="text-sm text-gray-500">{q.label}</span>
-              </div>
+              <Link
+                key={q.tab}
+                to={`/admin/approvals?tab=${q.tab}`}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-amber-50 transition"
+              >
+                <Icon className={`h-5 w-5 shrink-0 ${q.color}`} />
+                <span className="flex-1 text-sm font-medium text-gray-700">{q.label}</span>
+                <span className="text-sm font-bold text-gray-900 bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                  {q.count}
+                </span>
+                <span className="text-gray-300 text-xs">→</span>
+              </Link>
             );
           })}
         </div>
-      </Link>
+      )}
     </div>
   );
 }

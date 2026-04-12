@@ -241,6 +241,47 @@ export function useUpdateDog() {
   });
 }
 
+export function useDeleteDog() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.delete(`/dogs/${id}`, { token });
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["dogs"] });
+      queryClient.removeQueries({ queryKey: ["dog", id] });
+    },
+  });
+}
+
+export function useUpdateOwnerDogFields() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: {
+      id: string;
+      call_name?: string | null;
+      breeding_status?: string | null;
+      stud_service_available?: boolean;
+      frozen_semen_available?: boolean;
+    }) => {
+      const token = await getToken();
+      return api.patch<DogResponse>(`/dogs/${id}`, data, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dogs"] });
+      queryClient.invalidateQueries({ queryKey: ["dog", variables.id] });
+    },
+  });
+}
+
 export function useAdminUpdateDog() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
