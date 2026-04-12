@@ -360,7 +360,7 @@ function HealthStatsCard({ isBreeder }: { isBreeder: boolean }) {
           Health Summary
         </h2>
         <Link
-          to="/health-stats"
+          to="/health-stats?view=my-dogs"
           className="text-sm text-gray-500 hover:text-gray-700"
         >
           Full Stats →

@@ -19,7 +19,7 @@ import type { ResultSchema } from "../db/schema.js";
 import { computeResultScores } from "../lib/scoring.js";
 import { recomputeHealthRating } from "../lib/rating.js";
 import { healthStatisticsCache } from "../db/schema.js";
-import { computeHealthStatistics, refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
+import { computeHealthStatistics, computeMyHealthStatistics, refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
 import { computeMemberHealthStats, refreshMemberHealthStatsCache } from "../lib/compute-member-health-stats.js";
 import { createLLMProvider, getModelConfig } from "../lib/llm/index.js";
 import { loadTestOrgCatalog } from "../lib/extraction/catalog.js";
@@ -1097,6 +1097,20 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
   const data = await computeHealthStatistics(db, club.id);
   c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, club.id));
 
+  return c.json(data);
+});
+
+// ─── GET /api/health/my-statistics — full stats breakdown for user's own dogs ─
+
+healthRoutes.get("/my-statistics", async (c: ApiContext) => {
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
+
+  const auth = c.get("auth") as { memberId: string; contactId: string } | null;
+  if (!auth) throw unauthorized("Authentication required");
+
+  const db = await getDb(c.env);
+  const data = await computeMyHealthStatistics(db, club.id, auth.contactId);
   return c.json(data);
 });
 

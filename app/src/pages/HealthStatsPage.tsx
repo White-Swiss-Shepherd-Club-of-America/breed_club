@@ -1,9 +1,13 @@
 /**
  * Health statistics dashboard - aggregate health data and charts.
+ * Supports two views via ?view= query param:
+ *   whole-breed (default) — registry-wide aggregate stats
+ *   my-dogs               — stats scoped to the current user's dogs
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 
 interface OrgStats {
@@ -36,6 +40,8 @@ interface HealthStats {
   };
   by_test_type: TestTypeStats[];
 }
+
+type ViewMode = "whole-breed" | "my-dogs";
 
 function StatCard({
   label,
@@ -134,14 +140,30 @@ function TestTypeCard({ stats }: { stats: TestTypeStats }) {
 
 export function HealthStatsPage() {
   const { getToken, isSignedIn } = useAuth();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const rawView = searchParams.get("view");
+  const view: ViewMode = rawView === "my-dogs" ? "my-dogs" : "whole-breed";
+
   const { data, isLoading, error } = useQuery<HealthStats>({
-    queryKey: ["health", "statistics"],
+    queryKey: ["health", "statistics", view],
     queryFn: async () => {
       const token = await getToken();
-      return api.get<HealthStats>("/health/statistics", { token });
+      const endpoint = view === "my-dogs" ? "/health/my-statistics" : "/health/statistics";
+      return api.get<HealthStats>(endpoint, { token });
     },
     enabled: isSignedIn === true,
   });
+
+  function handleViewChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value as ViewMode;
+    if (next === "whole-breed") {
+      navigate("/health-stats");
+    } else {
+      navigate("/health-stats?view=my-dogs");
+    }
+  }
 
   if (isLoading) {
     return (
@@ -178,13 +200,28 @@ export function HealthStatsPage() {
 
   const categories = Object.keys(categorized).sort();
 
+  const subtitleMap: Record<ViewMode, string> = {
+    "whole-breed": "Aggregate health testing data across the registry",
+    "my-dogs": "Health testing data for your dogs",
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Health Statistics</h1>
-        <p className="text-gray-600 mt-2">
-          Aggregate health testing data across the registry
-        </p>
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Health Statistics</h1>
+          <p className="text-gray-600 mt-2">{subtitleMap[view]}</p>
+        </div>
+        <div className="shrink-0">
+          <select
+            value={view}
+            onChange={handleViewChange}
+            className="block w-full sm:w-auto rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="whole-breed">Whole Breed</option>
+            <option value="my-dogs">My Dogs</option>
+          </select>
+        </div>
       </div>
 
       {/* Overview Cards */}
@@ -192,7 +229,7 @@ export function HealthStatsPage() {
         <StatCard
           label="Total Dogs"
           value={overview.total_dogs}
-          subtitle="in the registry"
+          subtitle={view === "my-dogs" ? "your dogs" : "in the registry"}
         />
         <StatCard
           label="Total Clearances"
@@ -220,7 +257,11 @@ export function HealthStatsPage() {
 
       {by_test_type.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-gray-600">No health test data available yet.</p>
+          <p className="text-gray-600">
+            {view === "my-dogs"
+              ? "No health test data found for your dogs."
+              : "No health test data available yet."}
+          </p>
         </div>
       )}
     </div>
