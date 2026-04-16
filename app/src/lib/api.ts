@@ -118,6 +118,55 @@ class ApiClient {
   }
 
   /**
+   * Upload 1+ registration documents + pre-rendered page images to the extraction endpoint.
+   * Returns a draft with suggested dog fields, detected conflicts, and matched registrations.
+   *
+   * @param files - Original PDF/image files (stored to R2)
+   * @param pageImagesByFile - Per-file arrays of pre-rendered PNG blobs (for LLM vision)
+   * @param options - Auth token etc.
+   */
+  async extractRegistration<T>(
+    files: File[],
+    pageImagesByFile: Blob[][],
+    options?: { token?: string | null }
+  ): Promise<T> {
+    const formData = new FormData();
+
+    for (const file of files) {
+      formData.append("files[]", file);
+    }
+
+    for (let i = 0; i < pageImagesByFile.length; i++) {
+      for (const page of pageImagesByFile[i]) {
+        formData.append(`pages[${i}][]`, page, "page.png");
+      }
+    }
+
+    const headers: Record<string, string> = {};
+    if (options?.token) {
+      headers["Authorization"] = `Bearer ${options.token}`;
+    }
+
+    const response = await fetch(`${this.baseUrl}/dogs/extract-registration`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const responseData = await response.json().catch(() => ({
+        error: { code: "UNKNOWN", message: response.statusText },
+      }));
+      throw new ApiRequestError(
+        response.status,
+        responseData.error || responseData
+      );
+    }
+
+    return response.json();
+  }
+
+  /**
    * Upload a certificate file + pre-rendered page images to the extraction endpoint.
    * Returns draft clearance rows with confidence scores and verification flags.
    */

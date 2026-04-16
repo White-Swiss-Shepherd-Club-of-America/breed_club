@@ -7,6 +7,7 @@ import type { LLMProvider, LLMModelConfig, LLMContentBlock } from "../llm/types.
 import { parseLLMJson } from "../llm/index.js";
 import { buildExtractionPrompt } from "./prompts.js";
 import { findCatalogPair } from "./catalog.js";
+import { buildImageBlocks } from "./image-utils.js";
 import type { ResultSchema } from "../../db/schema.js";
 import type {
   TestOrgCatalog,
@@ -73,11 +74,7 @@ async function extractSingleResult(
   );
 
   // Send all rendered pages — for panels a test result may be on any page.
-  const imageBlocks: LLMContentBlock[] = pageImages.map((data) => ({
-    type: "image" as const,
-    media_type: "image/png",
-    data,
-  }));
+  const imageBlocks: LLMContentBlock[] = buildImageBlocks(pageImages);
 
   const content: LLMContentBlock[] = [
     ...imageBlocks,

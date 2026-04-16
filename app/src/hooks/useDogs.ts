@@ -344,6 +344,27 @@ export function useAddDogRegistration() {
   });
 }
 
+export function useDeleteDogRegistration() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      dogId,
+      registrationId,
+    }: {
+      dogId: string;
+      registrationId: string;
+    }) => {
+      const token = await getToken();
+      return api.delete(`/dogs/${dogId}/registrations/${registrationId}`, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dog", variables.dogId] });
+    },
+  });
+}
+
 export function usePendingDogs(page = 1) {
   const { getToken } = useAuth();
 

@@ -6,6 +6,7 @@ import type { LLMProvider, LLMModelConfig, LLMContentBlock } from "../llm/types.
 import { parseLLMJson } from "../llm/index.js";
 import { buildClassificationPrompt } from "./prompts.js";
 import { formatCatalogForPrompt } from "./catalog.js";
+import { buildImageBlocks } from "./image-utils.js";
 import type { TestOrgCatalog, ClassificationResult, ClassificationMatch } from "./types.js";
 
 interface ClassificationRaw {
@@ -34,11 +35,7 @@ export async function classifyCert(
 
   // Build image content blocks — send all rendered pages so the classifier
   // can identify tests that appear on later pages (panels, combined reports).
-  const imageBlocks: LLMContentBlock[] = pageImages.map((data) => ({
-    type: "image" as const,
-    media_type: "image/png",
-    data,
-  }));
+  const imageBlocks: LLMContentBlock[] = buildImageBlocks(pageImages);
 
   const content: LLMContentBlock[] = [
     ...imageBlocks,

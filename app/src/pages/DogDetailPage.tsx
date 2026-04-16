@@ -5,8 +5,9 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration } from "@/hooks/useDogs";
 import { RefreshCw, ExternalLink, Camera, Plus, Pencil, Trash2, X, Check } from "lucide-react";
+import { ScanRegistrationModal } from "@/components/registration/ScanRegistrationModal";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { useContacts } from "@/hooks/useContacts";
 import { PedigreeTree as PedigreeChart } from "@/components/PedigreeTree";
@@ -417,7 +418,34 @@ function BreedingInfoSection({ dog, canEdit }: { dog: Dog; canEdit: boolean }) {
   );
 }
 
-function OverviewTab({ dog, canEditBreeding }: { dog: Dog; canEditBreeding: boolean }) {
+function OverviewTab({
+  dog,
+  canEditBreeding,
+  canManageRegistrations,
+  onRegistrationAdded,
+}: {
+  dog: Dog;
+  canEditBreeding: boolean;
+  canManageRegistrations: boolean;
+  onRegistrationAdded: () => void;
+}) {
+  const { getToken } = useAuth();
+  const deleteRegMutation = useDeleteDogRegistration();
+  const [showAddRegModal, setShowAddRegModal] = useState(false);
+  const [viewingCert, setViewingCert] = useState<string | null>(null);
+  const [certToken, setCertToken] = useState<string | null>(null);
+
+  const handleViewCert = async (urlOrKey: string) => {
+    const tok = await getToken();
+    setCertToken(tok);
+    setViewingCert(getCertificateUrl(urlOrKey));
+  };
+
+  const handleDeleteReg = async (regId: string) => {
+    if (!confirm("Remove this registration? This cannot be undone.")) return;
+    await deleteRegMutation.mutateAsync({ dogId: dog.id, registrationId: regId });
+  };
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
       {/* Metadata Grid */}
@@ -486,26 +514,80 @@ function OverviewTab({ dog, canEditBreeding }: { dog: Dog; canEditBreeding: bool
       <BreedingInfoSection dog={dog} canEdit={canEditBreeding} />
 
       {/* Registrations */}
-      {dog.registrations && dog.registrations.length > 0 && (
-        <div>
-          <h3 className="text-xs font-semibold text-gray-500 mb-1">External Registrations</h3>
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <h3 className="text-xs font-semibold text-gray-500">External Registrations</h3>
+          {canManageRegistrations && (
+            <button
+              type="button"
+              onClick={() => setShowAddRegModal(true)}
+              className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 font-medium"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          )}
+        </div>
+
+        {dog.registrations && dog.registrations.length > 0 ? (
           <div className="space-y-1">
             {dog.registrations.map((reg: DogRegistration) => (
-              <div key={reg.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-                <div>
-                  <span className="font-medium">{reg.organization?.name}</span>
-                  <span className="ml-2 text-gray-600">#{reg.registration_number}</span>
+              <div
+                key={reg.id}
+                className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-sm"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-medium truncate">{reg.organization?.name}</span>
+                  <span className="text-gray-500 font-mono shrink-0">#{reg.registration_number}</span>
                 </div>
-                {reg.registration_url && (
-                  <a href={reg.registration_url} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-700 hover:text-gray-900 underline">
-                    View
-                  </a>
-                )}
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  {reg.registration_url && (
+                    <button
+                      type="button"
+                      onClick={() => handleViewCert(reg.registration_url!)}
+                      className="text-xs text-gray-600 hover:text-gray-900 underline"
+                    >
+                      View cert
+                    </button>
+                  )}
+                  {canManageRegistrations && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteReg(reg.id)}
+                      disabled={deleteRegMutation.isPending}
+                      className="text-gray-300 hover:text-red-500 disabled:opacity-40 p-0.5"
+                      title="Remove registration"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-gray-400">No external registrations recorded.</p>
+        )}
+
+        {showAddRegModal && (
+          <ScanRegistrationModal
+            dogId={dog.id}
+            dogName={dog.registered_name}
+            onSuccess={() => {
+              setShowAddRegModal(false);
+              onRegistrationAdded();
+            }}
+            onClose={() => setShowAddRegModal(false)}
+          />
+        )}
+
+        {viewingCert && (
+          <CertificateModal
+            url={viewingCert}
+            token={certToken}
+            onClose={() => { setViewingCert(null); setCertToken(null); }}
+          />
+        )}
+      </div>
 
       {/* Parents with health dots */}
       {(dog.sire || dog.dam) && (
@@ -1693,7 +1775,12 @@ export function DogDetailPage() {
 
       {/* Tab Content */}
       {activeTab === "overview" && (
-        <OverviewTab dog={dog} canEditBreeding={!!data.canManageClearances || !!canEdit} />
+        <OverviewTab
+          dog={dog}
+          canEditBreeding={!!data.canManageClearances || !!canEdit}
+          canManageRegistrations={!!data.canManageClearances || !!canEdit}
+          onRegistrationAdded={() => queryClient.invalidateQueries({ queryKey: ["dog", id] })}
+        />
       )}
       {activeTab === "pedigree" && id && dog.status === "approved" && (
         <PedigreeTab dogId={id} />

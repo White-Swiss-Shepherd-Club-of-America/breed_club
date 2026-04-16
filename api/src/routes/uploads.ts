@@ -13,7 +13,7 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { requireLevel } from "../middleware/rbac.js";
-import { dogHealthClearances, dogs, clubs } from "../db/schema.js";
+import { dogHealthClearances, dogRegistrations, dogs, clubs } from "../db/schema.js";
 import { isDogOwner } from "../lib/ownership.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -113,52 +113,101 @@ uploadRoutes.get("/certificate/*", async (c) => {
 
   const key = c.req.path.replace("/api/uploads/certificate/", "");
 
-  if (!key || !key.startsWith("certificates/")) {
+  const isHealthCert = key.startsWith("certificates/");
+  const isRegDoc = key.startsWith("registrations/");
+
+  if (!key || (!isHealthCert && !isRegDoc)) {
     return c.json(
       { error: { code: "NOT_FOUND", message: "File not found" } },
       404
     );
   }
 
-  // Resolve the clearance that owns this certificate key.
-  const linked = await db
-    .select({
-      clearance_id: dogHealthClearances.id,
-      submitted_by: dogHealthClearances.submitted_by,
-      owner_id: dogs.owner_id,
-      dog_submitted_by: dogs.submitted_by,
-      club_settings: clubs.settings,
-    })
-    .from(dogHealthClearances)
-    .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
-    .innerJoin(clubs, eq(dogs.club_id, clubs.id))
-    .where(and(eq(dogs.club_id, clubId), eq(dogHealthClearances.certificate_url, key)))
-    .limit(1);
+  // ── Registration documents: check dog ownership / admin access ──────────
+  if (isRegDoc) {
+    // Any member can view if they're an admin or clearance approver; otherwise
+    // check that the key belongs to a dog they submitted / own.
+    const isAdmin = auth.isAdmin || auth.tierLevel >= 100 || auth.member.can_approve_clearances;
+    if (!isAdmin) {
+      // Find any dog registration that references this key
+      const regLinked = await db
+        .select({
+          owner_id: dogs.owner_id,
+          dog_submitted_by: dogs.submitted_by,
+          club_settings: clubs.settings,
+        })
+        .from(dogRegistrations)
+        .innerJoin(dogs, eq(dogRegistrations.dog_id, dogs.id))
+        .innerJoin(clubs, eq(dogs.club_id, clubs.id))
+        .where(and(eq(dogs.club_id, clubId), eq(dogRegistrations.registration_url, key)))
+        .limit(1);
 
-  const [record] = linked;
-  if (!record) {
-    return c.json(
-      { error: { code: "NOT_FOUND", message: "File not found" } },
-      404
-    );
-  }
+      const [regRecord] = regLinked;
+      if (!regRecord) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "File not found" } },
+          404
+        );
+      }
 
-  const canAccess =
-    record.submitted_by === auth.member.id ||
-    isDogOwner(
-      auth,
-      {
-        owner_id: record.owner_id,
-        submitted_by: record.dog_submitted_by,
-      },
-      (record.club_settings ?? {}) as Record<string, unknown>
-    );
+      const canAccess = isDogOwner(
+        auth,
+        {
+          owner_id: regRecord.owner_id,
+          submitted_by: regRecord.dog_submitted_by,
+        },
+        (regRecord.club_settings ?? {}) as Record<string, unknown>
+      );
 
-  if (!canAccess) {
-    return c.json(
-      { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
-      403
-    );
+      if (!canAccess) {
+        return c.json(
+          { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
+          403
+        );
+      }
+    }
+  } else {
+    // ── Health certificates: original access-control logic ─────────────────
+    // Resolve the clearance that owns this certificate key.
+    const linked = await db
+      .select({
+        clearance_id: dogHealthClearances.id,
+        submitted_by: dogHealthClearances.submitted_by,
+        owner_id: dogs.owner_id,
+        dog_submitted_by: dogs.submitted_by,
+        club_settings: clubs.settings,
+      })
+      .from(dogHealthClearances)
+      .innerJoin(dogs, eq(dogHealthClearances.dog_id, dogs.id))
+      .innerJoin(clubs, eq(dogs.club_id, clubs.id))
+      .where(and(eq(dogs.club_id, clubId), eq(dogHealthClearances.certificate_url, key)))
+      .limit(1);
+
+    const [record] = linked;
+    if (!record) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: "File not found" } },
+        404
+      );
+    }
+
+    const canAccess =
+      record.submitted_by === auth.member.id ||
+      isDogOwner(
+        auth,
+        {
+          owner_id: record.owner_id,
+          submitted_by: record.dog_submitted_by,
+        },
+        (record.club_settings ?? {}) as Record<string, unknown>
+      );
+
+    if (!canAccess) {
+      return c.json(
+        { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
+        403
+      );
+    }
   }
 
   const object = await c.env.CERTIFICATES_BUCKET.get(key);

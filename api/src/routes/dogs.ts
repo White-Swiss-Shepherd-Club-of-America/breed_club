@@ -8,6 +8,7 @@
  * - PATCH  /:id                 — update own dog (before approval)
  * - POST   /:id/registrations   — add external registration (AKC, UKC, etc.)
  * - GET    /:id/pedigree        — ancestry tree (sire/dam lineage)
+ * - POST   /extract-registration — LLM-powered extraction from registration documents
  */
 
 import { Hono } from "hono";
@@ -15,12 +16,19 @@ import { eq, and, or, desc, asc, gte, lte, sql, ilike, inArray, isNotNull } from
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
+import type { RegistrationExtractionResponse } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireLevel } from "../middleware/rbac.js";
 import { dogs, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
 import { notFound, badRequest, forbidden, conflict } from "../lib/errors.js";
 import { isDogOwner } from "../lib/ownership.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
+import { createLLMProvider, getModelConfig } from "../lib/llm/index.js";
+import { classifyRegDoc } from "../lib/extraction/reg-classifier.js";
+import { extractRegDoc } from "../lib/extraction/reg-extractor.js";
+import { verifySingleRegDoc, crossVerifyRegDocs } from "../lib/extraction/reg-verifier.js";
+import { mergeRegExtractions, autoCreateMissingOrgs } from "../lib/extraction/reg-merger.js";
+import type { RegExtractionResult, RegVerificationFlag } from "../lib/extraction/reg-types.js";
 import {
   createDogSchema,
   updateDogSchema,
@@ -778,6 +786,50 @@ dogRoutes.post("/:id/registrations", requireLevel(10), async (c) => {
 });
 
 /**
+ * DELETE /:id/registrations/:regId — remove an external registration.
+ * Allowed for the dog's owner (pending dogs) or admins/clearance approvers.
+ */
+dogRoutes.delete("/:id/registrations/:regId", requireLevel(10), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const dogId = c.req.param("id");
+  const regId = c.req.param("regId");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  // Verify dog belongs to this club
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, dogId), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) throw notFound("Dog");
+
+  const isAdmin = auth.isAdmin || auth.tierLevel >= 100 || auth.member.can_manage_registry;
+  const isOwner = dog.submitted_by === auth.member.id;
+
+  if (!isAdmin && !isOwner) {
+    throw forbidden("You can only remove registrations from your own dogs");
+  }
+
+  // Find and delete the registration
+  const existing = await db.query.dogRegistrations.findFirst({
+    where: and(
+      eq(dogRegistrations.id, regId),
+      eq(dogRegistrations.dog_id, dogId)
+    ),
+  });
+
+  if (!existing) throw notFound("Registration");
+
+  await db.delete(dogRegistrations).where(eq(dogRegistrations.id, regId));
+
+  return c.json({ success: true });
+});
+
+/**
  * PATCH /:id/photo — update dog photo.
  * Allowed for admin, clearance approvers, or the dog's owner.
  */
@@ -1092,6 +1144,280 @@ dogRoutes.patch("/:id/breeding", requireLevel(10), async (c) => {
     .returning();
 
   return c.json({ dog: updated });
+});
+
+// ─── Registration Document Extraction ───────────────────────────────────────
+
+/**
+ * POST /extract-registration — extract dog identity, registrations, and pedigree
+ * from uploaded registration certificate scans using LLM vision.
+ *
+ * Accepts 1+ files (PDF/JPEG/PNG) as multipart form data.
+ * Returns a draft with suggested fields, detected conflicts, and matched registrations.
+ * Does NOT write to the database — the frontend reviews and submits via POST /.
+ */
+dogRoutes.post("/extract-registration", requireLevel(10), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  // Check that LLM is configured
+  if (!c.env.LLM_API_KEY) {
+    throw badRequest("Registration extraction is not configured (LLM_API_KEY not set)");
+  }
+
+  // Parse multipart form data
+  const formData = await c.req.formData();
+
+  // Collect all uploaded files (supports "files[]" for multiple)
+  const fileEntries = formData.getAll("files[]");
+  const files: File[] = [];
+  for (const entry of fileEntries) {
+    if (entry instanceof File) {
+      files.push(entry);
+    }
+  }
+  // Also check singular "file" for single-upload compat
+  const singleFile = formData.get("file");
+  if (singleFile instanceof File && !files.some((f) => f.name === singleFile.name)) {
+    files.push(singleFile);
+  }
+
+  if (files.length === 0) {
+    throw badRequest("No registration documents uploaded");
+  }
+
+  if (files.length > 10) {
+    throw badRequest("Maximum 10 documents per batch");
+  }
+
+  // Validate all files
+  const allowedTypes = ["application/pdf", "image/jpeg", "image/png"];
+  for (const file of files) {
+    if (!allowedTypes.includes(file.type)) {
+      throw badRequest(`File "${file.name}" must be PDF, JPEG, or PNG`);
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      throw badRequest(`File "${file.name}" must be under 10MB`);
+    }
+  }
+
+  // Store originals to R2 and collect page images per document
+  const certificateUrls: string[] = [];
+  const perDocPageImages: string[][] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+
+    // Store to R2
+    const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+    const certKey = `registrations/${clubId}/${crypto.randomUUID()}.${ext}`;
+    await c.env.CERTIFICATES_BUCKET.put(certKey, file.stream(), {
+      httpMetadata: { contentType: file.type },
+      customMetadata: {
+        uploadedBy: auth.member.id,
+        originalName: file.name,
+      },
+    });
+    certificateUrls.push(certKey);
+
+    // Collect pre-rendered page images for this document
+    const pageImages: string[] = [];
+    const pageEntries = formData.getAll(`pages[${i}][]`);
+    for (const entry of pageEntries) {
+      if (entry instanceof File) {
+        const buffer = await entry.arrayBuffer();
+        const base64 = btoa(
+          new Uint8Array(buffer).reduce(
+            (data, byte) => data + String.fromCharCode(byte),
+            ""
+          )
+        );
+        pageImages.push(base64);
+      }
+    }
+
+    // If no pre-rendered pages and it's an image, use the file itself
+    if (pageImages.length === 0 && file.type.startsWith("image/")) {
+      const buffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(buffer).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          ""
+        )
+      );
+      pageImages.push(base64);
+    }
+
+    perDocPageImages.push(pageImages);
+  }
+
+  // Check we have at least some page images
+  const hasAnyPages = perDocPageImages.some((pages) => pages.length > 0);
+  if (!hasAnyPages) {
+    return c.json({
+      documents: [],
+      suggested: {
+        registered_name: "",
+        date_of_birth: null,
+        sex: null,
+        color: null,
+        microchip_number: null,
+        sire_name: null,
+        sire_registration_number: null,
+        dam_name: null,
+        dam_registration_number: null,
+        owner_name: null,
+        breeder_name: null,
+        pedigree: null,
+      },
+      conflicts: [],
+      registrations: [],
+      certificate_urls: certificateUrls,
+      fallback_to_manual: true,
+      fallback_reason: "No page images could be processed. Please ensure your browser rendered PDF pages to images.",
+    } satisfies RegistrationExtractionResponse);
+  }
+
+  // Set up LLM
+  const llm = createLLMProvider({
+    provider: c.env.LLM_PROVIDER || "anthropic",
+    apiKey: c.env.LLM_API_KEY,
+    modelFast: c.env.LLM_MODEL_FAST || "claude-haiku-4-5-20251001",
+    modelStrong: c.env.LLM_MODEL_STRONG || "claude-sonnet-4-6",
+  });
+  const models = getModelConfig(c.env);
+
+  // Load known kennel club organizations for classification context
+  const knownOrgs = await db
+    .select({
+      name: organizations.name,
+      country: organizations.country,
+    })
+    .from(organizations)
+    .where(
+      and(
+        eq(organizations.club_id, clubId),
+        eq(organizations.type, "kennel_club"),
+        eq(organizations.is_active, true)
+      )
+    );
+
+  const knownRegistries = knownOrgs.map((org) => {
+    // Extract abbreviation from name like "American Kennel Club (AKC)" or just use full name
+    const abbrevMatch = org.name.match(/\(([^)]+)\)/);
+    return {
+      name: org.name,
+      abbreviation: abbrevMatch ? abbrevMatch[1] : org.name,
+      country: org.country || "XX",
+    };
+  });
+
+  // ─── Process each document: classify + extract ─────────────────
+  const extractions: RegExtractionResult[] = [];
+  const perDocFlags: RegVerificationFlag[][] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const pageImages = perDocPageImages[i];
+    if (pageImages.length === 0) {
+      console.warn(`[extract-registration] Document ${i} has no page images, skipping`);
+      perDocFlags.push([{
+        code: "no_pages",
+        severity: "warning",
+        message: `Document ${i + 1}: No page images available for processing`,
+      }]);
+      continue;
+    }
+
+    // Classify
+    const classification = await classifyRegDoc(llm, pageImages, knownRegistries, models);
+    console.log(
+      `[extract-registration] Doc ${i}: classified as ${classification.registry_abbreviation} ` +
+      `(${classification.document_type}, confidence=${classification.confidence})`
+    );
+
+    if (classification.confidence < 0.3) {
+      perDocFlags.push([{
+        code: "classification_failed",
+        severity: "error",
+        message: `Document ${i + 1}: Could not identify the issuing registry (confidence: ${Math.round(classification.confidence * 100)}%)`,
+      }]);
+      continue;
+    }
+
+    // Extract
+    const extraction = await extractRegDoc(llm, pageImages, classification, models);
+    if (!extraction) {
+      perDocFlags.push([{
+        code: "extraction_failed",
+        severity: "error",
+        message: `Document ${i + 1}: Classification succeeded (${classification.registry_abbreviation}) but data extraction failed`,
+      }]);
+      continue;
+    }
+
+    extractions.push(extraction);
+
+    // Verify individual document
+    const docFlags = verifySingleRegDoc(extraction, i);
+    perDocFlags.push(docFlags);
+  }
+
+  if (extractions.length === 0) {
+    // All documents failed — collect all flags for the response
+    const allFlags = perDocFlags.flat();
+    return c.json({
+      documents: [],
+      suggested: {
+        registered_name: "",
+        date_of_birth: null,
+        sex: null,
+        color: null,
+        microchip_number: null,
+        sire_name: null,
+        sire_registration_number: null,
+        dam_name: null,
+        dam_registration_number: null,
+        owner_name: null,
+        breeder_name: null,
+        pedigree: null,
+      },
+      conflicts: [],
+      registrations: [],
+      certificate_urls: certificateUrls,
+      fallback_to_manual: true,
+      fallback_reason: allFlags.length > 0
+        ? allFlags.map((f) => f.message).join("; ")
+        : "Could not extract data from any of the uploaded documents.",
+    } satisfies RegistrationExtractionResponse);
+  }
+
+  // ─── Cross-verify across documents ─────────────────────────────
+  const crossFlags = crossVerifyRegDocs(extractions);
+
+  // ─── Merge results ─────────────────────────────────────────────
+  let response = await mergeRegExtractions(
+    extractions,
+    perDocFlags,
+    crossFlags,
+    db,
+    clubId,
+    certificateUrls
+  );
+
+  // ─── Auto-create missing organizations ─────────────────────────
+  const updatedRegistrations = await autoCreateMissingOrgs(
+    db,
+    clubId,
+    response.registrations
+  );
+  response = { ...response, registrations: updatedRegistrations };
+
+  return c.json(response satisfies RegistrationExtractionResponse);
 });
 
 export { dogRoutes };
