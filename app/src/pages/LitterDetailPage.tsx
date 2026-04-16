@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useLitter, useAddPup, useUpdatePup, useSellPup, useUpdateLitter, useDeleteLitter } from "@/hooks/useLitters";
 import { useDogs } from "@/hooks/useDogs";
+import { useClub } from "@/hooks/useClub";
 import { useSearchContacts } from "@/hooks/useContacts";
 import type { LitterPup, Contact, Litter, Dog } from "@breed-club/shared";
 import { formatDate } from "@/lib/utils";
@@ -245,6 +246,12 @@ function AddPupModal({
     notes: "",
   });
   const addPup = useAddPup(litterId);
+  const { data: clubData } = useClub();
+
+  const breedColors = clubData?.club?.breed_colors ?? [];
+  const breedCoatTypes = clubData?.club?.breed_coat_types ?? [];
+  const showColorField = breedColors.length !== 1;
+  const showCoatTypeField = breedCoatTypes.length !== 1;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,6 +259,9 @@ function AddPupModal({
       await addPup.mutateAsync({
         ...formData,
         sex: formData.sex || undefined,
+        // Auto-fill single-option fields for pups too
+        color: !showColorField && breedColors.length === 1 ? breedColors[0] : formData.color || undefined,
+        coat_type: !showCoatTypeField && breedCoatTypes.length === 1 ? breedCoatTypes[0] : formData.coat_type || undefined,
       });
       onSuccess();
       onClose();
@@ -288,25 +298,59 @@ function AddPupModal({
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
-            <input
-              type="text"
-              value={formData.color}
-              onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
+          {showColorField && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Color <span className="text-gray-400">(optional)</span>
+              </label>
+              {breedColors.length > 1 ? (
+                <select
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+                >
+                  <option value="">Select...</option>
+                  {breedColors.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+                />
+              )}
+            </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Coat Type</label>
-            <input
-              type="text"
-              value={formData.coat_type}
-              onChange={(e) => setFormData({ ...formData, coat_type: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
+          {showCoatTypeField && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Coat Type <span className="text-gray-400">(optional)</span>
+              </label>
+              {breedCoatTypes.length > 1 ? (
+                <select
+                  value={formData.coat_type}
+                  onChange={(e) => setFormData({ ...formData, coat_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+                >
+                  <option value="">Select...</option>
+                  {breedCoatTypes.map((ct) => (
+                    <option key={ct} value={ct}>{ct}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.coat_type}
+                  onChange={(e) => setFormData({ ...formData, coat_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900"
+                />
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>

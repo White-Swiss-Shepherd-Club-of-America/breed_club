@@ -418,10 +418,81 @@ function MembershipTab() {
   );
 }
 
+function TagInput({
+  label,
+  helpText,
+  values,
+  onChange,
+  placeholder,
+  onDirty,
+}: {
+  label: string;
+  helpText?: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder?: string;
+  onDirty?: () => void;
+}) {
+  const [input, setInput] = useState("");
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if ((e.key === "Enter" || e.key === ",") && input.trim()) {
+      e.preventDefault();
+      const val = input.trim();
+      if (!values.includes(val)) {
+        onChange([...values, val]);
+        onDirty?.();
+      }
+      setInput("");
+    }
+  };
+
+  const handleRemove = (val: string) => {
+    onChange(values.filter((v) => v !== val));
+    onDirty?.();
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {values.map((val) => (
+            <span
+              key={val}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm bg-gray-100 text-gray-800"
+            >
+              {val}
+              <button
+                type="button"
+                onClick={() => handleRemove(val)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <input
+        type="text"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder || "Type and press Enter to add"}
+        className={inputClass}
+      />
+      {helpText && <p className="mt-1 text-xs text-gray-400">{helpText}</p>}
+    </div>
+  );
+}
+
 function ClubSettingsTab() {
   const { getToken } = useAuth();
   const [bannerWidth, setBannerWidth] = useState(390);
   const [bannerHeight, setBannerHeight] = useState(219);
+  const [breedColors, setBreedColors] = useState<string[]>([]);
+  const [breedCoatTypes, setBreedCoatTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -433,6 +504,8 @@ function ClubSettingsTab() {
         const result = await api.get<{ settings: Record<string, unknown> }>("/admin/settings", { token });
         if (result.settings?.banner_width) setBannerWidth(result.settings.banner_width as number);
         if (result.settings?.banner_height) setBannerHeight(result.settings.banner_height as number);
+        if (Array.isArray(result.settings?.breed_colors)) setBreedColors(result.settings.breed_colors as string[]);
+        if (Array.isArray(result.settings?.breed_coat_types)) setBreedCoatTypes(result.settings.breed_coat_types as string[]);
       } catch {
         // defaults are fine
       } finally {
@@ -448,7 +521,11 @@ function ClubSettingsTab() {
     setSaved(false);
     try {
       const token = await getToken();
-      await api.patch("/admin/settings", { banner_width: bannerWidth, banner_height: bannerHeight }, { token });
+      await api.patch(
+        "/admin/settings",
+        { banner_width: bannerWidth, banner_height: bannerHeight, breed_colors: breedColors, breed_coat_types: breedCoatTypes },
+        { token }
+      );
       setSaved(true);
     } catch {
       // fail silently
@@ -466,9 +543,39 @@ function ClubSettingsTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <p className="text-sm text-gray-500">Club-level configuration settings.</p>
 
+      {/* Breed Options */}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-gray-900">Breed Options</h3>
+        <p className="text-sm text-gray-500">
+          Define the allowed coat colors and coat types for your breed. These will appear as dropdown
+          options when registering dogs and adding pups. If only one color is defined, it will be
+          auto-filled and hidden from forms.
+        </p>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TagInput
+            label="Coat Colors"
+            values={breedColors}
+            onChange={setBreedColors}
+            placeholder="e.g. White"
+            helpText="Press Enter or comma to add. These become the dropdown options for dog color."
+            onDirty={() => setSaved(false)}
+          />
+          <TagInput
+            label="Coat Types"
+            values={breedCoatTypes}
+            onChange={setBreedCoatTypes}
+            placeholder="e.g. Short Coat"
+            helpText="Press Enter or comma to add. These become the dropdown options for coat type."
+            onDirty={() => setSaved(false)}
+          />
+        </div>
+      </div>
+
+      {/* Banner Dimensions */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Breeder Banner Dimensions

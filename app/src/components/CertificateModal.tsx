@@ -2,16 +2,41 @@
  * Modal for viewing health clearance certificate images and PDFs.
  */
 
+import { useState, useEffect } from "react";
 import { PdfViewer } from "@/components/PdfViewer";
 
 interface CertificateModalProps {
   url: string;
   onClose: () => void;
+  token?: string | null;
 }
 
-export function CertificateModal({ url, onClose }: CertificateModalProps) {
+export function CertificateModal({ url, onClose, token }: CertificateModalProps) {
   const isPdf =
     url.toLowerCase().endsWith(".pdf") || url.includes("application/pdf");
+
+  const httpHeaders: Record<string, string> | undefined = token
+    ? { Authorization: `Bearer ${token}` }
+    : undefined;
+
+  // For images, fetch with auth token and create a blob URL
+  const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (isPdf || !token) return;
+    let objectUrl: string | null = null;
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => res.blob())
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setImageBlobUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, token, isPdf]);
+
+  const imageDisplayUrl = !isPdf ? (imageBlobUrl ?? (token ? null : url)) : null;
 
   return (
     <div
@@ -32,9 +57,11 @@ export function CertificateModal({ url, onClose }: CertificateModalProps) {
         </div>
 
         {isPdf ? (
-          <PdfViewer url={url} />
+          <PdfViewer url={url} httpHeaders={httpHeaders} />
+        ) : imageDisplayUrl ? (
+          <img src={imageDisplayUrl} alt="Certificate" className="w-full rounded border" />
         ) : (
-          <img src={url} alt="Certificate" className="w-full rounded border" />
+          <p className="text-sm text-gray-400 mt-2">Loading...</p>
         )}
 
         <div className="mt-4 flex justify-end">

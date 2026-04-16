@@ -11,7 +11,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
-export function PdfViewer({ url }: { url: string }) {
+export function PdfViewer({ url, httpHeaders }: { url: string; httpHeaders?: Record<string, string> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -27,7 +27,7 @@ export function PdfViewer({ url }: { url: string }) {
     setError(false);
     setPageNum(1);
 
-    pdfjsLib.getDocument(url).promise
+    pdfjsLib.getDocument({ url, httpHeaders }).promise
       .then((pdf) => {
         if (cancelled) return;
         pdfRef.current = pdf;

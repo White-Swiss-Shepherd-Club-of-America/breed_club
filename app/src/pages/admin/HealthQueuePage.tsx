@@ -2,7 +2,7 @@
  * HealthQueuePage - Admin page for verifying pending health clearances
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
@@ -113,11 +113,48 @@ function ResultDataSummary({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+function AuthenticatedImage({
+  src,
+  token,
+  className,
+  alt,
+}: {
+  src: string;
+  token: string | null;
+  className?: string;
+  alt?: string;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let objectUrl: string | null = null;
+    fetch(src, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src, token]);
+  if (!blobUrl) return <p className="text-sm text-gray-400">Loading...</p>;
+  return <img src={blobUrl} alt={alt} className={className} />;
+}
+
 export function HealthQueuePanel() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const limit = 20;
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  useEffect(() => {
+    getToken().then((t) => setAuthToken(t));
+  }, [getToken]);
+  const httpHeaders: Record<string, string> | undefined = authToken
+    ? { Authorization: `Bearer ${authToken}` }
+    : undefined;
 
   // Fetch pending clearances
   const { data, isLoading } = useQuery({
@@ -376,20 +413,18 @@ export function HealthQueuePanel() {
                       <div className="mt-3">
                         <p className="text-sm font-medium text-gray-700 mb-1">Certificate</p>
                         {isImageUrl(clearance.certificate_url) ? (
-                          <a
-                            href={getCertificateUrl(clearance.certificate_url)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <img
-                              src={getCertificateUrl(clearance.certificate_url)}
-                              alt="Certificate"
-                              className="max-w-md max-h-64 rounded border object-contain"
-                            />
-                          </a>
+                          <AuthenticatedImage
+                            src={getCertificateUrl(clearance.certificate_url)}
+                            token={authToken}
+                            alt="Certificate"
+                            className="max-w-md max-h-64 rounded border object-contain"
+                          />
                         ) : (
                           <div>
-                            <PdfViewer url={getCertificateUrl(clearance.certificate_url)} />
+                            <PdfViewer
+                              url={getCertificateUrl(clearance.certificate_url)}
+                              httpHeaders={httpHeaders}
+                            />
                             <a
                               href={getCertificateUrl(clearance.certificate_url)}
                               target="_blank"

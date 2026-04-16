@@ -226,6 +226,17 @@ paymentRoutes.post("/webhook", async (c) => {
       // Dog creation metadata should include dog fields
       const dogData = payment.metadata as any;
 
+      // Auto-fill color/coat_type from breed settings if single option configured
+      const [club] = await db.select().from(clubs).where(eq(clubs.id, payment.club_id)).limit(1);
+      const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+      const breedColors: string[] = (clubSettings.breed_colors as string[]) || [];
+      const breedCoatTypes: string[] = (clubSettings.breed_coat_types as string[]) || [];
+
+      let color = dogData.color || null;
+      let coat_type = dogData.coat_type || null;
+      if (breedColors.length === 1 && !color) color = breedColors[0];
+      if (breedCoatTypes.length === 1 && !coat_type) coat_type = breedCoatTypes[0];
+
       const [dog] = await db
         .insert(dogs)
         .values({
@@ -235,8 +246,8 @@ paymentRoutes.post("/webhook", async (c) => {
           sex: dogData.sex || null,
           date_of_birth: dogData.date_of_birth || null,
           microchip_number: dogData.microchip_number || null,
-          color: dogData.color || null,
-          coat_type: dogData.coat_type || null,
+          color,
+          coat_type,
           sire_id: dogData.sire_id || null,
           dam_id: dogData.dam_id || null,
           owner_id: dogData.owner_id || null,

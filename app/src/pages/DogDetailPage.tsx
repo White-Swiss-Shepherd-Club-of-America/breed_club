@@ -536,26 +536,6 @@ function OverviewTab({ dog, canEditBreeding }: { dog: Dog; canEditBreeding: bool
         </div>
       )}
 
-      {/* Health Badge */}
-      {dog.status === "approved" && (
-        <div className="flex items-center gap-3">
-          <a
-            href={getHealthStampUrl(dog.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 hover:opacity-80 transition"
-            title="View Public Health Report"
-          >
-            <img
-              src={getBadgeSvgUrl(dog.id)}
-              alt="Health Badge"
-              className="h-20"
-            />
-            <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
-          </a>
-        </div>
-      )}
-
       {/* Notes */}
       {dog.notes && (
         <div>
@@ -644,6 +624,8 @@ function HealthRecordsTab({
   const [sortField, setSortField] = useState<SortField>("category");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [viewingCert, setViewingCert] = useState<string | null>(null);
+  const [certToken, setCertToken] = useState<string | null>(null);
+  const { getToken } = useAuth();
 
   const clearances = dog.health_clearances || dog.healthClearances || [];
   const showAddClearance = (canManageClearances || canEdit) && !dog.is_historical;
@@ -759,7 +741,11 @@ function HealthRecordsTab({
                     <td className="py-2 px-2">
                       {c.certificate_url ? (
                         <button
-                          onClick={() => setViewingCert(getCertificateUrl(c.certificate_url!))}
+                          onClick={async () => {
+                            const tok = await getToken();
+                            setCertToken(tok);
+                            setViewingCert(getCertificateUrl(c.certificate_url!));
+                          }}
                           className="text-xs text-purple-600 hover:text-purple-700 font-medium"
                         >
                           View
@@ -779,7 +765,7 @@ function HealthRecordsTab({
       )}
 
       {viewingCert && (
-        <CertificateModal url={viewingCert} onClose={() => setViewingCert(null)} />
+        <CertificateModal url={viewingCert} onClose={() => setViewingCert(null)} token={certToken} />
       )}
 
       {/* Health Conditions */}
@@ -1577,6 +1563,23 @@ export function DogDetailPage() {
                 )}
               </div>
             </div>
+            {/* Health Badge */}
+            {dog.status === "approved" && (
+              <a
+                href={getHealthStampUrl(dog.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 hover:opacity-80 transition flex-shrink-0"
+                title="View Public Health Report"
+              >
+                <img
+                  src={getBadgeSvgUrl(dog.id)}
+                  alt="Health Badge"
+                  className="h-16"
+                />
+                <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
+              </a>
+            )}
             <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
               {/* Owner actions: pending dog — edit + delete */}
               {!canEdit && data.canManageClearances && dog.status === "pending" && (

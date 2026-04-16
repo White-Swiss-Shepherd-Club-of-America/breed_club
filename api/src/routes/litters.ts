@@ -449,6 +449,19 @@ litterRoutes.post("/:id/pups", requireAuth, requireFlag("is_breeder"), async (c)
   const body = await c.req.json();
   const pupData = createLitterPupSchema.parse(body);
 
+  // Validate color/coat_type against club breed settings (if provided)
+  const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
+  const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+  const breedColors: string[] = (clubSettings.breed_colors as string[]) || [];
+  const breedCoatTypes: string[] = (clubSettings.breed_coat_types as string[]) || [];
+
+  if (breedColors.length > 0 && pupData.color && !breedColors.includes(pupData.color)) {
+    throw badRequest(`Invalid color "${pupData.color}". Allowed: ${breedColors.join(", ")}`);
+  }
+  if (breedCoatTypes.length > 0 && pupData.coat_type && !breedCoatTypes.includes(pupData.coat_type)) {
+    throw badRequest(`Invalid coat type "${pupData.coat_type}". Allowed: ${breedCoatTypes.join(", ")}`);
+  }
+
   const [pup] = await db
     .insert(litterPups)
     .values({
@@ -502,6 +515,19 @@ litterRoutes.patch("/:id/pups/:pid", requireAuth, requireFlag("is_breeder"), asy
 
   const body = await c.req.json();
   const updates = createLitterPupSchema.partial().parse(body);
+
+  // Validate color/coat_type against club breed settings (if provided)
+  const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
+  const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+  const breedColors: string[] = (clubSettings.breed_colors as string[]) || [];
+  const breedCoatTypes: string[] = (clubSettings.breed_coat_types as string[]) || [];
+
+  if (breedColors.length > 0 && updates.color && !breedColors.includes(updates.color)) {
+    throw badRequest(`Invalid color "${updates.color}". Allowed: ${breedColors.join(", ")}`);
+  }
+  if (breedCoatTypes.length > 0 && updates.coat_type && !breedCoatTypes.includes(updates.coat_type)) {
+    throw badRequest(`Invalid coat type "${updates.coat_type}". Allowed: ${breedCoatTypes.join(", ")}`);
+  }
 
   const [updated] = await db
     .update(litterPups)

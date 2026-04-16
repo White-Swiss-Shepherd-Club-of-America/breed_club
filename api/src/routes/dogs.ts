@@ -81,6 +81,30 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
   const fees = feeConfig?.fees || {};
   const tierFees = fees.create_dog || { non_member: 1500, member: 500 };
 
+  // Validate and auto-fill color/coat_type against club breed settings (skip for historical stubs)
+  if (!dogData.is_historical) {
+    const breedColors: string[] = feeConfig?.breed_colors || [];
+    const breedCoatTypes: string[] = feeConfig?.breed_coat_types || [];
+
+    // Auto-fill color if only one option and not provided
+    if (breedColors.length === 1 && !dogData.color) {
+      dogData.color = breedColors[0];
+    }
+    // Auto-fill coat_type if only one option and not provided
+    if (breedCoatTypes.length === 1 && !dogData.coat_type) {
+      dogData.coat_type = breedCoatTypes[0];
+    }
+
+    // Validate color against allowed list
+    if (breedColors.length > 0 && dogData.color && !breedColors.includes(dogData.color)) {
+      throw badRequest(`Invalid color "${dogData.color}". Allowed: ${breedColors.join(", ")}`);
+    }
+    // Validate coat_type against allowed list
+    if (breedCoatTypes.length > 0 && dogData.coat_type && !breedCoatTypes.includes(dogData.coat_type)) {
+      throw badRequest(`Invalid coat type "${dogData.coat_type}". Allowed: ${breedCoatTypes.join(", ")}`);
+    }
+  }
+
   const amountCents = auth.member.skip_fees || auth.isAdmin
     ? 0
     : auth.tierLevel >= 20
@@ -567,6 +591,18 @@ dogRoutes.patch("/:id", requireLevel(10), async (c) => {
     throw badRequest("No fields to update");
   }
 
+  // Validate color/coat_type against club breed settings
+  const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+  const breedColors: string[] = (clubSettings.breed_colors as string[]) || [];
+  const breedCoatTypes: string[] = (clubSettings.breed_coat_types as string[]) || [];
+
+  if (breedColors.length > 0 && data.color && !breedColors.includes(data.color)) {
+    throw badRequest(`Invalid color "${data.color}". Allowed: ${breedColors.join(", ")}`);
+  }
+  if (breedCoatTypes.length > 0 && data.coat_type && !breedCoatTypes.includes(data.coat_type)) {
+    throw badRequest(`Invalid coat type "${data.coat_type}". Allowed: ${breedCoatTypes.join(", ")}`);
+  }
+
   const existing = await db.query.dogs.findFirst({
     where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
   });
@@ -575,7 +611,7 @@ dogRoutes.patch("/:id", requireLevel(10), async (c) => {
     throw notFound("Dog");
   }
 
-  const isOwner = isDogOwner(auth, existing, (club?.settings ?? {}) as Record<string, unknown>);
+  const isOwner = isDogOwner(auth, existing, clubSettings);
   const isSubmitter = existing.submitted_by === auth.member.id;
 
   if (existing.status === "pending") {

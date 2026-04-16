@@ -73,6 +73,8 @@ publicRoutes.get("/club", async (c) => {
       secondary_color: club.secondary_color,
       banner_width: (settings.banner_width as number) || 390,
       banner_height: (settings.banner_height as number) || 219,
+      breed_colors: (settings.breed_colors as string[]) || [],
+      breed_coat_types: (settings.breed_coat_types as string[]) || [],
       membership_tiers: tiers,
     },
   });

@@ -10,6 +10,8 @@ type PublicClub = Pick<
   Club,
   "id" | "name" | "slug" | "breed_name" | "logo_url" | "primary_color" | "secondary_color"
 > & {
+  breed_colors: string[];
+  breed_coat_types: string[];
   membership_tiers: MembershipTier[];
 };
 

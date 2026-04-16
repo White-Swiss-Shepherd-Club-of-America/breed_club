@@ -389,6 +389,19 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:edit"), async (c) => {
   const body = await c.req.json();
   const { registrations, pedigree, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
 
+  // Validate color/coat_type against club breed settings
+  const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
+  const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+  const breedColors: string[] = (clubSettings.breed_colors as string[]) || [];
+  const breedCoatTypes: string[] = (clubSettings.breed_coat_types as string[]) || [];
+
+  if (breedColors.length > 0 && dogData.color && !breedColors.includes(dogData.color)) {
+    throw badRequest(`Invalid color "${dogData.color}". Allowed: ${breedColors.join(", ")}`);
+  }
+  if (breedCoatTypes.length > 0 && dogData.coat_type && !breedCoatTypes.includes(dogData.coat_type)) {
+    throw badRequest(`Invalid coat type "${dogData.coat_type}". Allowed: ${breedCoatTypes.join(", ")}`);
+  }
+
   let sire_id: string | null | undefined;
   let dam_id: string | null | undefined;
 
@@ -1515,6 +1528,8 @@ adminRoutes.patch("/settings", requireLevel(100), async (c) => {
   const settingsUpdate = z.object({
     banner_width: z.number().int().min(100).max(2000).optional(),
     banner_height: z.number().int().min(50).max(1000).optional(),
+    breed_colors: z.array(z.string().min(1).max(100)).max(50).optional(),
+    breed_coat_types: z.array(z.string().min(1).max(50)).max(50).optional(),
   }).parse(body);
 
   // Fetch current settings and merge

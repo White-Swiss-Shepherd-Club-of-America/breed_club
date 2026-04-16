@@ -9,6 +9,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { updateDogSchema } from "@breed-club/shared/validation.js";
 import { useDog, useDogPedigree, useAdminUpdateDog, useUpdateBreedingMetadata } from "@/hooks/useDogs";
+import { useClub } from "@/hooks/useClub";
 import { useContacts } from "@/hooks/useContacts";
 import {
   PedigreeEditor,
@@ -109,7 +110,13 @@ export function DogEditPage() {
   const { data: pedigreeData } = useDogPedigree(id, 3);
   const updateMutation = useAdminUpdateDog();
   const updateBreedingMutation = useUpdateBreedingMetadata();
+  const { data: clubData } = useClub();
   const [generalError, setGeneralError] = useState<string | null>(null);
+
+  const breedColors = clubData?.club?.breed_colors ?? [];
+  const breedCoatTypes = clubData?.club?.breed_coat_types ?? [];
+  const showColorField = breedColors.length !== 1;
+  const showCoatTypeField = breedCoatTypes.length !== 1;
 
   const [pedigreeSlots, setPedigreeSlots] = useState<PedigreeSlotData[]>(createEmptySlots());
   const [pedigreeInitialized, setPedigreeInitialized] = useState(false);
@@ -291,17 +298,59 @@ export function DogEditPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="color" className="block text-sm font-medium text-gray-700 mb-1">
-                Color <span className="text-gray-400">(optional)</span>
-              </label>
-              <input
-                {...register("color")}
-                type="text"
-                id="color"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              />
-            </div>
+            {showColorField && (
+              <div>
+                <label htmlFor="color" className="block text-sm font-medium text-gray-700 mb-1">
+                  Color
+                </label>
+                {breedColors.length > 1 ? (
+                  <select
+                    {...register("color")}
+                    id="color"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  >
+                    <option value="">Select...</option>
+                    {breedColors.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    {...register("color")}
+                    type="text"
+                    id="color"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  />
+                )}
+              </div>
+            )}
+
+            {showCoatTypeField && (
+              <div>
+                <label htmlFor="coat_type" className="block text-sm font-medium text-gray-700 mb-1">
+                  Coat Type
+                </label>
+                {breedCoatTypes.length > 1 ? (
+                  <select
+                    {...register("coat_type")}
+                    id="coat_type"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  >
+                    <option value="">Select...</option>
+                    {breedCoatTypes.map((ct) => (
+                      <option key={ct} value={ct}>{ct}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    {...register("coat_type")}
+                    type="text"
+                    id="coat_type"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  />
+                )}
+              </div>
+            )}
 
             <div>
               <label htmlFor="microchip_number" className="block text-sm font-medium text-gray-700 mb-1">
@@ -314,18 +363,6 @@ export function DogEditPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
             </div>
-          </div>
-
-          <div>
-            <label htmlFor="coat_type" className="block text-sm font-medium text-gray-700 mb-1">
-              Coat Type <span className="text-gray-400">(optional)</span>
-            </label>
-            <input
-              {...register("coat_type")}
-              type="text"
-              id="coat_type"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-            />
           </div>
 
           <div>

@@ -10,6 +10,7 @@ import { createDogSchema } from "@breed-club/shared/validation.js";
 import { useAuth } from "@clerk/clerk-react";
 import { useCreateDog } from "@/hooks/useDogs";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
+import { useClub } from "@/hooks/useClub";
 import { useContacts } from "@/hooks/useContacts";
 import { usePublicOrganizations } from "@/hooks/useAdmin";
 import { api, ApiRequestError } from "@/lib/api";
@@ -87,7 +88,13 @@ export function DogCreatePage() {
   const createMutation = useCreateDog();
   const { member } = useCurrentMember();
   const { data: orgsData } = usePublicOrganizations();
+  const { data: clubData } = useClub();
   const organizations = orgsData?.data || [];
+
+  const breedColors = clubData?.club?.breed_colors ?? [];
+  const breedCoatTypes = clubData?.club?.breed_coat_types ?? [];
+  const showColorField = breedColors.length !== 1;
+  const showCoatTypeField = breedCoatTypes.length !== 1;
 
   const isAdmin = member?.is_admin === true || (member?.tierLevel ?? 0) >= 100;
   const requiresRegistration = !isAdmin;
@@ -271,17 +278,59 @@ export function DogCreatePage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="color" className="block text-sm font-medium text-gray-700 mb-1">
-                Color <span className="text-gray-400">(optional)</span>
-              </label>
-              <input
-                {...register("color")}
-                type="text"
-                id="color"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              />
-            </div>
+            {showColorField && (
+              <div>
+                <label htmlFor="color" className="block text-sm font-medium text-gray-700 mb-1">
+                  Color
+                </label>
+                {breedColors.length > 1 ? (
+                  <select
+                    {...register("color")}
+                    id="color"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  >
+                    <option value="">Select...</option>
+                    {breedColors.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    {...register("color")}
+                    type="text"
+                    id="color"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  />
+                )}
+              </div>
+            )}
+
+            {showCoatTypeField && (
+              <div>
+                <label htmlFor="coat_type" className="block text-sm font-medium text-gray-700 mb-1">
+                  Coat Type
+                </label>
+                {breedCoatTypes.length > 1 ? (
+                  <select
+                    {...register("coat_type")}
+                    id="coat_type"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  >
+                    <option value="">Select...</option>
+                    {breedCoatTypes.map((ct) => (
+                      <option key={ct} value={ct}>{ct}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    {...register("coat_type")}
+                    type="text"
+                    id="coat_type"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  />
+                )}
+              </div>
+            )}
 
             <div>
               <label htmlFor="microchip_number" className="block text-sm font-medium text-gray-700 mb-1">
