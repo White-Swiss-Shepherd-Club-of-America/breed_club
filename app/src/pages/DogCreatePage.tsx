@@ -29,15 +29,16 @@ import {
   type PedigreeSlotData,
 } from "@/components/PedigreeEditor";
 import { ScanRegistrationFlow } from "@/components/registration/ScanRegistrationFlow";
+import { PedigreeScanPrompt } from "@/components/registration/PedigreeScanPrompt";
 import {
   RegistrationDraftReview,
   type ResolvedRegistrationData,
 } from "@/components/registration/RegistrationDraftReview";
 import type { z } from "zod";
-import type { Contact, Organization, RegistrationExtractionResponse } from "@breed-club/shared";
+import type { Contact, Organization, RegistrationExtractionResponse, ExtractedPedigree } from "@breed-club/shared";
 
 type DogForm = z.infer<typeof createDogSchema>;
-type Stage = "scan" | "review" | "form";
+type Stage = "scan" | "pedigree" | "review" | "form";
 
 // ─── Contact typeahead (unchanged from original) ─────────────────────────────
 
@@ -148,17 +149,23 @@ export function DogCreatePage() {
     handleSubmit,
     control,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<DogForm>({
     resolver: zodResolver(createDogSchema),
     defaultValues: { is_public: false },
   });
 
+  const watchedCoatType = watch("coat_type");
+
   // ─── Scan stage handlers ──────────────────────────────────────────
 
   const handleScanSuccess = (result: RegistrationExtractionResponse) => {
     setExtractionResult(result);
-    setStage("review");
+    // If no pedigree was extracted from the registration docs, prompt for one.
+    const hasPedigree = result.suggested?.pedigree != null &&
+      Object.values(result.suggested.pedigree).some((v) => v != null);
+    setStage(hasPedigree ? "review" : "pedigree");
   };
 
   const handleScanFallback = (reason: string) => {
@@ -170,81 +177,25 @@ export function DogCreatePage() {
     setStage("form");
   };
 
-  // ─── Review stage handlers ────────────────────────────────────────
+  // ─── Pedigree stage handlers ──────────────────────────────────────
 
-  const handleReviewApply = (data: ResolvedRegistrationData) => {
-    setPreFill(data);
-
-    // Pre-fill form
-    reset({
-      registered_name: data.registered_name,
-      date_of_birth: data.date_of_birth ?? undefined,
-      sex: data.sex ?? undefined,
-      color: data.color ?? undefined,
-      microchip_number: data.microchip_number ?? undefined,
-      is_public: false,
+  const handlePedigreeScanned = (pedigree: ExtractedPedigree) => {
+    // Merge the pedigree into the existing extraction result
+    setExtractionResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        suggested: { ...prev.suggested, pedigree },
+      };
     });
-
-    // Pre-fill registrations from scanned docs
-    if (data.registrations.length > 0) {
-      setRegistrations(
-        data.registrations.map((r) => ({
-          organization_id: r.organization_id,
-          registration_number: r.registration_number,
-          registration_url: r.certificate_url,
-        }))
-      );
-    }
-
-    // Pre-fill pedigree from extracted tree
-    if (data.pedigree) {
-      const pedigree = data.pedigree;
-      const slotKeys = [
-        "sire", "dam",
-        "sire_sire", "sire_dam", "dam_sire", "dam_dam",
-        "sire_sire_sire", "sire_sire_dam", "sire_dam_sire", "sire_dam_dam",
-        "dam_sire_sire", "dam_sire_dam", "dam_dam_sire", "dam_dam_dam",
-      ] as const;
-
-      const newSlots = createEmptySlots();
-      slotKeys.forEach((key, i) => {
-        const ancestor = pedigree[key];
-        if (ancestor?.registered_name) {
-          newSlots[i] = {
-            ref: { registered_name: ancestor.registered_name },
-            displayName: ancestor.registered_name,
-            isFromAncestor: false,
-            sex: (i % 2 === 0 ? "male" : "female") as "male" | "female",
-          };
-        }
-      });
-      setPedigreeSlots(newSlots);
-    }
-
-    // Pre-fill sire/dam from direct extraction if no full pedigree
-    if (!data.pedigree && (data.sire_name || data.dam_name)) {
-      const newSlots = createEmptySlots();
-      if (data.sire_name) {
-        newSlots[0] = {
-          ref: { registered_name: data.sire_name },
-          displayName: data.sire_name,
-          isFromAncestor: false,
-          sex: "male",
-        };
-      }
-      if (data.dam_name) {
-        newSlots[1] = {
-          ref: { registered_name: data.dam_name },
-          displayName: data.dam_name,
-          isFromAncestor: false,
-          sex: "female",
-        };
-      }
-      setPedigreeSlots(newSlots);
-    }
-
-    setStage("form");
+    setStage("review");
   };
+
+  const handlePedigreeSkip = () => {
+    setStage("review");
+  };
+
+  // ─── Review stage handlers ────────────────────────────────────────
 
   const handleReviewRescan = () => {
     setExtractionResult(null);
@@ -256,6 +207,70 @@ export function DogCreatePage() {
     setExtractionResult(null);
     setPreFill(null);
     setStage("form");
+  };
+
+  /**
+   * Called by RegistrationDraftReview when the user clicks "Submit for Approval".
+   * Builds pedigree slots from extracted data and submits directly — no second form.
+   */
+  const handleReviewSubmit = async (data: ResolvedRegistrationData) => {
+    try {
+      setGeneralError(null);
+      setPaymentError(null);
+
+      // Build pedigree slots from extracted pedigree tree (if present)
+      let slots = createEmptySlots();
+      if (data.pedigree) {
+        const slotKeys = [
+          "sire", "dam",
+          "sire_sire", "sire_dam", "dam_sire", "dam_dam",
+          "sire_sire_sire", "sire_sire_dam", "sire_dam_sire", "sire_dam_dam",
+          "dam_sire_sire", "dam_sire_dam", "dam_dam_sire", "dam_dam_dam",
+        ] as const;
+        slotKeys.forEach((key, i) => {
+          const ancestor = data.pedigree![key];
+          if (ancestor?.registered_name) {
+            slots[i] = {
+              ref: { registered_name: ancestor.registered_name },
+              displayName: ancestor.registered_name,
+              isFromAncestor: false,
+              sex: (i % 2 === 0 ? "male" : "female") as "male" | "female",
+            };
+          }
+        });
+      } else if (data.sire_name || data.dam_name) {
+        if (data.sire_name) {
+          slots[0] = { ref: { registered_name: data.sire_name }, displayName: data.sire_name, isFromAncestor: false, sex: "male" };
+        }
+        if (data.dam_name) {
+          slots[1] = { ref: { registered_name: data.dam_name }, displayName: data.dam_name, isFromAncestor: false, sex: "female" };
+        }
+      }
+
+      await createMutation.mutateAsync({
+        registered_name: data.registered_name,
+        date_of_birth: data.date_of_birth ?? undefined,
+        sex: data.sex ?? undefined,
+        color: data.color ?? undefined,
+        coat_type: data.coat_type ?? undefined,
+        microchip_number: data.microchip_number ?? undefined,
+        owner_id: data.owner_id ?? undefined,
+        breeder_id: data.breeder_id ?? undefined,
+        pedigree: slotsToTree(slots),
+        registrations: data.registrations.length > 0 ? data.registrations : undefined,
+        is_public: false,
+      });
+
+      navigate("/registry");
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 402) {
+        setPaymentError("Payment is required to register this dog. Please contact an administrator.");
+      } else if (error instanceof ApiRequestError) {
+        setGeneralError(error.error?.message || "Failed to register dog. Please try again.");
+      } else {
+        setGeneralError("An unexpected error occurred. Please try again.");
+      }
+    }
   };
 
   // ─── Form stage handlers ──────────────────────────────────────────
@@ -353,30 +368,39 @@ export function DogCreatePage() {
   const stageTitle =
     stage === "scan"
       ? "Register a Dog"
-      : stage === "review"
-        ? "Review Extracted Information"
-        : "Registration Details";
+      : stage === "pedigree"
+        ? "Add Pedigree"
+        : stage === "review"
+          ? "Review Extracted Information"
+          : "Registration Details";
 
   const stageSubtitle =
     stage === "scan"
       ? "Upload registration certificates and we'll fill in the details for you."
-      : stage === "review"
-        ? "Verify the information extracted from your documents before continuing."
-        : preFill
-          ? "Review and complete the details extracted from your documents."
-          : "Enter your dog's registration details manually.";
+      : stage === "pedigree"
+        ? "Optionally scan an export pedigree to fill in the dog's ancestors."
+        : stage === "review"
+          ? "Verify the information extracted from your documents before continuing."
+          : preFill
+            ? "Review and complete the details extracted from your documents."
+            : "Enter your dog's registration details manually.";
 
   return (
     <div className="max-w-3xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-1">
+          {stage === "pedigree" && (
+            <button type="button" onClick={() => setStage("scan")} className="text-gray-500 hover:text-gray-700" aria-label="Back to scan">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           {stage === "review" && (
             <button
               type="button"
-              onClick={() => setStage("scan")}
+              onClick={() => extractionResult ? setStage("pedigree") : setStage("scan")}
               className="text-gray-500 hover:text-gray-700"
-              aria-label="Back to scan"
+              aria-label="Back"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -384,9 +408,7 @@ export function DogCreatePage() {
           {stage === "form" && (
             <button
               type="button"
-              onClick={() =>
-                extractionResult ? setStage("review") : setStage("scan")
-              }
+              onClick={() => extractionResult ? setStage("review") : setStage("scan")}
               className="text-gray-500 hover:text-gray-700"
               aria-label="Back"
             >
@@ -407,14 +429,32 @@ export function DogCreatePage() {
         />
       )}
 
+      {/* ── Stage: Pedigree prompt ── */}
+      {stage === "pedigree" && extractionResult && (
+        <PedigreeScanPrompt
+          dogName={extractionResult.suggested.registered_name || "this dog"}
+          onSuccess={handlePedigreeScanned}
+          onSkip={handlePedigreeSkip}
+        />
+      )}
+
       {/* ── Stage: Review ── */}
       {stage === "review" && extractionResult && (
-        <RegistrationDraftReview
-          extraction={extractionResult}
-          onApply={handleReviewApply}
-          onRescan={handleReviewRescan}
-          onSkip={handleReviewSkip}
-        />
+        <>
+          {(generalError || paymentError) && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+              {paymentError || generalError}
+            </div>
+          )}
+          <RegistrationDraftReview
+            extraction={extractionResult}
+            breedCoatTypes={breedCoatTypes}
+            onSubmit={handleReviewSubmit}
+            isSubmitting={createMutation.isPending}
+            onRescan={handleReviewRescan}
+            onSkip={handleReviewSkip}
+          />
+        </>
       )}
 
       {/* ── Stage: Form ── */}
@@ -431,6 +471,19 @@ export function DogCreatePage() {
           {preFill && !fallbackBanner && (
             <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
               Form pre-filled from your registration documents. Review the fields below before submitting.
+            </div>
+          )}
+
+          {/* Coat type prompt — shown when scan pre-filled the form but coat type is missing */}
+          {preFill && showCoatTypeField && !watchedCoatType && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-900 flex items-start gap-3">
+              <span className="text-lg leading-none">✂️</span>
+              <div>
+                <p className="font-semibold">One thing we couldn't get from the papers — coat type.</p>
+                <p className="mt-0.5 text-amber-800">
+                  Please select the coat type below before submitting.
+                </p>
+              </div>
             </div>
           )}
 
@@ -549,14 +602,23 @@ export function DogCreatePage() {
                       className="block text-sm font-medium text-gray-700 mb-1"
                     >
                       Coat Type
+                      {preFill && !watchedCoatType && (
+                        <span className="ml-2 text-xs font-normal text-amber-600">
+                          ← required — not on registration papers
+                        </span>
+                      )}
                     </label>
                     {breedCoatTypes.length > 1 ? (
                       <select
                         {...register("coat_type")}
                         id="coat_type"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent ${
+                          preFill && !watchedCoatType
+                            ? "border-amber-400 ring-2 ring-amber-200"
+                            : "border-gray-300"
+                        }`}
                       >
-                        <option value="">Select...</option>
+                        <option value="">Select coat type...</option>
                         {breedCoatTypes.map((ct) => (
                           <option key={ct} value={ct}>
                             {ct}
@@ -568,7 +630,11 @@ export function DogCreatePage() {
                         {...register("coat_type")}
                         type="text"
                         id="coat_type"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent ${
+                          preFill && !watchedCoatType
+                            ? "border-amber-400 ring-2 ring-amber-200"
+                            : "border-gray-300"
+                        }`}
                       />
                     )}
                   </div>

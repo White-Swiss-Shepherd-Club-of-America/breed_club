@@ -41,9 +41,11 @@ export async function extractRegDoc(
 
   // Decide initial model: use strong model directly for export pedigrees
   // (they're complex, multilingual, and have dense pedigree trees)
-  const initialModel = classification.document_type === "export_pedigree"
-    ? models.strong
-    : models.fast;
+  const initialModel =
+    classification.document_type === "export_pedigree" ||
+    classification.document_type === "pedigree"
+      ? models.strong
+      : models.fast;
 
   let raw = await callRegExtractor(llm, initialModel, content);
   let escalated = initialModel === models.strong;
@@ -167,24 +169,24 @@ function normalizeRegExtraction(
     registry_country: classification.registry_country,
     document_type: classification.document_type,
 
-    registered_name: str(raw.registered_name) || "",
+    registered_name: titleCaseDogName(str(raw.registered_name) || ""),
     registration_number: str(raw.registration_number) || "",
     breed: str(raw.breed) || "",
     sex: normalizeSex(raw.sex),
     date_of_birth: str(raw.date_of_birth),
-    color: str(raw.color),
+    color: nameOrNull(raw.color),
     microchip_number: str(raw.microchip_number),
     tattoo: str(raw.tattoo),
     dna_number: str(raw.dna_number),
 
-    sire_name: str(raw.sire_name),
+    sire_name: nameOrNull(raw.sire_name),
     sire_registration_number: str(raw.sire_registration_number),
-    dam_name: str(raw.dam_name),
+    dam_name: nameOrNull(raw.dam_name),
     dam_registration_number: str(raw.dam_registration_number),
 
-    owner_name: str(raw.owner_name),
+    owner_name: nameOrNull(raw.owner_name),
     owner_address: str(raw.owner_address),
-    breeder_name: str(raw.breeder_name),
+    breeder_name: nameOrNull(raw.breeder_name),
 
     certificate_date: str(raw.certificate_date),
     cross_references: crossRefs,
@@ -214,7 +216,7 @@ function normalizePedigree(raw: Record<string, unknown>): ExtractedPedigree {
     const entry = raw[slot];
     if (entry && typeof entry === "object" && !Array.isArray(entry)) {
       const e = entry as Record<string, unknown>;
-      const name = str(e.registered_name);
+      const name = nameOrNull(e.registered_name);
       if (name) {
         result[slot] = {
           registered_name: name,
@@ -239,10 +241,73 @@ function str(val: unknown): string | null {
   return null;
 }
 
+/** str() + titleCaseDogName(), returns null if empty. */
+function nameOrNull(val: unknown): string | null {
+  const s = str(val);
+  return s ? titleCaseDogName(s) : null;
+}
+
 function normalizeSex(val: unknown): "male" | "female" | null {
   if (typeof val !== "string") return null;
   const lower = val.toLowerCase().trim();
   if (["male", "macho", "dog", "hane", "кобель", "rüde", "mâle"].includes(lower)) return "male";
   if (["female", "hembra", "bitch", "hona", "сука", "hündin", "femelle"].includes(lower)) return "female";
   return null;
+}
+
+/**
+ * Particles that stay lowercase in the middle of a dog name.
+ * These are kennel-name prepositions used across AKC/UKC/FCI registries.
+ */
+const LOWERCASE_PARTICLES = new Set([
+  "v", "von", "van", "de", "du", "di", "del", "della", "der", "des",
+  "of", "the", "a", "an", "and", "at", "im", "in", "vom", "am",
+]);
+
+/**
+ * Convert an ALL-CAPS dog name to Title Case, respecting kennel-name
+ * particles (v, von, van, de, etc.) which stay lowercase when not at
+ * the start of the string.
+ *
+ * Examples:
+ *   PARSONS LADY SIP           → Parsons Lady Sip
+ *   SUREFIRE KING SOLOMON V PARSON → Surefire King Solomon v Parson
+ *   ORCH SURFSIER KING SOLOMON V PARDON → Orch Surfsier King Solomon v Pardon
+ *   PARSONS DARLING OF THE SUN SPOT-ON → Parsons Darling of the Sun Spot-On
+ *   KALINA ICE LILIEN          → Kalina Ice Lilien  (already mixed — skip)
+ *
+ * If the input is not all-caps (i.e. already has mixed casing), it is
+ * returned unchanged to avoid corrupting properly-cased names from
+ * other registries.
+ */
+export function titleCaseDogName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return trimmed;
+
+  // Only normalize if the string is entirely uppercase letters/spaces/punctuation.
+  // If it already has any lowercase letter, assume it's intentionally cased.
+  if (/[a-z]/.test(trimmed)) return trimmed;
+
+  // Split on spaces, process each word
+  const words = trimmed.split(/\s+/);
+  const result = words.map((word, i) => {
+    // Handle hyphenated words: SPOT-ON → Spot-On
+    if (word.includes("-")) {
+      return word
+        .split("-")
+        .map((part, pi) => titleCaseWord(part, pi === 0 && i === 0))
+        .join("-");
+    }
+    // First word always capitalised; particles in the middle stay lower
+    return titleCaseWord(word, i === 0);
+  });
+
+  return result.join(" ");
+}
+
+function titleCaseWord(word: string, isFirst: boolean): string {
+  if (!word) return word;
+  const lower = word.toLowerCase();
+  if (!isFirst && LOWERCASE_PARTICLES.has(lower)) return lower;
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
 }

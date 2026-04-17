@@ -24,6 +24,8 @@ IDENTIFICATION RULES:
 - Look for prominent registry branding: logos, headers, watermarks, official stamps.
 - "Registration Certificate" or "Permanent Registration Certificate" = document_type "registration"
 - "Export Pedigree", "Pedigree de Exportación", "Certificate of Origin", "Certificado Internacional de Pedigree", "Свидетельство о происхождении" = document_type "export_pedigree"
+- "Three Generation Performance Pedigree", "Four Generation Performance Pedigree", "Six Generation Pedigree", or any UKC document with "PEDIGREE" as the primary heading = document_type "pedigree"
+- If a PDF has MULTIPLE PAGES and one page is a pedigree tree while another is a registration certificate or transfer form, classify based on the PEDIGREE PAGE — that is the primary content.
 - A plain pedigree without export/registration language = document_type "pedigree"
 
 FCI MEMBER FEDERATIONS — many countries have their own kennel club affiliated with FCI:
@@ -82,7 +84,8 @@ export function buildRegExtractionPrompt(
 ): string {
   const preamble = buildRegPreamble(classification);
 
-  if (classification.document_type === "export_pedigree") {
+  if (classification.document_type === "export_pedigree" ||
+      classification.document_type === "pedigree") {
     return preamble + buildExportPedigreeFields();
   }
 
@@ -257,9 +260,27 @@ const REG_HINTS: Record<string, string> = {
 - UKC Permanent Registration Certificates have a clean, upright layout.
 - Fields: "As" (registered name), "UKC No." (registration number), "Breed", "Sex", "Color",
   "The Sire is" / "Sire's UKC No.", "The Dam is" / "Dam's UKC No.", "Birthdate", "Tattoo".
-- Registration number format: "P" followed by 3-4 digits, dash, 3 digits (e.g., "P748-594").
+- Registration number format: "P" followed by 3-4 digits, dash, 3 digits (e.g., "P825-142").
 - The owner's name and address appear at the bottom.
-- The "record as of" date at the bottom is the certificate_date.`,
+- The "record as of" date at the bottom is the certificate_date.
+
+UKC THREE/FOUR GENERATION PERFORMANCE PEDIGREE (document_type = "pedigree"):
+- Header: "United Kennel Club Registering Office" and "THREE GENERATION PERFORMANCE PEDIGREE®"
+- The subject dog is shown in the CENTER-LEFT area with fields: UKC® Reg. No., Breed, Sex, Color,
+  Birthdate, Degrees, and "Of" (the registered name).
+- Registration number format: "P" number (e.g., "P825-142").
+- Pedigree tree layout (left = subject, right = older generations):
+    Generation 1 (parents): Sire (top half), Dam (bottom half)
+    Generation 2 (grandparents): Sire's Sire, Sire's Dam, Dam's Sire, Dam's Dam
+    Generation 3 (great-grandparents): 8 entries across right side
+  Each ancestor box shows: name (in ALL CAPS), UKC® Reg. No., Color, Degrees.
+- Titles appear BEFORE the name (e.g., "CH", "GRCH", "URO1", "UNJ GRCH") — strip these
+  for registered_name but note them in "titles".
+- "# of pups" is a performance stat, not a field to extract.
+- If the PDF also contains a Permanent Registration Certificate page or Transfer Application
+  page, IGNORE those pages for pedigree extraction — focus only on the pedigree page.
+- The subject dog's sire name appears as "Sire" label near the top-left with a line connecting
+  to the sire's box; similarly for Dam.`,
 
   KSS: `REGISTRY-SPECIFIC NOTES (KSS — Serbia):
 - Kinoloski Savez Srbije, FCI member.
