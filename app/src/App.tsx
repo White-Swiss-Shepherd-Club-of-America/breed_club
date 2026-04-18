@@ -77,14 +77,7 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <DashboardPage />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/dashboard" element={<Navigate to="/" replace />} />
               <Route
                 path="/apply"
                 element={
@@ -102,7 +95,7 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
-              <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/admin" element={<Navigate to="/" replace />} />
               <Route
                 path="/admin/members"
                 element={

@@ -176,6 +176,13 @@
       "when": 1776500000000,
       "tag": "0024_massive_phantom_reporter",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1776526735762,
+      "tag": "0025_public_krista_starr",
+      "breakpoints": true
     }
   ]
 }

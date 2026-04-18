@@ -13,6 +13,9 @@ import {
   useUpdateClearance,
   useDeleteClearance,
 } from "@/hooks/useHealthClearances";
+import { useCurrentMember } from "@/hooks/useCurrentMember";
+import { useAdminDeleteClearance } from "@/hooks/useAdmin";
+import { AdminDeleteClearanceModal, type ClearanceForDelete } from "@/components/AdminDeleteClearanceModal";
 import { formatDate } from "@/lib/utils";
 import { ratingBgClass } from "@/lib/health-colors";
 
@@ -179,7 +182,11 @@ export function HealthClearancesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editing, setEditing] = useState<MyClearance | null>(null);
   const [collapsedByDog, setCollapsedByDog] = useState<Record<string, boolean>>({});
+  const [adminDeletingClearance, setAdminDeletingClearance] = useState<ClearanceForDelete | null>(null);
   const deleteClearance = useDeleteClearance();
+  const adminDeleteClearance = useAdminDeleteClearance();
+  const { member } = useCurrentMember();
+  const isAdmin = member?.is_admin || (member?.tierLevel ?? 0) >= 100 || member?.can_manage_registry;
 
   const handleDeleteClearance = async (clearance: MyClearance) => {
     if (!confirm(`Delete this ${clearance.test_type.short_name} clearance? This cannot be undone.`)) return;
@@ -498,6 +505,19 @@ export function HealthClearancesPage() {
                               Delete
                             </button>
                           </div>
+                        ) : isAdmin ? (
+                          <button
+                            onClick={() => setAdminDeletingClearance({
+                              id: clearance.id,
+                              dog_id: clearance.dog_id,
+                              result: clearance.result,
+                              test_date: clearance.test_date,
+                              test_type: clearance.test_type,
+                            })}
+                            className="text-red-500 hover:underline text-sm"
+                          >
+                            Delete
+                          </button>
                         ) : (
                           <span className="text-xs text-gray-400">Locked</span>
                         )}
@@ -536,6 +556,17 @@ export function HealthClearancesPage() {
 
       <AddHealthCertificateModal open={isAddOpen} onClose={closeAddModal} initialDogId={dogIdForAdd} />
       {editing && <EditClearanceModal clearance={editing} onClose={() => setEditing(null)} />}
+      {adminDeletingClearance && (
+        <AdminDeleteClearanceModal
+          clearance={adminDeletingClearance}
+          onClose={() => setAdminDeletingClearance(null)}
+          onConfirm={async () => {
+            await adminDeleteClearance.mutateAsync({ id: adminDeletingClearance.id, dogId: adminDeletingClearance.dog_id });
+            setAdminDeletingClearance(null);
+          }}
+          isDeleting={adminDeleteClearance.isPending}
+        />
+      )}
     </div>
   );
 }

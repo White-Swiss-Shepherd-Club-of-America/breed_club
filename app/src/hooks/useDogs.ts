@@ -634,3 +634,49 @@ export function useDeleteHealthCondition() {
     },
   });
 }
+
+export interface DogDeletePreview {
+  dog: { id: string; registered_name: string; call_name: string | null };
+  counts: {
+    clearances: number;
+    registrations: number;
+    conditions: number;
+    transfers: number;
+    litters: number;
+    pups: number;
+    children: number;
+  };
+}
+
+export function useAdminDogDeletePreview(dogId: string | undefined, enabled: boolean) {
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ["adminDogDeletePreview", dogId],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<DogDeletePreview>(`/admin/dogs/${dogId}/delete-preview`, { token });
+    },
+    enabled: enabled && !!dogId,
+  });
+}
+
+export function useAdminDeleteDog() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.delete<{ success: boolean; deleted: { id: string; registered_name: string } }>(
+        `/admin/dogs/${id}`,
+        { token }
+      );
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["dogs"] });
+      queryClient.removeQueries({ queryKey: ["dog", id] });
+      queryClient.removeQueries({ queryKey: ["adminDogDeletePreview", id] });
+    },
+  });
+}

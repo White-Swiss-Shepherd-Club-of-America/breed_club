@@ -4,10 +4,13 @@
  * - GET    /members              — list all members
  * - GET    /members/:id          — get member detail
  * - PATCH  /members/:id          — update member (tier, flags, etc.)
- * - GET    /dogs/pending         — list dogs awaiting approval
- * - POST   /dogs/:id/approve     — approve dog
- * - POST   /dogs/:id/reject      — reject dog
- * - PATCH  /dogs/:id             — update dog (admin/approver)
+ * - GET    /dogs/pending              — list dogs awaiting approval
+ * - GET    /dogs/:id/delete-preview  — preview cascade impact of deletion
+ * - POST   /dogs/:id/approve         — approve dog
+ * - POST   /dogs/:id/reject          — reject dog
+ * - DELETE /dogs/:id                 — permanently delete dog (admin only)
+ * - PATCH  /dogs/:id                 — update dog (admin/approver)
+ * - DELETE /clearances/:id           — permanently delete clearance (admin only)
  * - GET    /organizations        — list organizations
  * - POST   /organizations        — create organization
  * - GET    /health-test-types    — list health test types
@@ -17,7 +20,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, sql, ilike, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import { eq, and, or, sql, ilike, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
@@ -35,13 +38,16 @@ import {
   dogOwnershipTransfers,
   healthCertVersions,
   litters,
+  litterPups,
+  dogRegistrations,
+  healthConditions,
   clubs,
   membershipTiers,
   membershipApplications,
 } from "../db/schema.js";
 import { createMembershipTierSchema, updateMembershipTierSchema } from "@breed-club/shared";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
-import { logDogAudit } from "../lib/audit.js";
+import { logDogAudit, logDogDeletion, logClearanceDeletion } from "../lib/audit.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
 import { recomputeHealthRating, recomputeAllClubRatings } from "../lib/rating.js";
 import { refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
@@ -371,6 +377,98 @@ adminRoutes.post("/dogs/:id/recalculate", requirePermission("health:verify"), as
   const rating = await recomputeHealthRating(db, id);
 
   return c.json({ health_rating: rating });
+});
+
+/**
+ * GET /dogs/:id/delete-preview — preview cascade impact of deleting a dog.
+ */
+adminRoutes.get("/dogs/:id/delete-preview", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+    columns: { id: true, registered_name: true, call_name: true },
+  });
+
+  if (!dog) {
+    throw notFound("Dog");
+  }
+
+  const [clearances, registrations, conditions, transfers, littersRef, pups, children] =
+    await Promise.all([
+      db.select({ count: sql<number>`count(*)` }).from(dogHealthClearances).where(eq(dogHealthClearances.dog_id, id)),
+      db.select({ count: sql<number>`count(*)` }).from(dogRegistrations).where(eq(dogRegistrations.dog_id, id)),
+      db.select({ count: sql<number>`count(*)` }).from(healthConditions).where(eq(healthConditions.dog_id, id)),
+      db.select({ count: sql<number>`count(*)` }).from(dogOwnershipTransfers).where(eq(dogOwnershipTransfers.dog_id, id)),
+      db.select({ count: sql<number>`count(*)` }).from(litters).where(or(eq(litters.sire_id, id), eq(litters.dam_id, id))),
+      db.select({ count: sql<number>`count(*)` }).from(litterPups).where(eq(litterPups.dog_id, id)),
+      db.select({ count: sql<number>`count(*)` }).from(dogs).where(and(ne(dogs.id, id), or(eq(dogs.sire_id, id), eq(dogs.dam_id, id)))),
+    ]);
+
+  return c.json({
+    dog,
+    counts: {
+      clearances: Number(clearances[0]?.count ?? 0),
+      registrations: Number(registrations[0]?.count ?? 0),
+      conditions: Number(conditions[0]?.count ?? 0),
+      transfers: Number(transfers[0]?.count ?? 0),
+      litters: Number(littersRef[0]?.count ?? 0),
+      pups: Number(pups[0]?.count ?? 0),
+      children: Number(children[0]?.count ?? 0),
+    },
+  });
+});
+
+/**
+ * DELETE /dogs/:id — permanently delete a dog (admin only, hard delete).
+ * Cascades to clearances, registrations, conditions, transfers.
+ * Nullifies litter and pedigree references.
+ */
+adminRoutes.delete("/dogs/:id", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, id), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) {
+    throw notFound("Dog");
+  }
+
+  await db.transaction(async (tx) => {
+    // Nullify litter references
+    await tx.update(litters).set({ sire_id: null }).where(eq(litters.sire_id, id));
+    await tx.update(litters).set({ dam_id: null }).where(eq(litters.dam_id, id));
+
+    // Nullify litter pup links
+    await tx.update(litterPups).set({ dog_id: null }).where(eq(litterPups.dog_id, id));
+
+    // Nullify pedigree parent references on other dogs
+    await tx.update(dogs).set({ sire_id: null }).where(eq(dogs.sire_id, id));
+    await tx.update(dogs).set({ dam_id: null }).where(eq(dogs.dam_id, id));
+
+    // Audit log (inserted before delete; dog_id will be SET NULL by cascade)
+    await logDogDeletion(tx as unknown as Database, {
+      clubId,
+      dogId: id,
+      memberId: auth.member!.id,
+      snapshot: dog as unknown as Record<string, unknown>,
+    });
+
+    // Hard delete — cascades to clearances, registrations, conditions, transfers
+    await tx.delete(dogs).where(eq(dogs.id, id));
+  });
+
+  return c.json({ success: true, deleted: { id, registered_name: dog.registered_name } });
 });
 
 /**
@@ -963,6 +1061,51 @@ adminRoutes.post("/clearances/:id/reject", requirePermission("health:verify"), a
   c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
 
   return c.json({ clearance: updated });
+});
+
+/**
+ * DELETE /clearances/:id — permanently delete a clearance (admin only).
+ * Works for any status including approved. Triggers health rating recompute.
+ */
+adminRoutes.delete("/clearances/:id", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const id = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const clearance = await db.query.dogHealthClearances.findFirst({
+    where: eq(dogHealthClearances.id, id),
+    with: {
+      dog: { columns: { club_id: true } },
+      healthTestType: { columns: { name: true } },
+    },
+  });
+
+  if (!clearance) {
+    throw notFound("Clearance");
+  }
+
+  if (clearance.dog.club_id !== clubId) {
+    throw notFound("Clearance");
+  }
+
+  await logClearanceDeletion(db, {
+    clubId,
+    dogId: clearance.dog_id,
+    memberId: auth.member.id,
+    snapshot: clearance as unknown as Record<string, unknown>,
+  });
+
+  await db.delete(dogHealthClearances).where(eq(dogHealthClearances.id, id));
+
+  recomputeHealthRating(db, clearance.dog_id).catch(() => {});
+  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
+
+  return c.json({ success: true });
 });
 
 // ─── CSV Exports ─────────────────────────────────────────────────────────────

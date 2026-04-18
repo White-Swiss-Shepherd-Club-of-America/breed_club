@@ -256,3 +256,20 @@ export function useDirectInvite() {
     },
   });
 }
+
+export function useAdminDeleteClearance() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, dogId }: { id: string; dogId: string }) => {
+      const token = await getToken();
+      return api.delete<{ success: boolean }>(`/admin/clearances/${id}`, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dogs", variables.dogId, "clearances"] });
+      queryClient.invalidateQueries({ queryKey: ["dog", variables.dogId] });
+      queryClient.invalidateQueries({ queryKey: ["myClearances"] });
+    },
+  });
+}

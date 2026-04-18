@@ -58,7 +58,6 @@ export function Layout() {
 
   const navItems = [
     { to: "/", label: "Home", icon: Home, show: true },
-    { to: "/dashboard", label: "Dashboard", icon: Home, show: !!member },
     { to: "/registry", label: "Dog Registry", icon: PawPrint, show: !!isMemberOrHigher },
     { to: "/health/clearances", label: "My Health Clearances", icon: HeartPulse, show: !!member },
     { to: "/health-stats", label: "Health Statistics", icon: BarChart3, show: !!isMemberOrHigher },

@@ -827,8 +827,7 @@ export const dogAuditLogs = pgTable(
       .notNull()
       .references(() => clubs.id),
     dog_id: uuid("dog_id")
-      .notNull()
-      .references(() => dogs.id, { onDelete: "cascade" }),
+      .references(() => dogs.id, { onDelete: "set null" }),
     member_id: uuid("member_id")
       .notNull()
       .references(() => members.id),

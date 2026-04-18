@@ -67,3 +67,52 @@ export async function logDogAudit(
     changes,
   });
 }
+
+/**
+ * Log a dog deletion. Stores full record snapshot so the audit survives cascade.
+ * The dog_id FK will be set to null when the dog is deleted (ON DELETE SET NULL),
+ * so we also store the dog_id inside the changes JSON.
+ */
+export async function logDogDeletion(
+  db: Database,
+  opts: {
+    clubId: string;
+    dogId: string;
+    memberId: string;
+    snapshot: Record<string, unknown>;
+  }
+) {
+  await db.insert(dogAuditLogs).values({
+    club_id: opts.clubId,
+    dog_id: opts.dogId,
+    member_id: opts.memberId,
+    action: "delete",
+    changes: [
+      { field: "dog_id", old: opts.dogId, new: null },
+      { field: "full_record", old: opts.snapshot, new: null },
+    ],
+  });
+}
+
+/**
+ * Log an admin clearance deletion against a dog's audit trail.
+ */
+export async function logClearanceDeletion(
+  db: Database,
+  opts: {
+    clubId: string;
+    dogId: string;
+    memberId: string;
+    snapshot: Record<string, unknown>;
+  }
+) {
+  await db.insert(dogAuditLogs).values({
+    club_id: opts.clubId,
+    dog_id: opts.dogId,
+    member_id: opts.memberId,
+    action: "admin_delete_clearance",
+    changes: [
+      { field: "full_record", old: opts.snapshot, new: null },
+    ],
+  });
+}

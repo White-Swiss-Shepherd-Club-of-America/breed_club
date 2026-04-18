@@ -5,7 +5,10 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration, useAdminDeleteDog } from "@/hooks/useDogs";
+import { useAdminDeleteClearance } from "@/hooks/useAdmin";
+import { AdminDeleteDogModal } from "@/components/AdminDeleteDogModal";
+import { AdminDeleteClearanceModal, type ClearanceForDelete } from "@/components/AdminDeleteClearanceModal";
 import { RefreshCw, ExternalLink, Camera, Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { ScanRegistrationModal } from "@/components/registration/ScanRegistrationModal";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
@@ -707,7 +710,9 @@ function HealthRecordsTab({
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [viewingCert, setViewingCert] = useState<string | null>(null);
   const [certToken, setCertToken] = useState<string | null>(null);
+  const [deletingClearance, setDeletingClearance] = useState<ClearanceForDelete | null>(null);
   const { getToken } = useAuth();
+  const adminDeleteClearance = useAdminDeleteClearance();
 
   const clearances = dog.health_clearances || dog.healthClearances || [];
   const showAddClearance = (canManageClearances || canEdit) && !dog.is_historical;
@@ -779,6 +784,7 @@ function HealthRecordsTab({
                 <SortableHeader field="age" label="Age" current={sortField} order={sortOrder} onSort={toggleSort} />
                 <SortableHeader field="status" label="Status" current={sortField} order={sortOrder} onSort={toggleSort} />
                 <th className="text-left py-2 px-2 font-medium text-gray-500">Cert</th>
+                {canEdit && <th className="py-2 px-2" />}
               </tr>
             </thead>
             <tbody>
@@ -836,6 +842,23 @@ function HealthRecordsTab({
                         <span className="text-xs text-gray-500">{c.certificate_number}</span>
                       ) : null}
                     </td>
+                    {canEdit && (
+                      <td className="py-2 px-2">
+                        <button
+                          onClick={() => setDeletingClearance({
+                            id: c.id,
+                            dog_id: dog.id,
+                            result: c.result,
+                            test_date: c.test_date,
+                            test_type: c.healthTestType || c.testType || c.health_test_type,
+                          })}
+                          className="text-gray-400 hover:text-red-600 p-1 transition-colors"
+                          title="Delete clearance (admin)"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -848,6 +871,18 @@ function HealthRecordsTab({
 
       {viewingCert && (
         <CertificateModal url={viewingCert} onClose={() => setViewingCert(null)} token={certToken} />
+      )}
+
+      {deletingClearance && (
+        <AdminDeleteClearanceModal
+          clearance={deletingClearance}
+          onClose={() => setDeletingClearance(null)}
+          onConfirm={async () => {
+            await adminDeleteClearance.mutateAsync({ id: deletingClearance.id, dogId: deletingClearance.dog_id });
+            setDeletingClearance(null);
+          }}
+          isDeleting={adminDeleteClearance.isPending}
+        />
       )}
 
       {/* Health Conditions */}
@@ -1510,16 +1545,23 @@ export function DogDetailPage() {
   const [showDeceasedDialog, setShowDeceasedDialog] = useState(false);
   const [showEditDogModal, setShowEditDogModal] = useState(false);
   const [showEditOwnerModal, setShowEditOwnerModal] = useState(false);
+  const [showDeleteDogModal, setShowDeleteDogModal] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const adminUpdateMutation = useAdminUpdateDog();
   const recalcMutation = useRecalculateHealthRating();
   const deleteDogMutation = useDeleteDog();
+  const adminDeleteDogMutation = useAdminDeleteDog();
 
   const handleDeleteDog = async () => {
     if (!confirm("Are you sure you want to delete this dog submission? This cannot be undone.")) return;
     await deleteDogMutation.mutateAsync(id!);
     navigate("/dogs");
+  };
+
+  const handleAdminDeleteDog = async () => {
+    await adminDeleteDogMutation.mutateAsync(id!);
+    navigate("/registry");
   };
 
   if (isLoading) {
@@ -1751,6 +1793,14 @@ export function DogDetailPage() {
                   Edit
                 </Link>
               )}
+              {canEdit && (
+                <button
+                  onClick={() => setShowDeleteDogModal(true)}
+                  className="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1831,6 +1881,17 @@ export function DogDetailPage() {
       {/* Edit Owner Fields Modal (approved dog, owner) */}
       {showEditOwnerModal && (
         <EditOwnerFieldsModal dog={dog} onClose={() => setShowEditOwnerModal(false)} />
+      )}
+
+      {/* Admin Delete Dog Modal */}
+      {showDeleteDogModal && id && (
+        <AdminDeleteDogModal
+          dogId={id}
+          dogName={dog.registered_name}
+          onClose={() => setShowDeleteDogModal(false)}
+          onConfirm={handleAdminDeleteDog}
+          isDeleting={adminDeleteDogMutation.isPending}
+        />
       )}
     </div>
   );
