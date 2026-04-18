@@ -56,9 +56,10 @@ function DogCard({ dog, onApprove, onReject }: { dog: Dog; onApprove: () => void
                 <span className="text-gray-600">Color:</span> {dog.color}
               </div>
             )}
-            {dog.microchip_number && (
+            {dog.microchips && dog.microchips.length > 0 && (
               <div>
-                <span className="text-gray-600">Microchip:</span> {dog.microchip_number}
+                <span className="text-gray-600">Microchip{dog.microchips.length > 1 ? "s" : ""}:</span>{" "}
+                {dog.microchips.map((mc) => mc.microchip_number).join(", ")}
               </div>
             )}
           </div>

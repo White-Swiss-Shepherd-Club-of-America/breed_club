@@ -5,7 +5,7 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration, useAdminDeleteDog } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration, useAddDogMicrochip, useDeleteDogMicrochip, useAdminDeleteDog } from "@/hooks/useDogs";
 import { useAdminDeleteClearance } from "@/hooks/useAdmin";
 import { AdminDeleteDogModal } from "@/components/AdminDeleteDogModal";
 import { AdminDeleteClearanceModal, type ClearanceForDelete } from "@/components/AdminDeleteClearanceModal";
@@ -20,7 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ratingToHex, ratingBgClass, effectiveScore, scoreToColor, RATING_COLORS, formatAge } from "@/lib/health-colors";
 import { formatDate } from "@/lib/utils";
-import type { Dog, DogAuditLog, DogRegistration, DogHealthClearance, Contact, HealthRating, BreedingStatus, HealthCondition } from "@breed-club/shared";
+import type { Dog, DogMicrochip, DogAuditLog, DogRegistration, DogHealthClearance, Contact, HealthRating, BreedingStatus, HealthCondition } from "@breed-club/shared";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -485,10 +485,12 @@ function OverviewTab({
             <p className="font-medium text-sm">{dog.coat_type}</p>
           </div>
         )}
-        {dog.microchip_number && (
+        {dog.microchips && dog.microchips.length > 0 && (
           <div>
-            <span className="text-xs text-gray-500">Microchip</span>
-            <p className="font-medium text-sm">{dog.microchip_number}</p>
+            <span className="text-xs text-gray-500">Microchip{dog.microchips.length > 1 ? "s" : ""}</span>
+            {dog.microchips.map((mc) => (
+              <p key={mc.id} className="font-medium text-sm">{mc.microchip_number}</p>
+            ))}
           </div>
         )}
       </div>
@@ -1224,7 +1226,6 @@ function ProgenyTab({ dogId }: { dogId: string }) {
 const FIELD_LABELS: Record<string, string> = {
   registered_name: "Registered Name",
   call_name: "Call Name",
-  microchip_number: "Microchip",
   sex: "Sex",
   date_of_birth: "Date of Birth",
   date_of_death: "Date of Death",
@@ -1331,11 +1332,31 @@ function EditHistoryTab({ dogId }: { dogId: string }) {
 
 function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }) {
   const updateDog = useUpdateDog();
+  const addMicrochip = useAddDogMicrochip();
+  const deleteMicrochip = useDeleteDogMicrochip();
   const [callName, setCallName] = useState(dog.call_name ?? "");
-  const [microchip, setMicrochip] = useState(dog.microchip_number ?? "");
+  const [newChip, setNewChip] = useState("");
   const [color, setColor] = useState(dog.color ?? "");
   const [notes, setNotes] = useState(dog.notes ?? "");
   const [error, setError] = useState<string | null>(null);
+
+  const handleAddChip = async () => {
+    if (!newChip.trim()) return;
+    try {
+      await addMicrochip.mutateAsync({ dogId: dog.id, microchip_number: newChip.trim() });
+      setNewChip("");
+    } catch {
+      setError("Failed to add microchip.");
+    }
+  };
+
+  const handleDeleteChip = async (chipId: string) => {
+    try {
+      await deleteMicrochip.mutateAsync({ dogId: dog.id, microchipId: chipId });
+    } catch {
+      setError("Failed to remove microchip.");
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1344,7 +1365,6 @@ function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }
       await updateDog.mutateAsync({
         id: dog.id,
         call_name: callName || undefined,
-        microchip_number: microchip || undefined,
         color: color || undefined,
       });
       onClose();
@@ -1376,13 +1396,32 @@ function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Microchip Number</label>
-            <input
-              type="text"
-              value={microchip}
-              onChange={(e) => setMicrochip(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Microchip Numbers</label>
+            {dog.microchips && dog.microchips.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {dog.microchips.map((mc) => (
+                  <div key={mc.id} className="flex items-center gap-2 text-sm">
+                    <span className="font-mono">{mc.microchip_number}</span>
+                    <button type="button" onClick={() => handleDeleteChip(mc.id)} className="text-red-400 hover:text-red-600">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newChip}
+                onChange={(e) => setNewChip(e.target.value)}
+                placeholder="Add microchip #"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddChip(); } }}
+              />
+              <button type="button" onClick={handleAddChip} disabled={!newChip.trim() || addMicrochip.isPending} className="px-3 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>

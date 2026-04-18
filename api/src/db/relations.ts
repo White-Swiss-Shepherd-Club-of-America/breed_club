@@ -8,6 +8,7 @@ import {
   organizations,
   dogs,
   dogOwnershipTransfers,
+  dogMicrochips,
   dogRegistrations,
   healthTestTypes,
   healthTestTypeOrgs,
@@ -143,6 +144,7 @@ export const dogsRelations = relations(dogs, ({ one, many }) => ({
     relationName: "dogApprover",
   }),
   registrations: many(dogRegistrations),
+  microchips: many(dogMicrochips),
   healthClearances: many(dogHealthClearances),
   healthConditions: many(healthConditions),
   ownershipTransfers: many(dogOwnershipTransfers),
@@ -182,6 +184,12 @@ export const dogRegistrationsRelations = relations(dogRegistrations, ({ one }) =
     fields: [dogRegistrations.organization_id],
     references: [organizations.id],
   }),
+}));
+
+// ─── Dog Microchip relations ───────────────────────────────────────────────
+
+export const dogMicrochipsRelations = relations(dogMicrochips, ({ one }) => ({
+  dog: one(dogs, { fields: [dogMicrochips.dog_id], references: [dogs.id] }),
 }));
 
 // ─── Health Test Type relations ─────────────────────────────────────────────

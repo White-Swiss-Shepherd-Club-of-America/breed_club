@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, DogAuditLog, DogFilterOptions, HealthRating, HealthCondition, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
+import type { Dog, DogMicrochip, DogAuditLog, DogFilterOptions, HealthRating, HealthCondition, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -179,7 +179,7 @@ export function useCreateDog() {
     mutationFn: async (data: {
       registered_name: string;
       call_name?: string | null;
-      microchip_number?: string | null;
+      microchips?: string[];
       sex?: "male" | "female" | null;
       date_of_birth?: string | null;
       date_of_death?: string | null;
@@ -218,7 +218,6 @@ export function useUpdateDog() {
       id: string;
       registered_name?: string;
       call_name?: string;
-      microchip_number?: string;
       sex?: "male" | "female";
       date_of_birth?: string;
       date_of_death?: string;
@@ -294,7 +293,6 @@ export function useAdminUpdateDog() {
       id: string;
       registered_name?: string;
       call_name?: string;
-      microchip_number?: string;
       sex?: "male" | "female";
       date_of_birth?: string;
       date_of_death?: string;
@@ -337,6 +335,48 @@ export function useAddDogRegistration() {
     }) => {
       const token = await getToken();
       return api.post<RegistrationResponse>(`/dogs/${dogId}/registrations`, data, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dog", variables.dogId] });
+    },
+  });
+}
+
+export function useAddDogMicrochip() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      dogId,
+      microchip_number,
+    }: {
+      dogId: string;
+      microchip_number: string;
+    }) => {
+      const token = await getToken();
+      return api.post<{ microchip: DogMicrochip }>(`/dogs/${dogId}/microchips`, { microchip_number }, { token });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dog", variables.dogId] });
+    },
+  });
+}
+
+export function useDeleteDogMicrochip() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      dogId,
+      microchipId,
+    }: {
+      dogId: string;
+      microchipId: string;
+    }) => {
+      const token = await getToken();
+      return api.delete(`/dogs/${dogId}/microchips/${microchipId}`, { token });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["dog", variables.dogId] });

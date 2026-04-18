@@ -19,7 +19,7 @@ import type { AuthContext } from "@breed-club/shared";
 import type { RegistrationExtractionResponse } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
 import { requireLevel } from "../middleware/rbac.js";
-import { dogs, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
+import { dogs, dogMicrochips, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
 import { notFound, badRequest, forbidden, conflict } from "../lib/errors.js";
 import { isDogOwner } from "../lib/ownership.js";
 import { resolvePedigreeTree } from "../lib/pedigree.js";
@@ -67,7 +67,7 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
   }
 
   const body = await c.req.json();
-  const { registrations: inlineRegs, pedigree, ...dogData } = createDogSchema.parse(body);
+  const { registrations: inlineRegs, microchips: inlineChips, pedigree, ...dogData } = createDogSchema.parse(body);
 
   // Non-admin users must provide at least one external registration for non-historical dogs
   if (
@@ -131,6 +131,7 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
           resource_type: "dog_create",
           ...dogData,
           pedigree,
+          microchips: inlineChips,
           registrations: inlineRegs,
         },
       },
@@ -200,6 +201,16 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
       submitted_by: auth.member.id,
     })
     .returning();
+
+  // Create inline microchips if provided
+  if (inlineChips && inlineChips.length > 0) {
+    await db.insert(dogMicrochips).values(
+      inlineChips.map((chip) => ({
+        dog_id: dog.id,
+        microchip_number: chip,
+      }))
+    );
+  }
 
   // Create inline registrations if provided
   if (inlineRegs && inlineRegs.length > 0) {
@@ -526,6 +537,7 @@ dogRoutes.get("/:id", requireLevel(10), async (c) => {
       breeder: true,
       sire: true,
       dam: true,
+      microchips: true,
       registrations: {
         with: {
           organization: true,
@@ -593,7 +605,8 @@ dogRoutes.patch("/:id", requireLevel(10), async (c) => {
 
   const body = await c.req.json();
   // Strip is_historical — only admins can set this via admin PATCH route
-  const { is_historical: _, pedigree, ...data } = updateDogSchema.parse(body);
+  // Strip microchips — managed via sub-routes
+  const { is_historical: _, microchips: _chips, pedigree, ...data } = updateDogSchema.parse(body);
 
   if (Object.keys(data).length === 0 && !pedigree) {
     throw badRequest("No fields to update");
@@ -825,6 +838,98 @@ dogRoutes.delete("/:id/registrations/:regId", requireLevel(10), async (c) => {
   if (!existing) throw notFound("Registration");
 
   await db.delete(dogRegistrations).where(eq(dogRegistrations.id, regId));
+
+  return c.json({ success: true });
+});
+
+/**
+ * POST /:id/microchips — add a microchip number to a dog.
+ */
+dogRoutes.post("/:id/microchips", requireLevel(10), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const club = c.get("club");
+  const dogId = c.req.param("id");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const body = await c.req.json();
+  const { microchip_number } = body;
+
+  if (!microchip_number || typeof microchip_number !== "string" || microchip_number.length > 50) {
+    throw badRequest("Valid microchip_number is required (max 50 characters)");
+  }
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, dogId), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) throw notFound("Dog");
+
+  const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+  const isOwner = isDogOwner(auth, dog, clubSettings);
+  const isSubmitter = dog.submitted_by === auth.member.id;
+
+  if (!isOwner && !isSubmitter) {
+    throw forbidden("You can only add microchips to your own dogs");
+  }
+
+  // Check for duplicate
+  const existing = await db.query.dogMicrochips.findFirst({
+    where: and(eq(dogMicrochips.dog_id, dogId), eq(dogMicrochips.microchip_number, microchip_number)),
+  });
+
+  if (existing) {
+    throw badRequest("This microchip number is already recorded for this dog");
+  }
+
+  const [microchip] = await db
+    .insert(dogMicrochips)
+    .values({ dog_id: dogId, microchip_number })
+    .returning();
+
+  return c.json({ microchip }, 201);
+});
+
+/**
+ * DELETE /:id/microchips/:chipId — remove a microchip number.
+ */
+dogRoutes.delete("/:id/microchips/:chipId", requireLevel(10), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const auth = c.get("auth");
+  const club = c.get("club");
+  const dogId = c.req.param("id");
+  const chipId = c.req.param("chipId");
+
+  if (!auth?.member) {
+    throw forbidden("Member record required");
+  }
+
+  const dog = await db.query.dogs.findFirst({
+    where: and(eq(dogs.id, dogId), eq(dogs.club_id, clubId)),
+  });
+
+  if (!dog) throw notFound("Dog");
+
+  const clubSettings = (club?.settings ?? {}) as Record<string, unknown>;
+  const isAdmin = auth.isAdmin || auth.tierLevel >= 100 || auth.member.can_manage_registry;
+  const isOwner = isDogOwner(auth, dog, clubSettings);
+
+  if (!isAdmin && !isOwner) {
+    throw forbidden("You can only remove microchips from your own dogs");
+  }
+
+  const existing = await db.query.dogMicrochips.findFirst({
+    where: and(eq(dogMicrochips.id, chipId), eq(dogMicrochips.dog_id, dogId)),
+  });
+
+  if (!existing) throw notFound("Microchip");
+
+  await db.delete(dogMicrochips).where(eq(dogMicrochips.id, chipId));
 
   return c.json({ success: true });
 });

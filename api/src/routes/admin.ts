@@ -235,6 +235,7 @@ adminRoutes.get("/dogs/pending", requirePermission("health:verify"), async (c) =
         breeder: true,
         sire: { columns: { id: true, registered_name: true, call_name: true } },
         dam: { columns: { id: true, registered_name: true, call_name: true } },
+        microchips: true,
         registrations: {
           with: { organization: true },
         },
@@ -485,7 +486,7 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:edit"), async (c) => {
   }
 
   const body = await c.req.json();
-  const { registrations, pedigree, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
+  const { registrations, microchips: _microchips, pedigree, sire_id: rawSireId, dam_id: rawDamId, ...dogData } = updateDogSchema.parse(body);
 
   // Validate color/coat_type against club breed settings
   const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
@@ -1134,6 +1135,7 @@ adminRoutes.get("/export/dogs", requireLevel(100), async (c) => {
       dam: {
         columns: { registered_name: true },
       },
+      microchips: true,
       registrations: {
         with: {
           organization: true,
@@ -1150,6 +1152,7 @@ adminRoutes.get("/export/dogs", requireLevel(100), async (c) => {
     "Sex",
     "Date of Birth",
     "Color",
+    "Microchips",
     "Sire",
     "Dam",
     "Owner Name",
@@ -1167,6 +1170,9 @@ adminRoutes.get("/export/dogs", requireLevel(100), async (c) => {
     const registrations = dog.registrations
       .map((r) => `${r.organization.name}: ${r.registration_number}`)
       .join("; ");
+    const microchips = dog.microchips
+      .map((m) => m.microchip_number)
+      .join("; ");
 
     return [
       dog.id,
@@ -1175,6 +1181,7 @@ adminRoutes.get("/export/dogs", requireLevel(100), async (c) => {
       dog.sex,
       dog.date_of_birth || "",
       dog.color || "",
+      microchips,
       dog.sire?.registered_name || "",
       dog.dam?.registered_name || "",
       dog.owner?.full_name || "",

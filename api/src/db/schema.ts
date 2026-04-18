@@ -189,7 +189,6 @@ export const dogs = pgTable(
       .references(() => clubs.id),
     registered_name: varchar("registered_name", { length: 255 }).notNull(),
     call_name: varchar("call_name", { length: 100 }),
-    microchip_number: varchar("microchip_number", { length: 50 }),
     sex: varchar("sex", { length: 10 }),
     date_of_birth: date("date_of_birth"),
     date_of_death: date("date_of_death"),
@@ -271,6 +270,24 @@ export const dogRegistrations = pgTable(
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex("idx_dog_registrations_unique").on(t.dog_id, t.organization_id)]
+);
+
+// ─── Dog Microchips ────────────────────────────────────────────────────────
+
+export const dogMicrochips = pgTable(
+  "dog_microchips",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dog_id: uuid("dog_id")
+      .notNull()
+      .references(() => dogs.id, { onDelete: "cascade" }),
+    microchip_number: varchar("microchip_number", { length: 50 }).notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_dog_microchips_dog").on(t.dog_id),
+    uniqueIndex("idx_dog_microchips_unique").on(t.dog_id, t.microchip_number),
+  ]
 );
 
 // ─── Health Test Types ──────────────────────────────────────────────────────

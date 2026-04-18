@@ -150,12 +150,18 @@ export interface Member {
   contact?: Contact;
 }
 
+export interface DogMicrochip {
+  id: string;
+  dog_id: string;
+  microchip_number: string;
+  created_at: string;
+}
+
 export interface Dog {
   id: string;
   club_id: string;
   registered_name: string;
   call_name: string | null;
-  microchip_number: string | null;
   sex: string | null;
   date_of_birth: string | null;
   date_of_death: string | null;
@@ -185,6 +191,7 @@ export interface Dog {
   breeder?: Contact;
   sire?: Dog;
   dam?: Dog;
+  microchips?: DogMicrochip[];
   registrations?: DogRegistration[];
   health_clearances?: DogHealthClearance[];
   healthClearances?: DogHealthClearance[];

@@ -5,7 +5,7 @@ import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { ApiError } from "../lib/errors.js";
-import { payments, dogs, dogHealthClearances, clubs, dogRegistrations, healthTestTypeOrgs } from "../db/schema.js";
+import { payments, dogs, dogMicrochips, dogHealthClearances, clubs, dogRegistrations, healthTestTypeOrgs } from "../db/schema.js";
 import type { ResultSchema } from "../db/schema.js";
 import { createPaymentSessionSchema } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
@@ -245,7 +245,6 @@ paymentRoutes.post("/webhook", async (c) => {
           call_name: dogData.call_name || null,
           sex: dogData.sex || null,
           date_of_birth: dogData.date_of_birth || null,
-          microchip_number: dogData.microchip_number || null,
           color,
           coat_type,
           sire_id: dogData.sire_id || null,
@@ -258,6 +257,16 @@ paymentRoutes.post("/webhook", async (c) => {
           submitted_by: payment.member_id,
         })
         .returning();
+
+      // Create inline microchips if provided
+      if (dogData.microchips && dogData.microchips.length > 0) {
+        await db.insert(dogMicrochips).values(
+          dogData.microchips.map((chip: string) => ({
+            dog_id: dog!.id,
+            microchip_number: chip,
+          }))
+        );
+      }
 
       // Create inline registrations if provided
       if (dogData.registrations && dogData.registrations.length > 0) {

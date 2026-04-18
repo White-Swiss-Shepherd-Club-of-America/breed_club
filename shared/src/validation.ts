@@ -85,7 +85,6 @@ export const pedigreeTreeSchema = z.object({
 export const createDogSchema = z.object({
   registered_name: z.string().min(1).max(255),
   call_name: z.string().max(100).nullish(),
-  microchip_number: z.string().max(50).nullish(),
   sex: z.enum(["male", "female"]).nullish(),
   date_of_birth: z.string().date().nullish(),
   date_of_death: z.string().date().nullish(),
@@ -101,6 +100,10 @@ export const createDogSchema = z.object({
   is_public: z.boolean().default(false),
   is_historical: z.boolean().default(false),
   is_deceased: z.boolean().default(false),
+  // Inline microchips for convenience
+  microchips: z
+    .array(z.string().min(1).max(50))
+    .optional(),
   // Inline registrations for convenience
   registrations: z
     .array(

@@ -8,7 +8,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { updateDogSchema } from "@breed-club/shared/validation.js";
-import { useDog, useDogPedigree, useAdminUpdateDog, useUpdateBreedingMetadata } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useAdminUpdateDog, useUpdateBreedingMetadata, useAddDogMicrochip, useDeleteDogMicrochip } from "@/hooks/useDogs";
 import { useClub } from "@/hooks/useClub";
 import { useContacts } from "@/hooks/useContacts";
 import {
@@ -103,6 +103,67 @@ function ContactTypeahead({
   );
 }
 
+function MicrochipEditor({ dogId, microchips }: { dogId: string; microchips: { id: string; microchip_number: string }[] }) {
+  const addMicrochip = useAddDogMicrochip();
+  const deleteMicrochip = useDeleteDogMicrochip();
+  const [newChip, setNewChip] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    if (!newChip.trim()) return;
+    setError(null);
+    try {
+      await addMicrochip.mutateAsync({ dogId, microchip_number: newChip.trim() });
+      setNewChip("");
+    } catch {
+      setError("Failed to add microchip.");
+    }
+  };
+
+  const handleDelete = async (chipId: string) => {
+    setError(null);
+    try {
+      await deleteMicrochip.mutateAsync({ dogId, microchipId: chipId });
+    } catch {
+      setError("Failed to remove microchip.");
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        Microchip # <span className="text-gray-400">(optional)</span>
+      </label>
+      {microchips.length > 0 && (
+        <div className="space-y-1 mb-2">
+          {microchips.map((mc) => (
+            <div key={mc.id} className="flex items-center gap-2">
+              <span className="font-mono text-sm">{mc.microchip_number}</span>
+              <button type="button" onClick={() => handleDelete(mc.id)} className="text-red-400 hover:text-red-600 text-xs">
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newChip}
+          onChange={(e) => setNewChip(e.target.value)}
+          placeholder="Add microchip #"
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } }}
+        />
+        <button type="button" onClick={handleAdd} disabled={!newChip.trim() || addMicrochip.isPending} className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50">
+          Add
+        </button>
+      </div>
+      {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+    </div>
+  );
+}
+
 export function DogEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -153,7 +214,6 @@ export function DogEditPage() {
       ? {
           registered_name: dog.registered_name,
           call_name: dog.call_name ?? undefined,
-          microchip_number: dog.microchip_number ?? undefined,
           sex: (dog.sex === "male" || dog.sex === "female" ? dog.sex : undefined) as
             | "male"
             | "female"
@@ -352,17 +412,7 @@ export function DogEditPage() {
               </div>
             )}
 
-            <div>
-              <label htmlFor="microchip_number" className="block text-sm font-medium text-gray-700 mb-1">
-                Microchip # <span className="text-gray-400">(optional)</span>
-              </label>
-              <input
-                {...register("microchip_number")}
-                type="text"
-                id="microchip_number"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              />
-            </div>
+            <MicrochipEditor dogId={dog.id} microchips={dog.microchips ?? []} />
           </div>
 
           <div>

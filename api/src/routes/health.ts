@@ -11,6 +11,7 @@ import {
   organizations,
   dogHealthClearances,
   dogOwnershipTransfers,
+  dogMicrochips,
   healthConditions,
   dogs,
   memberHealthStatsCache,
@@ -1303,11 +1304,15 @@ healthRoutes.post("/dogs/:dog_id/extract", async (c: ApiContext) => {
   }
 
   // ─── Verify ───────────────────────────────────────────────────
+  const chipRows = await db.select({ microchip_number: dogMicrochips.microchip_number })
+    .from(dogMicrochips).where(eq(dogMicrochips.dog_id, dogId));
+  const microchipNumbers = chipRows.map((r) => r.microchip_number);
+
   const verificationFlagsByPair = new Map<string, VerificationFlag[]>();
   for (const ext of extractions) {
     const flags = verifyDogIdentity(ext, {
       registered_name: dog.registered_name,
-      microchip_number: dog.microchip_number,
+      microchip_numbers: microchipNumbers,
       date_of_birth: dog.date_of_birth,
     });
     verificationFlagsByPair.set(ext.pair_id, flags);

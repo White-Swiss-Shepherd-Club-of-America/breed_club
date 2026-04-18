@@ -7,7 +7,7 @@ import type { VerificationFlag, ExtractionResult } from "./types.js";
 
 interface DogRecord {
   registered_name: string;
-  microchip_number: string | null;
+  microchip_numbers: string[];
   date_of_birth: string | null; // ISO 8601
 }
 
@@ -75,31 +75,34 @@ export function verifyDogIdentity(
       message: "No microchip number found on the certificate",
       field: "microchip",
     });
-  } else if (dog.microchip_number) {
+  } else if (dog.microchip_numbers.length > 0) {
     const certChip = normalizeChip(extraction.cert_microchip);
-    const dogChip = normalizeChip(dog.microchip_number);
+    const dogChips = dog.microchip_numbers.map(normalizeChip);
 
-    if (certChip === dogChip) {
+    const exactMatch = dogChips.some((dc) => dc === certChip);
+    if (exactMatch) {
       // Exact match — no flag
-    } else if (certChip.length !== dogChip.length) {
-      // Length differs — likely leading zero issue
-      flags.push({
-        code: "chip_length_anomaly",
-        severity: "info",
-        message: `Microchip length differs: cert has ${certChip.length} digits, record has ${dogChip.length} digits (possible leading zero issue)`,
-        field: "microchip",
-        expected: dog.microchip_number,
-        extracted: extraction.cert_microchip,
-      });
     } else {
-      flags.push({
-        code: "chip_mismatch",
-        severity: "warning",
-        message: `Microchip "${extraction.cert_microchip}" does not match record "${dog.microchip_number}"`,
-        field: "microchip",
-        expected: dog.microchip_number,
-        extracted: extraction.cert_microchip,
-      });
+      const lengthAnomaly = dogChips.some((dc) => dc !== certChip && dc.length !== certChip.length);
+      if (lengthAnomaly) {
+        flags.push({
+          code: "chip_length_anomaly",
+          severity: "info",
+          message: `Microchip "${extraction.cert_microchip}" has a different length than recorded microchips (possible leading zero issue)`,
+          field: "microchip",
+          expected: dog.microchip_numbers.join(", "),
+          extracted: extraction.cert_microchip,
+        });
+      } else {
+        flags.push({
+          code: "chip_mismatch",
+          severity: "warning",
+          message: `Microchip "${extraction.cert_microchip}" does not match any recorded microchips (${dog.microchip_numbers.join(", ")})`,
+          field: "microchip",
+          expected: dog.microchip_numbers.join(", "),
+          extracted: extraction.cert_microchip,
+        });
+      }
     }
   }
 

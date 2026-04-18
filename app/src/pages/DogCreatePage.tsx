@@ -143,6 +143,7 @@ export function DogCreatePage() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fallbackBanner, setFallbackBanner] = useState<string | null>(null);
+  const [microchipNumber, setMicrochipNumber] = useState("");
 
   const {
     register,
@@ -253,7 +254,7 @@ export function DogCreatePage() {
         sex: data.sex ?? undefined,
         color: data.color ?? undefined,
         coat_type: data.coat_type ?? undefined,
-        microchip_number: data.microchip_number ?? undefined,
+        microchips: data.microchip_number ? [data.microchip_number] : undefined,
         owner_id: data.owner_id ?? undefined,
         breeder_id: data.breeder_id ?? undefined,
         pedigree: slotsToTree(slots),
@@ -341,6 +342,7 @@ export function DogCreatePage() {
       await createMutation.mutateAsync({
         ...data,
         call_name: data.call_name ?? undefined,
+        microchips: microchipNumber.trim() ? [microchipNumber.trim()] : undefined,
         sire_id: undefined,
         dam_id: undefined,
         pedigree,
@@ -648,9 +650,10 @@ export function DogCreatePage() {
                     Microchip # <span className="text-gray-400">(optional)</span>
                   </label>
                   <input
-                    {...register("microchip_number")}
                     type="text"
                     id="microchip_number"
+                    value={microchipNumber}
+                    onChange={(e) => setMicrochipNumber(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                 </div>
