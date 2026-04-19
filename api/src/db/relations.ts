@@ -29,6 +29,9 @@ import {
   voteParticipation,
   membershipTiers,
   dogAuditLogs,
+  litterAds,
+  litterAdEvents,
+  socialPostLog,
 } from "./schema.js";
 
 // ─── Club relations ─────────────────────────────────────────────────────────
@@ -45,6 +48,7 @@ export const clubsRelations = relations(clubs, ({ one, many }) => ({
   }),
   healthCertVersions: many(healthCertVersions),
   litters: many(litters),
+  litterAds: many(litterAds),
   membershipApplications: many(membershipApplications),
   membershipFormFields: many(membershipFormFields),
   payments: many(payments),
@@ -397,4 +401,28 @@ export const voteRecordsRelations = relations(voteRecords, ({ one }) => ({
 export const voteParticipationRelations = relations(voteParticipation, ({ one }) => ({
   question: one(voteQuestions, { fields: [voteParticipation.question_id], references: [voteQuestions.id] }),
   member: one(members, { fields: [voteParticipation.member_id], references: [members.id] }),
+}));
+
+// ─── Litter Ad relations ───────────────────────────────────────────────────
+
+export const litterAdsRelations = relations(litterAds, ({ one, many }) => ({
+  club: one(clubs, { fields: [litterAds.club_id], references: [clubs.id] }),
+  member: one(members, { fields: [litterAds.member_id], references: [members.id], relationName: "adMember" }),
+  approvedBy: one(members, { fields: [litterAds.approved_by], references: [members.id], relationName: "adApprover" }),
+  payment: one(payments, { fields: [litterAds.payment_id], references: [payments.id] }),
+  events: many(litterAdEvents),
+  socialPosts: many(socialPostLog),
+}));
+
+// ─── Litter Ad Event relations ─────────────────────────────────────────────
+
+export const litterAdEventsRelations = relations(litterAdEvents, ({ one }) => ({
+  ad: one(litterAds, { fields: [litterAdEvents.ad_id], references: [litterAds.id] }),
+}));
+
+// ─── Social Post Log relations ─────────────────────────────────────────────
+
+export const socialPostLogRelations = relations(socialPostLog, ({ one }) => ({
+  club: one(clubs, { fields: [socialPostLog.club_id], references: [clubs.id] }),
+  ad: one(litterAds, { fields: [socialPostLog.ad_id], references: [litterAds.id] }),
 }));

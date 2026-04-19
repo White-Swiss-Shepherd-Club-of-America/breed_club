@@ -22,6 +22,7 @@ import { uploadRoutes } from "./routes/uploads.js";
 import { formFieldRoutes } from "./routes/form-fields.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { votingRoutes } from "./routes/voting.js";
+import { adsRoutes } from "./routes/ads.js";
 import { createDb } from "./db/client.js";
 import { clubs } from "./db/schema.js";
 import { eq } from "drizzle-orm";
@@ -98,6 +99,9 @@ app.route("/api/invitations", invitationRoutes);
 
 // Voting / Elections
 app.route("/api/voting", votingRoutes);
+
+// Litter Ads
+app.route("/api/ads", adsRoutes);
 
 // Health stamp SSR pages (no /api prefix)
 app.route("/", healthStampRoutes);

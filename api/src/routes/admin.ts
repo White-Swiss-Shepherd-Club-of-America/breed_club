@@ -1675,11 +1675,34 @@ adminRoutes.patch("/settings", requireLevel(100), async (c) => {
   const body = await c.req.json();
 
   // Validate expected shape
+  const socialIntegrationSchema = z.object({
+    enabled: z.boolean(),
+    page_id: z.string().max(255).nullish(),
+    account_id: z.string().max(255).nullish(),
+    handle: z.string().max(255).nullish(),
+  }).partial().optional();
+
   const settingsUpdate = z.object({
     banner_width: z.number().int().min(100).max(2000).optional(),
     banner_height: z.number().int().min(50).max(1000).optional(),
     breed_colors: z.array(z.string().min(1).max(100)).max(50).optional(),
     breed_coat_types: z.array(z.string().min(1).max(50)).max(50).optional(),
+    litter_ads: z.object({
+      enabled: z.boolean().optional(),
+      max_active_per_member: z.number().int().min(1).max(50).optional(),
+      posting_cooldown_days: z.number().int().min(0).max(365).optional(),
+      expiration_days: z.number().int().min(1).max(365).optional(),
+      require_approval: z.boolean().optional(),
+      fee_cents: z.number().int().min(0).optional(),
+      ad_image_width: z.number().int().min(100).max(4000).optional(),
+      ad_image_height: z.number().int().min(100).max(4000).optional(),
+      sort_order: z.enum(["newest", "oldest", "priority"]).optional(),
+    }).optional(),
+    social_integrations: z.object({
+      facebook: socialIntegrationSchema,
+      instagram: socialIntegrationSchema,
+      twitter: socialIntegrationSchema,
+    }).optional(),
   }).parse(body);
 
   // Fetch current settings and merge

@@ -72,6 +72,7 @@ export const loadMember = createMiddleware<{
       can_approve_members: member.can_approve_members,
       can_approve_clearances: member.can_approve_clearances,
       can_manage_registry: member.can_manage_registry,
+      can_approve_ads: member.can_approve_ads,
     },
     memberId: member.id,
     contactId: member.contact_id,
@@ -86,6 +87,7 @@ export const loadMember = createMiddleware<{
       can_approve_members: member.can_approve_members,
       can_approve_clearances: member.can_approve_clearances,
       can_manage_registry: member.can_manage_registry,
+      can_approve_ads: member.can_approve_ads,
       skip_fees: member.skip_fees,
     },
   };

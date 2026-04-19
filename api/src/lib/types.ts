@@ -28,6 +28,17 @@ export interface Env {
   LLM_PROVIDER?: string; // "anthropic" (default) — which LLM provider to use
   LLM_MODEL_FAST?: string; // Cheap model for easy certs (default: claude-haiku-4-5-20250315)
   LLM_MODEL_STRONG?: string; // Expensive model for hard certs (default: claude-sonnet-4-6-20250514)
+  // Static site API key — read-only key for public litter ad endpoint
+  PUBLIC_API_KEY?: string;
+  // Social media credentials (wrangler secrets — disabled if not set)
+  FACEBOOK_PAGE_TOKEN?: string;   // Facebook Graph API page access token
+  FACEBOOK_PAGE_ID?: string;      // Facebook Page ID to post to
+  INSTAGRAM_ACCESS_TOKEN?: string; // Instagram Graph API access token
+  INSTAGRAM_USER_ID?: string;     // Instagram business account user ID
+  TWITTER_API_KEY?: string;       // X/Twitter OAuth 1.0a API key
+  TWITTER_API_SECRET?: string;
+  TWITTER_ACCESS_TOKEN?: string;
+  TWITTER_ACCESS_SECRET?: string;
 }
 
 /**

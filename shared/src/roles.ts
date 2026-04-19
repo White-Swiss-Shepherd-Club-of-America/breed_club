@@ -45,6 +45,7 @@ export interface PermissionFlags {
   can_approve_members: boolean;
   can_approve_clearances: boolean;
   can_manage_registry: boolean;
+  can_approve_ads: boolean;
 }
 
 /** Full authorization context for a request */
@@ -68,6 +69,7 @@ export interface AuthContext {
     can_approve_members: boolean;
     can_approve_clearances: boolean;
     can_manage_registry: boolean;
+    can_approve_ads: boolean;
     skip_fees: boolean;
   };
 }
@@ -117,6 +119,12 @@ export const PERMISSIONS = {
 
   // Search / research
   "research:access": { minLevel: 20 },
+
+  // Litter Ads
+  "ads:create": { minLevel: 20, flag: "is_breeder" as const },
+  "ads:read_own": { minLevel: 20 },
+  "ads:approve": { minLevel: 20, flag: "can_approve_ads" as const },
+  "ads:manage_social": { minLevel: SYSTEM_LEVELS.ADMIN },
 
   // Admin
   "settings:manage": { minLevel: SYSTEM_LEVELS.ADMIN },

@@ -77,6 +77,7 @@ export const members = pgTable(
     can_approve_members: boolean("can_approve_members").notNull().default(false),
     can_approve_clearances: boolean("can_approve_clearances").notNull().default(false),
     can_manage_registry: boolean("can_manage_registry").notNull().default(false),
+    can_approve_ads: boolean("can_approve_ads").notNull().default(false),
     show_in_directory: boolean("show_in_directory").notNull().default(true),
     verified_breeder: boolean("verified_breeder").notNull().default(false),
     logo_url: varchar("logo_url", { length: 500 }),
@@ -831,6 +832,107 @@ export const voteParticipation = pgTable(
   (t) => [
     uniqueIndex("idx_vote_participation_unique").on(t.question_id, t.member_id),
     index("idx_vote_participation_member").on(t.member_id),
+  ]
+);
+
+// ─── Litter Ads ─────────────────────────────────────────────────────────────
+//
+// Breeders (is_breeder flag) may advertise planned/available litters.
+// Settings: clubs.settings.litter_ads.{expiration_days, posting_cooldown_days,
+//   max_active_per_member, require_approval, fee_cents, max_images,
+//   ad_image_width, ad_image_height, sort_order}
+//
+// Status flow: draft → submitted → approved → active → expired | archived
+//   (revision_requested is a side-state: ad stays editable, then re-submitted)
+
+export const litterAds = pgTable(
+  "litter_ads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    member_id: uuid("member_id")
+      .notNull()
+      .references(() => members.id),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    image_url: varchar("image_url", { length: 500 }),
+    contact_url: varchar("contact_url", { length: 500 }),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    // Configurable sort priority — lower number = shown first within same published_at
+    priority: integer("priority").notNull().default(0),
+    // Payment hook (unused while fee_cents = 0)
+    price_cents: integer("price_cents"),
+    payment_id: uuid("payment_id").references(() => payments.id),
+    // Approval workflow
+    approved_by: uuid("approved_by").references(() => members.id),
+    approved_at: timestamp("approved_at", { withTimezone: true }),
+    revision_notes: text("revision_notes"),
+    // Lifecycle
+    published_at: timestamp("published_at", { withTimezone: true }),
+    expires_at: timestamp("expires_at", { withTimezone: true }),
+    // Denormalized counters — fast reads for breeder stats page
+    impression_count: integer("impression_count").notNull().default(0),
+    click_count: integer("click_count").notNull().default(0),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_litter_ads_club_status").on(t.club_id, t.status),
+    index("idx_litter_ads_member").on(t.member_id),
+    index("idx_litter_ads_expires").on(t.club_id, t.expires_at),
+  ]
+);
+
+// ─── Litter Ad Events ────────────────────────────────────────────────────────
+// Impression and click events for per-ad analytics.
+// Denormalized counters on litter_ads are incremented for fast reads;
+// this table is the source of truth for rollup queries.
+
+export const litterAdEvents = pgTable(
+  "litter_ad_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ad_id: uuid("ad_id")
+      .notNull()
+      .references(() => litterAds.id, { onDelete: "cascade" }),
+    event_type: varchar("event_type", { length: 20 }).notNull(), // "impression" | "click"
+    // Optional context stored as JSONB (referrer URL, user agent, etc.)
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_litter_ad_events_ad").on(t.ad_id),
+    index("idx_litter_ad_events_type_date").on(t.ad_id, t.event_type, t.created_at),
+  ]
+);
+
+// ─── Social Post Log ─────────────────────────────────────────────────────────
+// Tracks cross-posts made to social platforms when an ad is approved.
+// Credentials live in Wrangler secrets (FACEBOOK_PAGE_TOKEN, etc.);
+// platform enable/config lives in clubs.settings.social_integrations.
+
+export const socialPostLog = pgTable(
+  "social_post_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    ad_id: uuid("ad_id")
+      .notNull()
+      .references(() => litterAds.id, { onDelete: "cascade" }),
+    platform: varchar("platform", { length: 30 }).notNull(), // "facebook" | "instagram" | "twitter"
+    external_post_id: varchar("external_post_id", { length: 255 }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"), // "pending" | "posted" | "failed"
+    error_message: text("error_message"),
+    posted_at: timestamp("posted_at", { withTimezone: true }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_social_post_log_ad").on(t.ad_id),
+    index("idx_social_post_log_club_platform").on(t.club_id, t.platform),
   ]
 );
 

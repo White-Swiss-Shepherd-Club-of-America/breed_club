@@ -1119,8 +1119,386 @@ function MembershipTiersTab() {
   );
 }
 
+function LitterAdsTab() {
+  const { getToken } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const [enabled, setEnabled] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(true);
+  const [maxActive, setMaxActive] = useState(3);
+  const [cooldownDays, setCooldownDays] = useState(30);
+  const [expirationDays, setExpirationDays] = useState(90);
+  const [feeCents, setFeeCents] = useState(0);
+  const [imageWidth, setImageWidth] = useState(1200);
+  const [imageHeight, setImageHeight] = useState(630);
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "priority">("newest");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await getToken();
+        const result = await api.get<{ settings: Record<string, unknown> }>("/admin/settings", { token });
+        const la = result.settings?.litter_ads as Record<string, unknown> | undefined;
+        if (la) {
+          if (typeof la.enabled === "boolean") setEnabled(la.enabled);
+          if (typeof la.require_approval === "boolean") setRequireApproval(la.require_approval);
+          if (typeof la.max_active_per_member === "number") setMaxActive(la.max_active_per_member);
+          if (typeof la.posting_cooldown_days === "number") setCooldownDays(la.posting_cooldown_days);
+          if (typeof la.expiration_days === "number") setExpirationDays(la.expiration_days);
+          if (typeof la.fee_cents === "number") setFeeCents(la.fee_cents);
+          if (typeof la.ad_image_width === "number") setImageWidth(la.ad_image_width);
+          if (typeof la.ad_image_height === "number") setImageHeight(la.ad_image_height);
+          if (la.sort_order === "newest" || la.sort_order === "oldest" || la.sort_order === "priority") setSortOrder(la.sort_order);
+        }
+      } catch {
+        // defaults are fine
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [getToken]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const token = await getToken();
+      await api.patch(
+        "/admin/settings",
+        {
+          litter_ads: {
+            enabled,
+            require_approval: requireApproval,
+            max_active_per_member: maxActive,
+            posting_cooldown_days: cooldownDays,
+            expiration_days: expirationDays,
+            fee_cents: feeCents,
+            ad_image_width: imageWidth,
+            ad_image_height: imageHeight,
+            sort_order: sortOrder,
+          },
+        },
+        { token }
+      );
+      setSaved(true);
+    } catch {
+      // fail silently for now
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <p className="text-sm text-gray-500">Configure the litter ad marketplace for your club.</p>
+
+      {/* Enable / basic */}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-gray-900">General</h3>
+        <label className="flex items-center gap-3 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => { setEnabled(e.target.checked); setSaved(false); }}
+            className="rounded border-gray-300"
+          />
+          Enable litter ads
+        </label>
+        <label className="flex items-center gap-3 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={requireApproval}
+            onChange={(e) => { setRequireApproval(e.target.checked); setSaved(false); }}
+            className="rounded border-gray-300"
+          />
+          Require admin approval before ads go live
+        </label>
+      </div>
+
+      {/* Limits */}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-gray-900">Limits</h3>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Max active ads per member</label>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={maxActive}
+              onChange={(e) => { setMaxActive(Number(e.target.value)); setSaved(false); }}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Posting cooldown (days)</label>
+            <input
+              type="number"
+              min={0}
+              max={365}
+              value={cooldownDays}
+              onChange={(e) => { setCooldownDays(Number(e.target.value)); setSaved(false); }}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-gray-400">Days between new ad submissions per member.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Ad expiration (days)</label>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={expirationDays}
+              onChange={(e) => { setExpirationDays(Number(e.target.value)); setSaved(false); }}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-gray-400">How long an active ad stays live.</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Image dimensions */}
+      <div>
+        <h3 className="text-base font-semibold text-gray-900 mb-3">Ad Image Dimensions</h3>
+        <div className="flex items-center gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Width (px)</label>
+            <input
+              type="number"
+              min={100}
+              max={4000}
+              value={imageWidth}
+              onChange={(e) => { setImageWidth(Number(e.target.value)); setSaved(false); }}
+              className={inputClass + " w-28"}
+            />
+          </div>
+          <span className="text-gray-400 mt-4">&times;</span>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Height (px)</label>
+            <input
+              type="number"
+              min={50}
+              max={4000}
+              value={imageHeight}
+              onChange={(e) => { setImageHeight(Number(e.target.value)); setSaved(false); }}
+              className={inputClass + " w-28"}
+            />
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-gray-400">Uploaded ad images will be resized to fit these dimensions.</p>
+      </div>
+
+      {/* Sort order */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Default sort order</label>
+        <select
+          value={sortOrder}
+          onChange={(e) => { setSortOrder(e.target.value as typeof sortOrder); setSaved(false); }}
+          className={inputClass + " w-48"}
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="priority">Priority (manual)</option>
+        </select>
+      </div>
+
+      {/* Fee (disabled) */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Ad fee (USD)</label>
+        <div className="relative w-36">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            disabled
+            value={(feeCents / 100).toFixed(2)}
+            className={inputClass + " pl-7 bg-gray-50 text-gray-400 cursor-not-allowed"}
+          />
+        </div>
+        <p className="mt-1 text-xs text-gray-400">Billing not yet active — this field is reserved for future use.</p>
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
+      >
+        {saving ? "Saving..." : "Save Settings"}
+      </button>
+
+      {saved && <p className="text-sm text-green-600">Settings saved.</p>}
+    </div>
+  );
+}
+
+type SocialPlatformKey = "facebook" | "instagram" | "twitter";
+
+const SOCIAL_PLATFORMS: { key: SocialPlatformKey; label: string; configLabel: string; configPlaceholder: string }[] = [
+  { key: "facebook", label: "Facebook", configLabel: "Page ID", configPlaceholder: "e.g. 123456789" },
+  { key: "instagram", label: "Instagram", configLabel: "Instagram User ID", configPlaceholder: "e.g. 17841400008460056" },
+  { key: "twitter", label: "Twitter / X", configLabel: "Handle", configPlaceholder: "e.g. MyBreedClub" },
+];
+
+type PlatformConfig = { enabled: boolean; config: string };
+
+function SocialIntegrationsTab() {
+  const { getToken } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const [platforms, setPlatforms] = useState<Record<SocialPlatformKey, PlatformConfig>>({
+    facebook: { enabled: false, config: "" },
+    instagram: { enabled: false, config: "" },
+    twitter: { enabled: false, config: "" },
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await getToken();
+        const result = await api.get<{ settings: Record<string, unknown> }>("/admin/settings", { token });
+        const si = result.settings?.social_integrations as Record<string, unknown> | undefined;
+        if (si) {
+          setPlatforms((prev) => {
+            const next = { ...prev };
+            for (const key of ["facebook", "instagram", "twitter"] as SocialPlatformKey[]) {
+              const p = si[key] as Record<string, unknown> | undefined;
+              if (p) {
+                next[key] = {
+                  enabled: typeof p.enabled === "boolean" ? p.enabled : false,
+                  config: typeof (p.page_id ?? p.account_id ?? p.handle) === "string"
+                    ? String(p.page_id ?? p.account_id ?? p.handle ?? "")
+                    : "",
+                };
+              }
+            }
+            return next;
+          });
+        }
+      } catch {
+        // defaults fine
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [getToken]);
+
+  const setEnabled = (key: SocialPlatformKey, val: boolean) => {
+    setPlatforms((prev) => ({ ...prev, [key]: { ...prev[key], enabled: val } }));
+    setSaved(false);
+  };
+
+  const setConfig = (key: SocialPlatformKey, val: string) => {
+    setPlatforms((prev) => ({ ...prev, [key]: { ...prev[key], config: val } }));
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      const token = await getToken();
+      const configKeys: Record<SocialPlatformKey, string> = {
+        facebook: "page_id",
+        instagram: "account_id",
+        twitter: "handle",
+      };
+      const social_integrations: Record<string, unknown> = {};
+      for (const key of ["facebook", "instagram", "twitter"] as SocialPlatformKey[]) {
+        social_integrations[key] = {
+          enabled: platforms[key].enabled,
+          [configKeys[key]]: platforms[key].config,
+        };
+      }
+      await api.patch("/admin/settings", { social_integrations }, { token });
+      setSaved(true);
+    } catch {
+      // fail silently
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        Enable social media platforms to automatically post when a litter ad is approved. Access credentials
+        (tokens, secrets) are configured as <strong>wrangler secrets</strong> on the server — they are not
+        stored here.
+      </p>
+
+      <div className="space-y-4">
+        {SOCIAL_PLATFORMS.map(({ key, label, configLabel, configPlaceholder }) => (
+          <div key={key} className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">{label}</h3>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={platforms[key].enabled}
+                  onChange={(e) => setEnabled(key, e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                Enabled
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{configLabel}</label>
+                <input
+                  type="text"
+                  value={platforms[key].config}
+                  onChange={(e) => setConfig(key, e.target.value)}
+                  placeholder={configPlaceholder}
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex items-end">
+                <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                  API tokens and secrets are stored as server environment secrets, not in the database.
+                  Contact your server administrator to update credentials.
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
+      >
+        {saving ? "Saving..." : "Save Settings"}
+      </button>
+
+      {saved && <p className="text-sm text-green-600">Settings saved.</p>}
+    </div>
+  );
+}
+
 export function SettingsPage() {
-  const [tab, setTab] = useState<"membership" | "settings" | "voting" | "tiers">("membership");
+  const [tab, setTab] = useState<"membership" | "settings" | "voting" | "tiers" | "ads" | "social">("membership");
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -1167,9 +1545,41 @@ export function SettingsPage() {
         >
           Membership Tiers
         </button>
+        <button
+          onClick={() => setTab("ads")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+            tab === "ads"
+              ? "border-gray-900 text-gray-900"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Litter Ads
+        </button>
+        <button
+          onClick={() => setTab("social")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+            tab === "social"
+              ? "border-gray-900 text-gray-900"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Social Integrations
+        </button>
       </div>
 
-      {tab === "membership" ? <MembershipTab /> : tab === "voting" ? <VotingTiersTab /> : tab === "tiers" ? <MembershipTiersTab /> : <ClubSettingsTab />}
+      {tab === "membership" ? (
+        <MembershipTab />
+      ) : tab === "voting" ? (
+        <VotingTiersTab />
+      ) : tab === "tiers" ? (
+        <MembershipTiersTab />
+      ) : tab === "ads" ? (
+        <LitterAdsTab />
+      ) : tab === "social" ? (
+        <SocialIntegrationsTab />
+      ) : (
+        <ClubSettingsTab />
+      )}
     </div>
   );
 }

@@ -38,6 +38,8 @@ import { ElectionDetailPage } from "@/pages/admin/ElectionDetailPage";
 import { VotingPage } from "@/pages/VotingPage";
 import { ElectionVotePage } from "@/pages/ElectionVotePage";
 import { ElectionResultsPage } from "@/pages/ElectionResultsPage";
+import { MyAdsPage } from "@/pages/MyAdsPage";
+import { AdsApprovalPage } from "@/pages/admin/AdsApprovalPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -254,6 +256,22 @@ export function App() {
                 element={
                   <ProtectedRoute minLevel={1}>
                     <HealthPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/my-ads"
+                element={
+                  <ProtectedRoute minLevel={20} flag="is_breeder">
+                    <MyAdsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/ads"
+                element={
+                  <ProtectedRoute minLevel={20} flag="can_approve_ads">
+                    <AdsApprovalPage />
                   </ProtectedRoute>
                 }
               />

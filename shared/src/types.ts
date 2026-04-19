@@ -134,6 +134,7 @@ export interface Member {
   can_approve_members: boolean;
   can_approve_clearances: boolean;
   can_manage_registry: boolean;
+  can_approve_ads: boolean;
   show_in_directory: boolean;
   verified_breeder: boolean;
   logo_url: string | null;
@@ -620,6 +621,82 @@ export interface HealthStampData {
     verified: boolean;
     is_preliminary: boolean;
   }>;
+}
+
+// --- Litter Ads ---
+
+export type LitterAdStatus =
+  | "draft"
+  | "submitted"
+  | "approved"
+  | "active"
+  | "expired"
+  | "archived"
+  | "revision_requested";
+
+export type SocialPlatform = "facebook" | "instagram" | "twitter";
+export type SocialPostStatus = "pending" | "posted" | "failed";
+
+export interface LitterAd {
+  id: string;
+  club_id: string;
+  member_id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  contact_url: string | null;
+  status: LitterAdStatus;
+  priority: number;
+  price_cents: number | null;
+  payment_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  revision_notes: string | null;
+  published_at: string | null;
+  expires_at: string | null;
+  impression_count: number;
+  click_count: number;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  member?: Pick<Member, "id" | "tier"> & {
+    contact?: Pick<Contact, "full_name" | "kennel_name" | "state" | "country" | "website_url">;
+  };
+}
+
+export interface LitterAdEvent {
+  id: string;
+  ad_id: string;
+  event_type: "impression" | "click";
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface SocialPostLog {
+  id: string;
+  club_id: string;
+  ad_id: string;
+  platform: SocialPlatform;
+  external_post_id: string | null;
+  status: SocialPostStatus;
+  error_message: string | null;
+  posted_at: string | null;
+  created_at: string;
+}
+
+/** Public-safe shape returned to the static site. */
+export interface PublicLitterAd {
+  id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  contact_url: string;
+  kennel_name: string | null;
+  breeder_name: string | null;
+  state: string | null;
+  country: string | null;
+  published_at: string;
+  expires_at: string;
 }
 
 // --- Audit Trail ---

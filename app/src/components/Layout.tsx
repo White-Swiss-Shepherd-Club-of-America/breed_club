@@ -23,6 +23,7 @@ import {
   Building2,
   Vote,
   List,
+  Megaphone,
 } from "lucide-react";
 
 export function Layout() {
@@ -53,6 +54,7 @@ export function Layout() {
   const canApproveMembers = isAdmin || member?.can_approve_members;
   const canApproveClearances = isAdmin || member?.can_approve_clearances;
   const canManageRegistry = isAdmin || member?.can_manage_registry;
+  const canApproveAds = isAdmin || member?.can_approve_ads;
 
   const isMemberOrHigher = member && tierLevel >= 20;
 
@@ -71,6 +73,7 @@ export function Layout() {
     { to: "/admin/members", label: "Members", icon: Users, show: isAdmin },
     { to: "/admin/approvals", label: "Approvals", icon: ClipboardCheck, show: canApproveClearances || canApproveMembers },
     { to: "/admin/litters", label: "Litters", icon: List, show: canApproveClearances },
+    { to: "/admin/ads", label: "Ad Approvals", icon: Megaphone, show: canApproveAds },
     { to: "/admin/health-tests", label: "Health", icon: HeartPulse, show: isAdmin },
     { to: "/admin/organizations", label: "Organizations", icon: Building2, show: isAdmin },
     { to: "/admin/elections", label: "Elections", icon: Vote, show: isAdmin },
@@ -190,18 +193,27 @@ export function Layout() {
                     Add Health Clearance
                   </Link>
                   {isMemberOrHigher && member?.is_breeder && (
-                    <Link
-                      to="/litters"
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition text-gray-600 hover:bg-gray-50 hover:text-gray-900 mt-1"
-                    >
-                      <PawPrint className="h-4 w-4" />
-                      My Litters
-                    </Link>
+                    <>
+                      <Link
+                        to="/litters"
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition text-gray-600 hover:bg-gray-50 hover:text-gray-900 mt-1"
+                      >
+                        <PawPrint className="h-4 w-4" />
+                        My Litters
+                      </Link>
+                      <Link
+                        to="/my-ads"
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition text-gray-600 hover:bg-gray-50 hover:text-gray-900 mt-1"
+                      >
+                        <Megaphone className="h-4 w-4" />
+                        My Ads
+                      </Link>
+                    </>
                   )}
                 </>
               )}
 
-              {(isAdmin || canApproveMembers || canApproveClearances || canManageRegistry) && (
+              {(isAdmin || canApproveMembers || canApproveClearances || canManageRegistry || canApproveAds) && (
                 <>
                   <div className="border-t border-gray-200 my-3" />
                   <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">

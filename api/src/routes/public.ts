@@ -8,7 +8,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt, desc, sql } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -23,9 +23,11 @@ import {
   membershipApplications,
   membershipFormFields,
   membershipTiers,
+  litterAds,
+  litterAdEvents,
 } from "../db/schema.js";
 import { publicApplicationSchema } from "@breed-club/shared/validation.js";
-import { conflict, badRequest } from "../lib/errors.js";
+import { conflict, badRequest, notFound, forbidden } from "../lib/errors.js";
 import { verifyRecaptcha } from "../lib/recaptcha.js";
 import { validateFormData } from "../lib/form-data.js";
 
@@ -412,6 +414,153 @@ publicRoutes.post("/applications", async (c) => {
     .returning();
 
   return c.json({ application }, 201);
+});
+
+/**
+ * GET /ads — active litter ads for the static site.
+ *
+ * Protected by a simple API key (PUBLIC_API_KEY wrangler secret).
+ * Pass as: Authorization: ApiKey <key>
+ *
+ * Sort order is configurable in clubs.settings.litter_ads.sort_order:
+ *   "newest" (default) | "oldest" | "priority"
+ */
+publicRoutes.get("/ads", async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  // API key check
+  const expectedKey = c.env.PUBLIC_API_KEY;
+  if (expectedKey) {
+    const authHeader = c.req.header("Authorization") ?? "";
+    const providedKey = authHeader.startsWith("ApiKey ") ? authHeader.slice(7) : null;
+    if (providedKey !== expectedKey) {
+      throw forbidden("Invalid or missing API key");
+    }
+  }
+
+  const club = await db.query.clubs.findFirst({
+    where: eq(clubs.id, clubId),
+    columns: { settings: true },
+  });
+  const settings = (club?.settings as Record<string, unknown>) ?? {};
+  const adSettings = (settings.litter_ads as { sort_order?: string } | undefined) ?? {};
+  const sortOrder = adSettings.sort_order ?? "newest";
+
+  const now = new Date();
+
+  const data = await db.query.litterAds.findMany({
+    where: and(
+      eq(litterAds.club_id, clubId),
+      eq(litterAds.status, "active"),
+      gt(litterAds.expires_at, now)
+    ),
+    with: {
+      member: {
+        columns: { id: true },
+        with: {
+          contact: {
+            columns: {
+              full_name: true,
+              kennel_name: true,
+              state: true,
+              country: true,
+              website_url: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy:
+      sortOrder === "oldest"
+        ? [litterAds.published_at]
+        : sortOrder === "priority"
+          ? [litterAds.priority, litterAds.published_at]
+          : [desc(litterAds.published_at)],
+  });
+
+  // Increment impression counter (fire and forget)
+  if (data.length > 0) {
+    const adIds = data.map((a) => a.id);
+    // Batch-insert one impression event per ad returned
+    c.executionCtx?.waitUntil(
+      db.insert(litterAdEvents).values(
+        adIds.map((adId) => ({
+          ad_id: adId,
+          event_type: "impression" as const,
+          metadata: { source: "public_api" },
+        }))
+      ).then(() =>
+        // Update denormalized counter per ad
+        Promise.all(
+          adIds.map((adId) =>
+            db
+              .update(litterAds)
+              .set({ impression_count: sql`${litterAds.impression_count} + 1` })
+              .where(eq(litterAds.id, adId))
+          )
+        )
+      )
+    );
+  }
+
+  // Shape response — only expose public-safe fields
+  const ads = data.map((ad) => ({
+    id: ad.id,
+    title: ad.title,
+    description: ad.description,
+    image_url: ad.image_url,
+    contact_url: ad.contact_url ?? ad.member?.contact?.website_url ?? null,
+    kennel_name: ad.member?.contact?.kennel_name ?? null,
+    breeder_name: ad.member?.contact?.full_name ?? null,
+    state: ad.member?.contact?.state ?? null,
+    country: ad.member?.contact?.country ?? null,
+    published_at: ad.published_at?.toISOString() ?? null,
+    expires_at: ad.expires_at?.toISOString() ?? null,
+  }));
+
+  return c.json({ data: ads });
+});
+
+/**
+ * POST /ads/:id/click — record a click event and return the destination URL.
+ * The static site calls this then redirects to the returned url.
+ */
+publicRoutes.post("/ads/:id/click", async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const adId = c.req.param("id");
+
+  const ad = await db.query.litterAds.findFirst({
+    where: and(eq(litterAds.id, adId), eq(litterAds.club_id, clubId), eq(litterAds.status, "active")),
+    with: {
+      member: {
+        columns: { id: true },
+        with: { contact: { columns: { website_url: true } } },
+      },
+    },
+  });
+
+  if (!ad) throw notFound("Ad");
+
+  const destination = ad.contact_url ?? ad.member?.contact?.website_url ?? null;
+
+  // Record click (fire and forget)
+  const referer = c.req.header("Referer") ?? null;
+  c.executionCtx?.waitUntil(
+    db.insert(litterAdEvents).values({
+      ad_id: adId,
+      event_type: "click",
+      metadata: referer ? { referer } : undefined,
+    }).then(() =>
+      db
+        .update(litterAds)
+        .set({ click_count: sql`${litterAds.click_count} + 1` })
+        .where(eq(litterAds.id, adId))
+    )
+  );
+
+  return c.json({ destination });
 });
 
 export { publicRoutes };

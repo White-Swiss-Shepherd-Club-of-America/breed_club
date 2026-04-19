@@ -190,6 +190,13 @@
       "when": 1776700000000,
       "tag": "0026_dog_microchips",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1776800000000,
+      "tag": "0027_purple_rafael_vega",
+      "breakpoints": true
     }
   ]
 }

@@ -238,6 +238,7 @@ export const updateMemberSchema = z.object({
   can_approve_members: z.boolean().optional(),
   can_approve_clearances: z.boolean().optional(),
   can_manage_registry: z.boolean().optional(),
+  can_approve_ads: z.boolean().optional(),
   show_in_directory: z.boolean().optional(),
   verified_breeder: z.boolean().optional(),
   skip_fees: z.boolean().optional(),
@@ -500,6 +501,28 @@ export const updateMembershipTierSchema = z.object({
   is_default: z.boolean().optional(),
   sort_order: z.number().int().optional(),
 });
+
+// --- Litter Ads ---
+
+export const createLitterAdSchema = z.object({
+  title: z.string().min(1).max(255),
+  description: z.string().max(5000).nullish(),
+  image_url: z.string().max(500).nullish(),
+  contact_url: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.string().url().nullish()
+  ),
+});
+
+export const updateLitterAdSchema = createLitterAdSchema.partial();
+
+export const reviewLitterAdSchema = z.object({
+  action: z.enum(["approve", "reject", "request_revision"]),
+  revision_notes: z.string().max(2000).nullish(),
+}).refine(
+  (data) => data.action !== "request_revision" || !!data.revision_notes,
+  { message: "revision_notes required when requesting revision", path: ["revision_notes"] }
+);
 
 // --- Pagination ---
 
