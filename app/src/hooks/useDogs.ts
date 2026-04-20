@@ -5,7 +5,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Dog, DogMicrochip, DogAuditLog, DogFilterOptions, HealthRating, HealthCondition, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
+import type { Dog, DogMicrochip, DogAuditLog, DogFilterOptions, HealthRating, HealthCondition, HealthConditionType, PaginatedResponse, DogRegistration, DogOwnershipTransfer, DogProgenyResponse, BreedingStatus } from "@breed-club/shared";
 
 interface DogResponse {
   dog: Dog;
@@ -612,11 +612,14 @@ export function useCreateHealthCondition() {
       ...data
     }: {
       dogId: string;
+      condition_type_id?: string;
       condition_name: string;
       category?: string;
       diagnosis_date?: string;
       resolved_date?: string;
       severity?: string;
+      medical_severity?: string;
+      breeding_impact?: string;
       notes?: string;
     }) => {
       const token = await getToken();
@@ -672,6 +675,18 @@ export function useDeleteHealthCondition() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["healthConditions", variables.dogId] });
     },
+  });
+}
+
+export function useConditionTypes() {
+  const { getToken, isSignedIn } = useAuth();
+  return useQuery({
+    queryKey: ["conditionTypes"],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<{ condition_types: HealthConditionType[] }>("/health/condition-types", { token });
+    },
+    enabled: isSignedIn === true,
   });
 }
 

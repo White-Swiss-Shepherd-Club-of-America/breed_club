@@ -33,12 +33,44 @@ interface TestTypeStats {
   by_org: OrgStats[];
 }
 
+interface ConditionSeverityDist {
+  mild: number;
+  moderate: number;
+  severe: number;
+}
+
+interface ConditionBreedingDist {
+  informational: number;
+  advisory: number;
+  disqualifying: number;
+}
+
+interface ConditionStats {
+  condition_name: string;
+  condition_type_id: string | null;
+  total_dogs: number;
+  medical_severity_dist: ConditionSeverityDist;
+  breeding_impact_dist: ConditionBreedingDist;
+}
+
+interface ConditionCategoryStats {
+  category: string;
+  total_reports: number;
+  conditions: ConditionStats[];
+}
+
+interface ConditionStatistics {
+  by_category: ConditionCategoryStats[];
+  total_conditions: number;
+}
+
 interface HealthStats {
   overview: {
     total_dogs: number;
     total_clearances: number;
   };
   by_test_type: TestTypeStats[];
+  condition_statistics?: ConditionStatistics;
 }
 
 type ViewMode = "whole-breed" | "my-dogs";
@@ -138,6 +170,109 @@ function TestTypeCard({ stats }: { stats: TestTypeStats }) {
   );
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  reproductive: "Reproductive",
+  neurological: "Neurological",
+  musculoskeletal: "Musculoskeletal",
+  cardiac: "Cardiac",
+  dermatological: "Dermatological",
+  gastrointestinal: "Gastrointestinal",
+  endocrine: "Endocrine",
+  cancer: "Cancer / Neoplasia",
+  immune: "Immune / Autoimmune",
+  behavioral: "Behavioral",
+  other: "Other",
+};
+
+const BREEDING_IMPACT_COLORS: Record<string, string> = {
+  informational: "bg-blue-100 text-blue-800",
+  advisory: "bg-yellow-100 text-yellow-800",
+  disqualifying: "bg-red-100 text-red-800",
+};
+
+const MEDICAL_SEVERITY_COLORS: Record<string, string> = {
+  mild: "bg-green-100 text-green-800",
+  moderate: "bg-yellow-100 text-yellow-800",
+  severe: "bg-red-100 text-red-800",
+};
+
+function SeverityPill({ label, colorClass, count }: { label: string; colorClass: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+      {count} {label}
+    </span>
+  );
+}
+
+function ConditionRow({
+  condition,
+  totalDogs,
+}: {
+  condition: ConditionStats;
+  totalDogs: number;
+}) {
+  const pct = totalDogs > 0 ? ((condition.total_dogs / totalDogs) * 100).toFixed(1) : "0";
+  const { medical_severity_dist: ms, breeding_impact_dist: bi } = condition;
+  const hasMedical = ms.mild + ms.moderate + ms.severe > 0;
+  const hasBreeding = bi.informational + bi.advisory + bi.disqualifying > 0;
+
+  return (
+    <div className="py-3 border-b border-gray-100 last:border-0">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-medium text-gray-900">{condition.condition_name}</span>
+          {(hasMedical || hasBreeding) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {hasMedical && (
+                <>
+                  <SeverityPill label="mild" colorClass={MEDICAL_SEVERITY_COLORS.mild} count={ms.mild} />
+                  <SeverityPill label="moderate" colorClass={MEDICAL_SEVERITY_COLORS.moderate} count={ms.moderate} />
+                  <SeverityPill label="severe" colorClass={MEDICAL_SEVERITY_COLORS.severe} count={ms.severe} />
+                </>
+              )}
+              {hasBreeding && (
+                <>
+                  <SeverityPill label="info" colorClass={BREEDING_IMPACT_COLORS.informational} count={bi.informational} />
+                  <SeverityPill label="advisory" colorClass={BREEDING_IMPACT_COLORS.advisory} count={bi.advisory} />
+                  <SeverityPill label="disqualifying" colorClass={BREEDING_IMPACT_COLORS.disqualifying} count={bi.disqualifying} />
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-sm font-semibold text-gray-900">{condition.total_dogs}</div>
+          <div className="text-xs text-gray-500">{pct}%</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConditionCategoryCard({
+  catStats,
+  totalDogs,
+}: {
+  catStats: ConditionCategoryStats;
+  totalDogs: number;
+}) {
+  const label = CATEGORY_LABELS[catStats.category] ?? catStats.category;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="px-5 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">{label}</h3>
+        <span className="text-xs text-gray-500">{catStats.total_reports} report{catStats.total_reports !== 1 ? "s" : ""}</span>
+      </div>
+      <div className="px-5 divide-y divide-gray-100">
+        {catStats.conditions.map((c) => (
+          <ConditionRow key={c.condition_name} condition={c} totalDogs={totalDogs} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function HealthStatsPage() {
   const { getToken, isSignedIn } = useAuth();
   const [searchParams] = useSearchParams();
@@ -183,7 +318,7 @@ export function HealthStatsPage() {
     );
   }
 
-  const { overview, by_test_type } = data;
+  const { overview, by_test_type, condition_statistics } = data;
 
   // Group by category
   const categorized = by_test_type.reduce(
@@ -225,7 +360,7 @@ export function HealthStatsPage() {
       </div>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
           label="Total Dogs"
           value={overview.total_dogs}
@@ -240,6 +375,11 @@ export function HealthStatsPage() {
           label="Test Types"
           value={by_test_type.length}
           subtitle="available tests"
+        />
+        <StatCard
+          label="Reported Conditions"
+          value={condition_statistics?.total_conditions ?? 0}
+          subtitle="health issues reported"
         />
       </div>
 
@@ -264,6 +404,34 @@ export function HealthStatsPage() {
           </p>
         </div>
       )}
+
+      {/* Reported Health Conditions */}
+      <div className="mt-12">
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Reported Health Conditions</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Health issues reported by owners and verified by club administrators. Shows distinct dogs affected and severity breakdown.
+        </p>
+
+        {condition_statistics && condition_statistics.by_category.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {condition_statistics.by_category.map((catStats) => (
+              <ConditionCategoryCard
+                key={catStats.category}
+                catStats={catStats}
+                totalDogs={overview.total_dogs}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-white border border-gray-200 rounded-lg">
+            <p className="text-gray-500 text-sm">
+              {view === "my-dogs"
+                ? "No health conditions reported for your dogs."
+                : "No health conditions have been reported yet."}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

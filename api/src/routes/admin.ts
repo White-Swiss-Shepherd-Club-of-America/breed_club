@@ -41,6 +41,7 @@ import {
   litterPups,
   dogRegistrations,
   healthConditions,
+  healthConditionTypes,
   clubs,
   membershipTiers,
   membershipApplications,
@@ -2065,6 +2066,185 @@ adminRoutes.get("/overview-stats", requireLevel(100), async (c) => {
     },
     pending_applications: pendingAppsResult[0]?.count ?? 0,
   });
+});
+
+// ─── Health Condition Queue ───────────────────────────────────────────────────
+
+/**
+ * GET /health-conditions/queue — list pending conditions awaiting approval.
+ */
+adminRoutes.get("/health-conditions/queue", requirePermission("health:verify"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const conditions = await db
+    .select({
+      id: healthConditions.id,
+      dog_id: healthConditions.dog_id,
+      condition_type_id: healthConditions.condition_type_id,
+      condition_name: healthConditions.condition_name,
+      category: healthConditions.category,
+      diagnosis_date: healthConditions.diagnosis_date,
+      resolved_date: healthConditions.resolved_date,
+      medical_severity: healthConditions.medical_severity,
+      breeding_impact: healthConditions.breeding_impact,
+      status: healthConditions.status,
+      notes: healthConditions.notes,
+      reported_by: healthConditions.reported_by,
+      created_at: healthConditions.created_at,
+      dog_registered_name: dogs.registered_name,
+      dog_call_name: dogs.call_name,
+    })
+    .from(healthConditions)
+    .innerJoin(dogs, eq(healthConditions.dog_id, dogs.id))
+    .where(and(eq(healthConditions.status, "pending"), eq(dogs.club_id, clubId)))
+    .orderBy(healthConditions.created_at);
+
+  return c.json({ conditions });
+});
+
+/**
+ * POST /health-conditions/:id/approve — approve a reported condition.
+ */
+adminRoutes.post("/health-conditions/:id/approve", requirePermission("health:verify"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const [condition] = await db
+    .select({ id: healthConditions.id, status: healthConditions.status, dog_id: healthConditions.dog_id })
+    .from(healthConditions)
+    .innerJoin(dogs, eq(healthConditions.dog_id, dogs.id))
+    .where(and(eq(healthConditions.id, id), eq(dogs.club_id, clubId)))
+    .limit(1);
+
+  if (!condition) throw notFound("Health condition");
+  if (condition.status !== "pending") throw badRequest("Condition is not pending");
+
+  await db
+    .update(healthConditions)
+    .set({ status: "approved" })
+    .where(eq(healthConditions.id, id));
+
+  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
+
+  return c.json({ ok: true });
+});
+
+/**
+ * POST /health-conditions/:id/reject — reject a reported condition.
+ */
+adminRoutes.post("/health-conditions/:id/reject", requirePermission("health:verify"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const [condition] = await db
+    .select({ id: healthConditions.id, status: healthConditions.status })
+    .from(healthConditions)
+    .innerJoin(dogs, eq(healthConditions.dog_id, dogs.id))
+    .where(and(eq(healthConditions.id, id), eq(dogs.club_id, clubId)))
+    .limit(1);
+
+  if (!condition) throw notFound("Health condition");
+  if (condition.status !== "pending") throw badRequest("Condition is not pending");
+
+  await db
+    .update(healthConditions)
+    .set({ status: "rejected" })
+    .where(eq(healthConditions.id, id));
+
+  return c.json({ ok: true });
+});
+
+// ─── Health Condition Types (admin CRUD) ─────────────────────────────────────
+
+const createConditionTypeSchema = z.object({
+  name: z.string().min(1).max(255),
+  category: z.string().min(1).max(30),
+  description: z.string().optional(),
+  is_hereditary: z.boolean().default(false),
+  sort_order: z.number().int().default(0),
+});
+
+/**
+ * GET /condition-types — list all condition types for this club.
+ */
+adminRoutes.get("/condition-types", requireLevel(100), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const types = await db
+    .select()
+    .from(healthConditionTypes)
+    .where(eq(healthConditionTypes.club_id, clubId))
+    .orderBy(healthConditionTypes.category, healthConditionTypes.sort_order, healthConditionTypes.name);
+
+  return c.json({ condition_types: types });
+});
+
+/**
+ * POST /condition-types — create a condition type.
+ */
+adminRoutes.post("/condition-types", requirePermission("test_types:manage"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+
+  const body = await c.req.json();
+  const data = createConditionTypeSchema.parse(body);
+
+  const [ct] = await db
+    .insert(healthConditionTypes)
+    .values({ ...data, club_id: clubId })
+    .returning();
+
+  return c.json({ condition_type: ct }, 201);
+});
+
+/**
+ * PATCH /condition-types/:id — update a condition type.
+ */
+adminRoutes.patch("/condition-types/:id", requirePermission("test_types:manage"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const existing = await db.query.healthConditionTypes.findFirst({
+    where: and(eq(healthConditionTypes.id, id), eq(healthConditionTypes.club_id, clubId)),
+  });
+  if (!existing) throw notFound("Condition type");
+
+  const body = await c.req.json();
+  const data = createConditionTypeSchema.partial().parse(body);
+
+  const [updated] = await db
+    .update(healthConditionTypes)
+    .set(data)
+    .where(eq(healthConditionTypes.id, id))
+    .returning();
+
+  return c.json({ condition_type: updated });
+});
+
+/**
+ * DELETE /condition-types/:id — soft-delete (set is_active=false).
+ */
+adminRoutes.delete("/condition-types/:id", requirePermission("test_types:manage"), async (c) => {
+  const db = c.get("db");
+  const clubId = c.get("clubId");
+  const id = c.req.param("id");
+
+  const existing = await db.query.healthConditionTypes.findFirst({
+    where: and(eq(healthConditionTypes.id, id), eq(healthConditionTypes.club_id, clubId)),
+  });
+  if (!existing) throw notFound("Condition type");
+
+  await db
+    .update(healthConditionTypes)
+    .set({ is_active: false })
+    .where(eq(healthConditionTypes.id, id));
+
+  return c.json({ ok: true });
 });
 
 export { adminRoutes };

@@ -7,7 +7,7 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
-import { useDog } from "@/hooks/useDogs";
+import { useDog, useHealthConditions } from "@/hooks/useDogs";
 import { useDeleteClearance, useUpdateClearance } from "@/hooks/useHealthClearances";
 import { formatDate } from "@/lib/utils";
 import { AddHealthCertificateModal } from "@/components/health/AddHealthCertificateModal";
@@ -212,6 +212,9 @@ export function HealthPage() {
 
   const clearances = clearancesData?.clearances || [];
 
+  const { data: conditionsData } = useHealthConditions(dogId);
+  const conditions = (conditionsData?.conditions || []).filter(c => c.status === "approved");
+
   const clearancesByCategory = useMemo(() => {
     return clearances.reduce(
       (acc, c) => {
@@ -380,6 +383,39 @@ export function HealthPage() {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* Reported Health Conditions */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Reported Health Conditions</h2>
+        {conditions.length > 0 ? (
+          <div className="space-y-2">
+            {conditions.map(c => (
+              <div key={c.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg">
+                <div>
+                  <span className="font-medium text-gray-900">{c.condition_name}</span>
+                  {c.category && <span className="ml-2 text-xs text-gray-500 capitalize">{c.category}</span>}
+                  {c.medical_severity && (
+                    <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
+                      c.medical_severity === "severe" ? "bg-red-100 text-red-700" :
+                      c.medical_severity === "moderate" ? "bg-amber-100 text-amber-700" :
+                      "bg-green-100 text-green-700"
+                    }`}>{c.medical_severity}</span>
+                  )}
+                  {c.breeding_impact && c.breeding_impact !== "informational" && (
+                    <span className={`ml-1 text-xs px-1.5 py-0.5 rounded ${
+                      c.breeding_impact === "disqualifying" ? "bg-red-100 text-red-700" :
+                      "bg-yellow-100 text-yellow-700"
+                    }`}>{c.breeding_impact}</span>
+                  )}
+                </div>
+                {c.diagnosis_date && <span className="text-xs text-gray-500">{formatDate(c.diagnosis_date)}</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">No health conditions reported.</p>
         )}
       </div>
 

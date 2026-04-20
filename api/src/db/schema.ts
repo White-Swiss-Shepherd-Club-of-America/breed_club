@@ -460,6 +460,31 @@ export const dogHealthClearances = pgTable(
   ]
 );
 
+// ─── Health Condition Types ──────────────────────────────────────────────────
+
+export const healthConditionTypes = pgTable(
+  "health_condition_types",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    club_id: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    // category: reproductive|neurological|musculoskeletal|cardiac|dermatological|
+    //           gastrointestinal|endocrine|cancer|immune|behavioral|other
+    category: varchar("category", { length: 30 }).notNull(),
+    description: text("description"),
+    is_hereditary: boolean("is_hereditary").notNull().default(false),
+    sort_order: integer("sort_order").notNull().default(0),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_health_condition_types_club").on(t.club_id),
+    uniqueIndex("idx_health_condition_types_club_name").on(t.club_id, t.name),
+  ]
+);
+
 // ─── Health Conditions ──────────────────────────────────────────────────────
 
 export const healthConditions = pgTable(
@@ -469,16 +494,26 @@ export const healthConditions = pgTable(
     dog_id: uuid("dog_id")
       .notNull()
       .references(() => dogs.id, { onDelete: "cascade" }),
+    condition_type_id: uuid("condition_type_id").references(() => healthConditionTypes.id, {
+      onDelete: "set null",
+    }),
     condition_name: varchar("condition_name", { length: 255 }).notNull(),
     category: varchar("category", { length: 30 }),
     diagnosis_date: date("diagnosis_date"),
     resolved_date: date("resolved_date"),
+    // Legacy single severity field — superseded by medical_severity + breeding_impact
     severity: varchar("severity", { length: 20 }),
+    medical_severity: varchar("medical_severity", { length: 20 }), // mild | moderate | severe
+    breeding_impact: varchar("breeding_impact", { length: 20 }), // informational | advisory | disqualifying
+    status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | approved | rejected
     notes: text("notes"),
     reported_by: uuid("reported_by").references(() => members.id),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("idx_health_conditions_dog").on(t.dog_id)]
+  (t) => [
+    index("idx_health_conditions_dog").on(t.dog_id),
+    index("idx_health_conditions_status").on(t.status),
+  ]
 );
 
 // ─── Litters ────────────────────────────────────────────────────────────────

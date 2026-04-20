@@ -10,7 +10,7 @@
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, sql } from "drizzle-orm";
-import { clubs, organizations, healthTestTypes, healthTestTypeOrgs, healthRatingConfigs, type ResultSchema, type RatingThresholds } from "./schema.js";
+import { clubs, organizations, healthTestTypes, healthTestTypeOrgs, healthRatingConfigs, healthConditionTypes, type ResultSchema, type RatingThresholds } from "./schema.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const CLUB_SLUG = process.env.CLUB_SLUG;
@@ -500,6 +500,91 @@ async function seed() {
   } else {
     console.log("Health rating config: already exists");
   }
+
+  // ─── Health Condition Types ───────────────────────────────────────────
+
+  const conditionTypeData: Array<{
+    name: string;
+    category: string;
+    description?: string;
+    is_hereditary: boolean;
+    sort_order: number;
+  }> = [
+    // Reproductive
+    { name: "Pyometra", category: "reproductive", description: "Uterine infection requiring surgical or medical treatment", is_hereditary: false, sort_order: 10 },
+    { name: "Cryptorchidism (monorchid)", category: "reproductive", description: "One undescended testicle — hereditary predisposition suspected", is_hereditary: true, sort_order: 11 },
+    { name: "Cryptorchidism (bilateral)", category: "reproductive", description: "Both testicles undescended — hereditary predisposition suspected", is_hereditary: true, sort_order: 12 },
+    { name: "False pregnancy (pseudopregnancy)", category: "reproductive", description: "Repeated or severe pseudopregnancy", is_hereditary: false, sort_order: 13 },
+    { name: "Brucellosis", category: "reproductive", description: "Bacterial infection (Brucella canis) — serious breeding/kennel risk", is_hereditary: false, sort_order: 14 },
+    { name: "Infertility", category: "reproductive", description: "Inability to conceive or sire offspring", is_hereditary: false, sort_order: 15 },
+    { name: "Dystocia", category: "reproductive", description: "Difficult whelping requiring veterinary intervention", is_hereditary: false, sort_order: 16 },
+
+    // Neurological
+    { name: "Idiopathic epilepsy", category: "neurological", description: "Seizure disorder with no identifiable underlying cause", is_hereditary: true, sort_order: 20 },
+    { name: "Cauda equina syndrome", category: "neurological", description: "Lumbosacral compression causing hind-end neurological signs", is_hereditary: false, sort_order: 21 },
+    { name: "Degenerative lumbosacral stenosis", category: "neurological", description: "Progressive narrowing of the lumbosacral spinal canal", is_hereditary: false, sort_order: 22 },
+
+    // Musculoskeletal
+    { name: "Cruciate ligament rupture", category: "musculoskeletal", description: "Cranial cruciate ligament (CCL/ACL) tear", is_hereditary: false, sort_order: 30 },
+    { name: "Osteochondrosis dissecans (OCD)", category: "musculoskeletal", description: "Cartilage defect, commonly shoulder or hock", is_hereditary: false, sort_order: 31 },
+    { name: "Panosteitis", category: "musculoskeletal", description: "Self-limiting inflammatory bone condition in young dogs", is_hereditary: false, sort_order: 32 },
+    { name: "Spondylosis deformans", category: "musculoskeletal", description: "Degenerative bridging osteophytes along the spine", is_hereditary: false, sort_order: 33 },
+
+    // Cardiac
+    { name: "Dilated cardiomyopathy (DCM)", category: "cardiac", description: "Enlarged, weakened heart muscle", is_hereditary: true, sort_order: 40 },
+    { name: "Arrhythmia", category: "cardiac", description: "Irregular heart rhythm", is_hereditary: false, sort_order: 41 },
+
+    // Cancer / Neoplasia
+    { name: "Hemangiosarcoma", category: "cancer", description: "Aggressive vascular malignancy, often splenic or cardiac", is_hereditary: false, sort_order: 50 },
+    { name: "Osteosarcoma", category: "cancer", description: "Primary bone cancer", is_hereditary: false, sort_order: 51 },
+    { name: "Lymphoma", category: "cancer", description: "Cancer of lymphatic tissue (lymphosarcoma)", is_hereditary: false, sort_order: 52 },
+    { name: "Mast cell tumor", category: "cancer", description: "Common skin/subcutaneous malignancy", is_hereditary: false, sort_order: 53 },
+
+    // Dermatological
+    { name: "Environmental allergies", category: "dermatological", description: "Atopic dermatitis from environmental allergens", is_hereditary: true, sort_order: 60 },
+    { name: "Food allergies", category: "dermatological", description: "Adverse food reaction causing skin or GI signs", is_hereditary: false, sort_order: 61 },
+    { name: "Autoimmune skin disease (pemphigus)", category: "dermatological", description: "Immune-mediated blistering skin disorder", is_hereditary: false, sort_order: 62 },
+
+    // Gastrointestinal
+    { name: "Exocrine pancreatic insufficiency (EPI)", category: "gastrointestinal", description: "Insufficient digestive enzyme production by the pancreas", is_hereditary: true, sort_order: 70 },
+    { name: "Gastric dilatation-volvulus (GDV/bloat)", category: "gastrointestinal", description: "Life-threatening stomach twisting", is_hereditary: false, sort_order: 71 },
+    { name: "Inflammatory bowel disease (IBD)", category: "gastrointestinal", description: "Chronic intestinal inflammation", is_hereditary: false, sort_order: 72 },
+
+    // Endocrine
+    { name: "Hypothyroidism", category: "endocrine", description: "Underactive thyroid gland", is_hereditary: true, sort_order: 80 },
+    { name: "Addison's disease", category: "endocrine", description: "Hypoadrenocorticism — adrenal insufficiency", is_hereditary: true, sort_order: 81 },
+    { name: "Cushing's disease", category: "endocrine", description: "Hyperadrenocorticism — excess cortisol", is_hereditary: false, sort_order: 82 },
+
+    // Immune / Autoimmune
+    { name: "Immune-mediated hemolytic anemia (IMHA)", category: "immune", description: "Autoimmune destruction of red blood cells", is_hereditary: false, sort_order: 90 },
+    { name: "Immune-mediated thrombocytopenia (ITP)", category: "immune", description: "Autoimmune destruction of platelets", is_hereditary: false, sort_order: 91 },
+
+    // "Other" catch-alls for each category
+    { name: "Other reproductive condition", category: "reproductive", is_hereditary: false, sort_order: 99 },
+    { name: "Other neurological condition", category: "neurological", is_hereditary: false, sort_order: 99 },
+    { name: "Other musculoskeletal condition", category: "musculoskeletal", is_hereditary: false, sort_order: 99 },
+    { name: "Other cardiac condition", category: "cardiac", is_hereditary: false, sort_order: 99 },
+    { name: "Other cancer / neoplasia", category: "cancer", is_hereditary: false, sort_order: 99 },
+    { name: "Other dermatological condition", category: "dermatological", is_hereditary: false, sort_order: 99 },
+    { name: "Other gastrointestinal condition", category: "gastrointestinal", is_hereditary: false, sort_order: 99 },
+    { name: "Other endocrine condition", category: "endocrine", is_hereditary: false, sort_order: 99 },
+    { name: "Other immune / autoimmune condition", category: "immune", is_hereditary: false, sort_order: 99 },
+    { name: "Other behavioral condition", category: "behavioral", is_hereditary: false, sort_order: 99 },
+    { name: "Other condition", category: "other", is_hereditary: false, sort_order: 99 },
+  ];
+
+  let conditionTypesInserted = 0;
+  let conditionTypesSkipped = 0;
+  for (const ct of conditionTypeData) {
+    const result = await db
+      .insert(healthConditionTypes)
+      .values({ ...ct, club_id: clubId })
+      .onConflictDoNothing()
+      .returning();
+    if (result.length > 0) conditionTypesInserted++;
+    else conditionTypesSkipped++;
+  }
+  console.log(`Health condition types: ${conditionTypesInserted} created, ${conditionTypesSkipped} already existed`);
 
   console.log("Seed complete.");
   await client.end();

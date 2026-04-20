@@ -14,6 +14,9 @@ export type PupStatus = "available" | "reserved" | "sold" | "retained" | "deceas
 export type OrgType = "kennel_club" | "health_testing" | "grading_body" | "pedigree_database";
 export type HealthCategory = "orthopedic" | "cardiac" | "genetic" | "vision" | "thyroid" | "dental" | "other";
 export type ConditionSeverity = "mild" | "moderate" | "severe";
+export type MedicalSeverity = "mild" | "moderate" | "severe";
+export type BreedingImpact = "informational" | "advisory" | "disqualifying";
+export type HealthConditionCategory = "reproductive" | "neurological" | "musculoskeletal" | "cardiac" | "dermatological" | "gastrointestinal" | "endocrine" | "cancer" | "immune" | "behavioral" | "other";
 export type BreedingStatus = "not_published" | "altered" | "retired" | "breeding";
 
 // --- Score Config Types ---
@@ -337,14 +340,29 @@ export interface DogHealthClearance {
 export interface HealthCondition {
   id: string;
   dog_id: string;
+  condition_type_id: string | null;
   condition_name: string;
   category: HealthCategory | null;
   diagnosis_date: string | null;
   resolved_date: string | null;
   severity: ConditionSeverity | null;
+  medical_severity: MedicalSeverity | null;
+  breeding_impact: BreedingImpact | null;
+  status: string;
   notes: string | null;
   reported_by: string | null;
   created_at: string;
+}
+
+export interface HealthConditionType {
+  id: string;
+  club_id: string;
+  name: string;
+  category: string;
+  description: string | null;
+  is_hereditary: boolean;
+  sort_order: number;
+  is_active: boolean;
 }
 
 export interface Litter {

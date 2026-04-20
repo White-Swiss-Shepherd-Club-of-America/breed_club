@@ -13,6 +13,7 @@ import {
   dogOwnershipTransfers,
   dogMicrochips,
   healthConditions,
+  healthConditionTypes,
   dogs,
   memberHealthStatsCache,
 } from "../db/schema.js";
@@ -20,7 +21,12 @@ import type { ResultSchema } from "../db/schema.js";
 import { computeResultScores } from "../lib/scoring.js";
 import { recomputeHealthRating } from "../lib/rating.js";
 import { healthStatisticsCache } from "../db/schema.js";
-import { computeHealthStatistics, computeMyHealthStatistics, refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
+import {
+  computeFullHealthStatistics,
+  computeMyHealthStatistics,
+  computeMyConditionStatistics,
+  refreshHealthStatisticsCache,
+} from "../lib/compute-health-stats.js";
 import { computeMemberHealthStats, refreshMemberHealthStatsCache } from "../lib/compute-member-health-stats.js";
 import { createLLMProvider, getModelConfig } from "../lib/llm/index.js";
 import { loadTestOrgCatalog } from "../lib/extraction/catalog.js";
@@ -155,12 +161,18 @@ function computeResultSummary(
   }
 }
 
+const MEDICAL_SEVERITIES = ["mild", "moderate", "severe"] as const;
+const BREEDING_IMPACTS = ["informational", "advisory", "disqualifying"] as const;
+
 const createConditionSchema = z.object({
+  // Either pick from curated list (condition_type_id) or supply free-form name+category
+  condition_type_id: z.string().uuid().optional(),
   condition_name: z.string().min(1),
   category: z.string().optional(),
   diagnosis_date: z.string().optional(),
   resolved_date: z.string().optional(),
-  severity: z.string().optional(),
+  medical_severity: z.enum(MEDICAL_SEVERITIES).optional(),
+  breeding_impact: z.enum(BREEDING_IMPACTS).optional(),
   notes: z.string().optional(),
 });
 
@@ -236,6 +248,23 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
   }));
 
   return c.json({ test_types: result });
+});
+
+// ─── GET /api/health/condition-types — curated condition type catalog ────────
+
+healthRoutes.get("/condition-types", async (c: ApiContext) => {
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
+
+  const db = await getDb(c.env);
+
+  const types = await db
+    .select()
+    .from(healthConditionTypes)
+    .where(and(eq(healthConditionTypes.club_id, club.id), eq(healthConditionTypes.is_active, true)))
+    .orderBy(healthConditionTypes.category, healthConditionTypes.sort_order, healthConditionTypes.name);
+
+  return c.json({ condition_types: types });
 });
 
 // ─── POST /api/dogs/:id/clearances — submit clearance ──────────────────────
@@ -956,20 +985,45 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
     throw forbidden("Only the owner or an admin can report health conditions");
   }
 
+  // If condition_type_id supplied, resolve name+category from the curated list
+  let conditionName = data.condition_name;
+  let category = data.category;
+  if (data.condition_type_id) {
+    const [ct] = await db
+      .select()
+      .from(healthConditionTypes)
+      .where(eq(healthConditionTypes.id, data.condition_type_id))
+      .limit(1);
+    if (ct) {
+      conditionName = ct.name;
+      category = ct.category;
+    }
+  }
+
+  // Admins submit directly as approved; owners go into the queue
+  const status = member.is_admin ? "approved" : "pending";
+
   // Insert condition
   const [condition] = await db
     .insert(healthConditions)
     .values({
       dog_id: dogId,
-      condition_name: data.condition_name,
-      category: data.category,
+      condition_type_id: data.condition_type_id ?? null,
+      condition_name: conditionName,
+      category,
       diagnosis_date: data.diagnosis_date,
       resolved_date: data.resolved_date,
-      severity: data.severity,
+      medical_severity: data.medical_severity ?? null,
+      breeding_impact: data.breeding_impact ?? null,
+      status,
       notes: data.notes,
       reported_by: member.id,
     })
     .returning();
+
+  if (status === "approved") {
+    c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, club.id));
+  }
 
   return c.json({ condition }, 201);
 });
@@ -1095,7 +1149,7 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
   }
 
   // Cache miss (first load) — compute live and cache for next time
-  const data = await computeHealthStatistics(db, club.id);
+  const data = await computeFullHealthStatistics(db, club.id);
   c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, club.id));
 
   return c.json(data);
@@ -1111,8 +1165,11 @@ healthRoutes.get("/my-statistics", async (c: ApiContext) => {
   if (!auth) throw unauthorized("Authentication required");
 
   const db = await getDb(c.env);
-  const data = await computeMyHealthStatistics(db, club.id, auth.contactId);
-  return c.json(data);
+  const [clearanceStats, conditionStats] = await Promise.all([
+    computeMyHealthStatistics(db, club.id, auth.contactId),
+    computeMyConditionStatistics(db, club.id, auth.contactId),
+  ]);
+  return c.json({ ...clearanceStats, condition_statistics: conditionStats });
 });
 
 // ─── GET /api/health/my-stats — per-member health stats (cached) ────────────

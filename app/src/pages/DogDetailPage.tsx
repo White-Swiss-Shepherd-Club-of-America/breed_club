@@ -5,7 +5,7 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration, useAddDogMicrochip, useDeleteDogMicrochip, useAdminDeleteDog } from "@/hooks/useDogs";
+import { useDog, useDogPedigree, useDogProgeny, useDogAuditLog, useTransferDog, useAdminUpdateDog, useRecalculateHealthRating, useUpdateBreedingMetadata, useHealthConditions, useCreateHealthCondition, useUpdateHealthCondition, useDeleteHealthCondition, useConditionTypes, useDeleteDog, useUpdateDog, useUpdateOwnerDogFields, useDeleteDogRegistration, useAddDogMicrochip, useDeleteDogMicrochip, useAdminDeleteDog } from "@/hooks/useDogs";
 import { useAdminDeleteClearance } from "@/hooks/useAdmin";
 import { AdminDeleteDogModal } from "@/components/AdminDeleteDogModal";
 import { AdminDeleteClearanceModal, type ClearanceForDelete } from "@/components/AdminDeleteClearanceModal";
@@ -895,53 +895,84 @@ function HealthRecordsTab({
 
 // ─── Health Conditions Section ────────────────────────────────────────────────
 
-const CONDITION_CATEGORIES = ["orthopedic", "cardiac", "genetic", "vision", "thyroid", "dental", "other"] as const;
-const SEVERITY_OPTIONS = ["mild", "moderate", "severe"] as const;
+const CONDITION_CATEGORIES = ["reproductive", "neurological", "musculoskeletal", "cardiac", "dermatological", "gastrointestinal", "endocrine", "cancer", "immune", "behavioral", "other"] as const;
+const MEDICAL_SEVERITY_OPTIONS = ["mild", "moderate", "severe"] as const;
+const BREEDING_IMPACT_OPTIONS = ["informational", "advisory", "disqualifying"] as const;
 
 function HealthConditionsSection({ dogId, canEdit }: { dogId: string; canEdit: boolean }) {
   const { data, isLoading } = useHealthConditions(dogId);
+  const { data: conditionTypesData } = useConditionTypes();
+  const conditionTypes = conditionTypesData?.condition_types || [];
   const createMutation = useCreateHealthCondition();
   const updateMutation = useUpdateHealthCondition();
   const deleteMutation = useDeleteHealthCondition();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [useCustomName, setUseCustomName] = useState(false);
   const [formData, setFormData] = useState({
+    condition_type_id: "" as string,
     condition_name: "",
     category: "" as string,
     diagnosis_date: "",
     resolved_date: "",
-    severity: "" as string,
+    medical_severity: "" as string,
+    breeding_impact: "" as string,
     notes: "",
   });
 
   const conditions = data?.conditions || [];
 
   const resetForm = () => {
-    setFormData({ condition_name: "", category: "", diagnosis_date: "", resolved_date: "", severity: "", notes: "" });
+    setFormData({ condition_type_id: "", condition_name: "", category: "", diagnosis_date: "", resolved_date: "", medical_severity: "", breeding_impact: "", notes: "" });
+    setUseCustomName(false);
     setShowForm(false);
     setEditingId(null);
   };
 
   const startEdit = (c: HealthCondition) => {
     setFormData({
+      condition_type_id: c.condition_type_id || "",
       condition_name: c.condition_name,
       category: c.category || "",
       diagnosis_date: c.diagnosis_date || "",
       resolved_date: c.resolved_date || "",
-      severity: c.severity || "",
+      medical_severity: c.medical_severity || "",
+      breeding_impact: c.breeding_impact || "",
       notes: c.notes || "",
     });
+    setUseCustomName(!c.condition_type_id);
     setEditingId(c.id);
     setShowForm(true);
+  };
+
+  const handleConditionTypeChange = (typeId: string) => {
+    if (typeId === "__other__") {
+      setUseCustomName(true);
+      setFormData({ ...formData, condition_type_id: "", condition_name: "", category: "" });
+    } else if (typeId === "") {
+      setUseCustomName(false);
+      setFormData({ ...formData, condition_type_id: "", condition_name: "", category: "" });
+    } else {
+      const found = conditionTypes.find((t) => t.id === typeId);
+      setUseCustomName(false);
+      setFormData({
+        ...formData,
+        condition_type_id: typeId,
+        condition_name: found?.name || "",
+        category: found?.category || "",
+      });
+    }
   };
 
   const handleSubmit = () => {
     const payload = {
       condition_name: formData.condition_name,
+      ...(formData.condition_type_id ? { condition_type_id: formData.condition_type_id } : {}),
       ...(formData.category ? { category: formData.category } : {}),
       ...(formData.diagnosis_date ? { diagnosis_date: formData.diagnosis_date } : {}),
       ...(formData.resolved_date ? { resolved_date: formData.resolved_date } : {}),
-      ...(formData.severity ? { severity: formData.severity } : {}),
+      ...(formData.medical_severity ? { medical_severity: formData.medical_severity } : {}),
+      ...(formData.breeding_impact ? { breeding_impact: formData.breeding_impact } : {}),
       ...(formData.notes ? { notes: formData.notes } : {}),
     };
 
@@ -959,6 +990,13 @@ function HealthConditionsSection({ dogId, canEdit }: { dogId: string; canEdit: b
   };
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  // Group condition types by category for optgroups
+  const typesByCategory = conditionTypes.reduce((acc, t) => {
+    if (!acc[t.category]) acc[t.category] = [];
+    acc[t.category].push(t);
+    return acc;
+  }, {} as Record<string, typeof conditionTypes>);
 
   return (
     <div className="mt-6 border-t border-gray-200 pt-4">
@@ -978,39 +1016,73 @@ function HealthConditionsSection({ dogId, canEdit }: { dogId: string; canEdit: b
       {showForm && (
         <div className="p-3 border border-gray-200 rounded-lg mb-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-gray-500 block mb-0.5">Condition Name *</label>
-              <input
-                type="text"
-                value={formData.condition_name}
-                onChange={(e) => setFormData({ ...formData, condition_name: e.target.value })}
-                placeholder="e.g., Cryptorchidism, Hip Dysplasia"
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-              />
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500 block mb-0.5">Condition *</label>
+              {conditionTypes.length > 0 ? (
+                <select
+                  value={useCustomName ? "__other__" : formData.condition_type_id}
+                  onChange={(e) => handleConditionTypeChange(e.target.value)}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                >
+                  <option value="">Select a condition...</option>
+                  {Object.entries(typesByCategory).map(([cat, types]) => (
+                    <optgroup key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)}>
+                      {types.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  <option value="__other__">Other (custom)</option>
+                </select>
+              ) : null}
+              {(useCustomName || conditionTypes.length === 0) && (
+                <input
+                  type="text"
+                  value={formData.condition_name}
+                  onChange={(e) => setFormData({ ...formData, condition_name: e.target.value })}
+                  placeholder="e.g., Cryptorchidism, Hip Dysplasia"
+                  className={`w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${conditionTypes.length > 0 ? "mt-1" : ""}`}
+                />
+              )}
             </div>
+            {(useCustomName || conditionTypes.length === 0) && (
+              <div>
+                <label className="text-xs text-gray-500 block mb-0.5">Category</label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                >
+                  <option value="">Select...</option>
+                  {CONDITION_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
-              <label className="text-xs text-gray-500 block mb-0.5">Category</label>
+              <label className="text-xs text-gray-500 block mb-0.5">Medical Severity</label>
               <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                value={formData.medical_severity}
+                onChange={(e) => setFormData({ ...formData, medical_severity: e.target.value })}
                 className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
               >
                 <option value="">Select...</option>
-                {CONDITION_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                {MEDICAL_SEVERITY_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-0.5">Severity</label>
+              <label className="text-xs text-gray-500 block mb-0.5">Breeding Impact</label>
               <select
-                value={formData.severity}
-                onChange={(e) => setFormData({ ...formData, severity: e.target.value })}
+                value={formData.breeding_impact}
+                onChange={(e) => setFormData({ ...formData, breeding_impact: e.target.value })}
                 className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
               >
                 <option value="">Select...</option>
-                {SEVERITY_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                {BREEDING_IMPACT_OPTIONS.map((b) => (
+                  <option key={b} value={b}>{b.charAt(0).toUpperCase() + b.slice(1)}</option>
                 ))}
               </select>
             </div>
@@ -1063,21 +1135,37 @@ function HealthConditionsSection({ dogId, canEdit }: { dogId: string; canEdit: b
       {conditions.length > 0 ? (
         <div className="space-y-2">
           {conditions.map((c) => (
-            <div key={c.id} className="flex items-start justify-between p-2 bg-gray-50 rounded-lg text-sm">
+            <div key={c.id} className={`flex items-start justify-between p-2 bg-gray-50 rounded-lg text-sm ${c.status === "rejected" ? "opacity-60" : ""}`}>
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{c.condition_name}</span>
-                  {c.severity && (
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${
-                      c.severity === "severe" ? "bg-red-100 text-red-700" :
-                      c.severity === "moderate" ? "bg-amber-100 text-amber-700" :
-                      "bg-blue-100 text-blue-700"
-                    }`}>
-                      {c.severity}
-                    </span>
-                  )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`font-medium ${c.status === "rejected" ? "line-through text-gray-400" : ""}`}>{c.condition_name}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                    c.status === "approved" ? "bg-green-100 text-green-700" :
+                    c.status === "rejected" ? "bg-red-100 text-red-700" :
+                    "bg-yellow-100 text-yellow-700"
+                  }`}>
+                    {c.status}
+                  </span>
                   {c.category && (
                     <span className="text-xs text-gray-500 capitalize">{c.category}</span>
+                  )}
+                  {c.medical_severity && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      c.medical_severity === "severe" ? "bg-red-100 text-red-700" :
+                      c.medical_severity === "moderate" ? "bg-amber-100 text-amber-700" :
+                      "bg-green-100 text-green-700"
+                    }`}>
+                      {c.medical_severity}
+                    </span>
+                  )}
+                  {c.breeding_impact && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      c.breeding_impact === "disqualifying" ? "bg-red-100 text-red-700" :
+                      c.breeding_impact === "advisory" ? "bg-yellow-100 text-yellow-700" :
+                      "bg-gray-100 text-gray-600"
+                    }`}>
+                      {c.breeding_impact}
+                    </span>
                   )}
                 </div>
                 {c.diagnosis_date && (

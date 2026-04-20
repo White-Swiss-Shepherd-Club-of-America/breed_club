@@ -1,4 +1,4 @@
-import { eq, and, count, inArray, ne } from "drizzle-orm";
+import { eq, and, count, inArray } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import {
   healthTestTypes,
@@ -7,7 +7,41 @@ import {
   dogHealthClearances,
   dogs,
   healthStatisticsCache,
+  healthConditions,
 } from "../db/schema.js";
+
+// ─── Condition Stats Types ───────────────────────────────────────────────────
+
+export interface ConditionSeverityDist {
+  mild: number;
+  moderate: number;
+  severe: number;
+}
+
+export interface ConditionBreedingDist {
+  informational: number;
+  advisory: number;
+  disqualifying: number;
+}
+
+export interface ConditionStats {
+  condition_name: string;
+  condition_type_id: string | null;
+  total_dogs: number; // distinct dogs with this condition
+  medical_severity_dist: ConditionSeverityDist;
+  breeding_impact_dist: ConditionBreedingDist;
+}
+
+export interface ConditionCategoryStats {
+  category: string;
+  total_reports: number;
+  conditions: ConditionStats[];
+}
+
+export interface ConditionStatistics {
+  by_category: ConditionCategoryStats[];
+  total_conditions: number;
+}
 
 /**
  * Compute aggregate health statistics for a club.
@@ -290,11 +324,156 @@ export async function computeMyHealthStatistics(db: Database, clubId: string, co
   };
 }
 
+// ─── Condition Statistics ────────────────────────────────────────────────────
+
+/**
+ * Aggregate approved health condition reports for a club, grouped by category.
+ * Only approved conditions for approved, non-historical dogs are counted.
+ */
+export async function computeConditionStatistics(
+  db: Database,
+  clubId: string,
+  dogIdFilter?: string[]
+): Promise<ConditionStatistics> {
+  // Build base where clause — approved conditions for club dogs
+  const baseWhere = and(
+    eq(healthConditions.status, "approved"),
+    eq(dogs.club_id, clubId),
+    eq(dogs.status, "approved"),
+    eq(dogs.is_historical, false)
+  );
+
+  const whereClause =
+    dogIdFilter && dogIdFilter.length > 0
+      ? and(baseWhere, inArray(healthConditions.dog_id, dogIdFilter))
+      : baseWhere;
+
+  // Single query: all approved conditions with category + name + severities
+  const rows = await db
+    .select({
+      condition_type_id: healthConditions.condition_type_id,
+      condition_name: healthConditions.condition_name,
+      category: healthConditions.category,
+      medical_severity: healthConditions.medical_severity,
+      breeding_impact: healthConditions.breeding_impact,
+      dog_id: healthConditions.dog_id,
+    })
+    .from(healthConditions)
+    .innerJoin(dogs, eq(healthConditions.dog_id, dogs.id))
+    .where(whereClause);
+
+  // Aggregate in memory — group by category → condition_name
+  type ConditionKey = string; // category|condition_name
+  const map = new Map<
+    ConditionKey,
+    {
+      condition_name: string;
+      condition_type_id: string | null;
+      category: string;
+      dog_ids: Set<string>;
+      medical: ConditionSeverityDist;
+      breeding: ConditionBreedingDist;
+    }
+  >();
+
+  for (const row of rows) {
+    const cat = row.category || "other";
+    const name = row.condition_name;
+    const key = `${cat}|${name}`;
+
+    let entry = map.get(key);
+    if (!entry) {
+      entry = {
+        condition_name: name,
+        condition_type_id: row.condition_type_id,
+        category: cat,
+        dog_ids: new Set(),
+        medical: { mild: 0, moderate: 0, severe: 0 },
+        breeding: { informational: 0, advisory: 0, disqualifying: 0 },
+      };
+      map.set(key, entry);
+    }
+
+    entry.dog_ids.add(row.dog_id);
+
+    const ms = row.medical_severity as keyof ConditionSeverityDist | null;
+    if (ms && ms in entry.medical) entry.medical[ms]++;
+
+    const bi = row.breeding_impact as keyof ConditionBreedingDist | null;
+    if (bi && bi in entry.breeding) entry.breeding[bi]++;
+  }
+
+  // Group by category
+  const categoryMap = new Map<string, ConditionCategoryStats>();
+  for (const entry of map.values()) {
+    let catStats = categoryMap.get(entry.category);
+    if (!catStats) {
+      catStats = { category: entry.category, total_reports: 0, conditions: [] };
+      categoryMap.set(entry.category, catStats);
+    }
+    catStats.conditions.push({
+      condition_name: entry.condition_name,
+      condition_type_id: entry.condition_type_id,
+      total_dogs: entry.dog_ids.size,
+      medical_severity_dist: entry.medical,
+      breeding_impact_dist: entry.breeding,
+    });
+    catStats.total_reports += entry.dog_ids.size;
+  }
+
+  // Sort: categories alphabetically, conditions within each by total_dogs desc
+  const byCategory = Array.from(categoryMap.values())
+    .sort((a, b) => a.category.localeCompare(b.category))
+    .map((cat) => ({
+      ...cat,
+      conditions: cat.conditions.sort((a, b) => b.total_dogs - a.total_dogs),
+    }));
+
+  const totalConditions = rows.length;
+
+  return { by_category: byCategory, total_conditions: totalConditions };
+}
+
+/**
+ * Compute condition statistics scoped to a specific owner's dogs.
+ */
+export async function computeMyConditionStatistics(
+  db: Database,
+  clubId: string,
+  contactId: string
+): Promise<ConditionStatistics> {
+  const ownedDogs = await db
+    .select({ id: dogs.id })
+    .from(dogs)
+    .where(and(eq(dogs.club_id, clubId), eq(dogs.owner_id, contactId), eq(dogs.status, "approved")));
+
+  if (ownedDogs.length === 0) return { by_category: [], total_conditions: 0 };
+
+  return computeConditionStatistics(
+    db,
+    clubId,
+    ownedDogs.map((d) => d.id)
+  );
+}
+
+// ─── Combined Stats (clearances + conditions) ────────────────────────────────
+
+/**
+ * Compute full health statistics: clearances + conditions.
+ */
+export async function computeFullHealthStatistics(db: Database, clubId: string) {
+  const [clearanceStats, conditionStats] = await Promise.all([
+    computeHealthStatistics(db, clubId),
+    computeConditionStatistics(db, clubId),
+  ]);
+  return { ...clearanceStats, condition_statistics: conditionStats };
+}
+
 /**
  * Recompute health statistics and upsert into the cache table.
  */
 export async function refreshHealthStatisticsCache(db: Database, clubId: string) {
-  const data = await computeHealthStatistics(db, clubId);
+  const data = await computeFullHealthStatistics(db, clubId);
   await db
     .insert(healthStatisticsCache)
     .values({ id: 1, data, computed_at: new Date() })

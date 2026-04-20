@@ -506,7 +506,167 @@ export function HealthQueuePanel() {
   );
 }
 
+// ─── Condition Queue Panel ────────────────────────────────────────────────────
+
+interface PendingCondition {
+  id: string;
+  dog_id: string;
+  dog_registered_name: string;
+  dog_call_name?: string | null;
+  condition_type_id: string | null;
+  condition_name: string;
+  category: string | null;
+  diagnosis_date?: string | null;
+  resolved_date?: string | null;
+  medical_severity?: string | null;
+  breeding_impact?: string | null;
+  status: string;
+  notes?: string | null;
+  reported_by?: string | null;
+  created_at: string;
+}
+
+const BREEDING_IMPACT_LABELS: Record<string, string> = {
+  informational: "Informational",
+  advisory: "Advisory",
+  disqualifying: "Disqualifying",
+};
+
+const MEDICAL_SEVERITY_LABELS: Record<string, string> = {
+  mild: "Mild",
+  moderate: "Moderate",
+  severe: "Severe",
+};
+
+function ConditionQueuePanel() {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin", "conditions", "queue"],
+    queryFn: async () => {
+      const token = await getToken();
+      return api.get<{ conditions: PendingCondition[] }>("/admin/health-conditions/queue", { token });
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.post(`/admin/health-conditions/${id}/approve`, {}, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "conditions", "queue"] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const token = await getToken();
+      return api.post(`/admin/health-conditions/${id}/reject`, {}, { token });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "conditions", "queue"] });
+    },
+  });
+
+  const conditions = data?.conditions ?? [];
+
+  return (
+    <div>
+      <div className="text-sm text-gray-600 mb-4">
+        {isLoading ? "Loading..." : `${conditions.length} pending condition${conditions.length !== 1 ? "s" : ""}`}
+      </div>
+
+      {!isLoading && conditions.length === 0 && (
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <p className="text-gray-500">No pending conditions to review.</p>
+        </div>
+      )}
+
+      {conditions.map((cond) => (
+        <div key={cond.id} className="bg-white rounded-lg shadow mb-4 overflow-hidden">
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Link
+                    to={`/dogs/${cond.dog_id}/health`}
+                    className="text-base font-semibold text-purple-700 hover:underline"
+                  >
+                    {cond.dog_registered_name}
+                  </Link>
+                  {cond.dog_call_name && (
+                    <span className="text-sm text-gray-500">({cond.dog_call_name})</span>
+                  )}
+                </div>
+
+                <div className="mt-2">
+                  <span className="font-medium text-gray-900">{cond.condition_name}</span>
+                  {cond.category && (
+                    <span className="ml-2 text-xs text-gray-500 capitalize">{cond.category}</span>
+                  )}
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-3 text-sm text-gray-600">
+                  {cond.diagnosis_date && (
+                    <span>Diagnosed: {formatDate(cond.diagnosis_date)}</span>
+                  )}
+                  {cond.resolved_date && (
+                    <span>Resolved: {formatDate(cond.resolved_date)}</span>
+                  )}
+                  {cond.medical_severity && (
+                    <span>Medical: <strong>{MEDICAL_SEVERITY_LABELS[cond.medical_severity] ?? cond.medical_severity}</strong></span>
+                  )}
+                  {cond.breeding_impact && (
+                    <span>Breeding: <strong>{BREEDING_IMPACT_LABELS[cond.breeding_impact] ?? cond.breeding_impact}</strong></span>
+                  )}
+                </div>
+
+                {cond.notes && (
+                  <p className="mt-2 text-sm text-gray-600 italic">{cond.notes}</p>
+                )}
+
+                <p className="mt-2 text-xs text-gray-400">
+                  Reported {formatDate(cond.created_at)}
+                </p>
+              </div>
+
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    if (window.confirm("Approve this reported condition?")) {
+                      approveMutation.mutate(cond.id);
+                    }
+                  }}
+                  disabled={approveMutation.isPending || rejectMutation.isPending}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm("Reject this reported condition?")) {
+                      rejectMutation.mutate(cond.id);
+                    }
+                  }}
+                  disabled={approveMutation.isPending || rejectMutation.isPending}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function HealthQueuePage() {
+  const [tab, setTab] = useState<"clearances" | "conditions">("clearances");
+
   return (
     <div className="max-w-7xl mx-auto p-6">
       <div className="mb-6">
@@ -514,8 +674,33 @@ export function HealthQueuePage() {
           ← Back to admin
         </Link>
       </div>
-      <h1 className="text-3xl font-bold mb-6">Health Clearance Verification Queue</h1>
-      <HealthQueuePanel />
+      <h1 className="text-3xl font-bold mb-6">Health Verification Queue</h1>
+
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200">
+        <button
+          onClick={() => setTab("clearances")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === "clearances"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Clearances
+        </button>
+        <button
+          onClick={() => setTab("conditions")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === "conditions"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Reported Conditions
+        </button>
+      </div>
+
+      {tab === "clearances" ? <HealthQueuePanel /> : <ConditionQueuePanel />}
     </div>
   );
 }

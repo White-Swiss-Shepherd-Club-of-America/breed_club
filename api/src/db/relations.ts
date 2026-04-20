@@ -14,6 +14,7 @@ import {
   healthTestTypeOrgs,
   dogHealthClearances,
   healthConditions,
+  healthConditionTypes,
   litters,
   litterPups,
   healthRatingConfigs,
@@ -42,6 +43,7 @@ export const clubsRelations = relations(clubs, ({ one, many }) => ({
   organizations: many(organizations),
   dogs: many(dogs),
   healthTestTypes: many(healthTestTypes),
+  healthConditionTypes: many(healthConditionTypes),
   healthRatingConfig: one(healthRatingConfigs, {
     fields: [clubs.id],
     references: [healthRatingConfigs.club_id],
@@ -241,10 +243,21 @@ export const dogHealthClearancesRelations = relations(dogHealthClearances, ({ on
   }),
 }));
 
+// ─── Health Condition Type relations ─────────────────────────────────────────
+
+export const healthConditionTypesRelations = relations(healthConditionTypes, ({ one, many }) => ({
+  club: one(clubs, { fields: [healthConditionTypes.club_id], references: [clubs.id] }),
+  conditions: many(healthConditions),
+}));
+
 // ─── Health Condition relations ─────────────────────────────────────────────
 
 export const healthConditionsRelations = relations(healthConditions, ({ one }) => ({
   dog: one(dogs, { fields: [healthConditions.dog_id], references: [dogs.id] }),
+  conditionType: one(healthConditionTypes, {
+    fields: [healthConditions.condition_type_id],
+    references: [healthConditionTypes.id],
+  }),
   reporter: one(members, {
     fields: [healthConditions.reported_by],
     references: [members.id],

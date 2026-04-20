@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "idx_health_condition_types_club_name" ON "health_condition_types" USING btree ("club_id","name");
