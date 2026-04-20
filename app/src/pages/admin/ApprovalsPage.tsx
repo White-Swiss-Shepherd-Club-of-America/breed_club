@@ -7,11 +7,43 @@ import { useSearchParams } from "react-router-dom";
 import { useCurrentMember } from "@/hooks/useCurrentMember";
 import { ApplicationsPanel } from "./ApplicationsPage";
 import { DogQueuePanel } from "./DogQueuePage";
-import { HealthQueuePanel } from "./HealthQueuePage";
+import { HealthQueuePanel, ConditionQueuePanel } from "./HealthQueuePage";
 import { TransferQueuePanel } from "./TransferQueuePage";
 import { LitterQueuePanel } from "./LitterQueuePage";
 
 type Tab = "applications" | "dogs" | "health" | "litters" | "transfers";
+type HealthSubTab = "clearances" | "conditions";
+
+function HealthApprovalPanel() {
+  const [subTab, setSubTab] = useState<HealthSubTab>("clearances");
+  return (
+    <div>
+      <div className="flex gap-4 mb-4 border-b border-gray-100">
+        <button
+          onClick={() => setSubTab("clearances")}
+          className={`pb-2 text-sm font-medium border-b-2 transition ${
+            subTab === "clearances"
+              ? "border-gray-900 text-gray-900"
+              : "border-transparent text-gray-400 hover:text-gray-600"
+          }`}
+        >
+          Clearances
+        </button>
+        <button
+          onClick={() => setSubTab("conditions")}
+          className={`pb-2 text-sm font-medium border-b-2 transition ${
+            subTab === "conditions"
+              ? "border-gray-900 text-gray-900"
+              : "border-transparent text-gray-400 hover:text-gray-600"
+          }`}
+        >
+          Reported Conditions
+        </button>
+      </div>
+      {subTab === "clearances" ? <HealthQueuePanel /> : <ConditionQueuePanel />}
+    </div>
+  );
+}
 
 const TAB_DEFS: { key: Tab; label: string; permission: "members" | "clearances" }[] = [
   { key: "applications", label: "Applications", permission: "members" },
@@ -68,7 +100,7 @@ export function ApprovalsPage() {
 
       {tab === "applications" && <ApplicationsPanel />}
       {tab === "dogs" && <DogQueuePanel />}
-      {tab === "health" && <HealthQueuePanel />}
+      {tab === "health" && <HealthApprovalPanel />}
       {tab === "litters" && <LitterQueuePanel />}
       {tab === "transfers" && <TransferQueuePanel />}
     </div>

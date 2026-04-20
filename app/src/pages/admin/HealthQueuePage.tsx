@@ -538,7 +538,7 @@ const MEDICAL_SEVERITY_LABELS: Record<string, string> = {
   severe: "Severe",
 };
 
-function ConditionQueuePanel() {
+export function ConditionQueuePanel() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
 
