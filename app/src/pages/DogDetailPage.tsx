@@ -1422,10 +1422,14 @@ function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }
   const updateDog = useUpdateDog();
   const addMicrochip = useAddDogMicrochip();
   const deleteMicrochip = useDeleteDogMicrochip();
+  const [registeredName, setRegisteredName] = useState(dog.registered_name ?? "");
   const [callName, setCallName] = useState(dog.call_name ?? "");
-  const [newChip, setNewChip] = useState("");
+  const [sex, setSex] = useState(dog.sex ?? "");
+  const [dateOfBirth, setDateOfBirth] = useState(dog.date_of_birth ?? "");
   const [color, setColor] = useState(dog.color ?? "");
+  const [coatType, setCoatType] = useState(dog.coat_type ?? "");
   const [notes, setNotes] = useState(dog.notes ?? "");
+  const [newChip, setNewChip] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const handleAddChip = async () => {
@@ -1449,11 +1453,20 @@ function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!registeredName.trim()) {
+      setError("Registered name is required.");
+      return;
+    }
     try {
       await updateDog.mutateAsync({
         id: dog.id,
+        registered_name: registeredName.trim(),
         call_name: callName || undefined,
+        sex: (sex as "male" | "female") || undefined,
+        date_of_birth: dateOfBirth || undefined,
         color: color || undefined,
+        coat_type: coatType || undefined,
+        notes: notes || undefined,
       });
       onClose();
     } catch {
@@ -1463,23 +1476,76 @@ function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 overflow-y-auto max-h-[90vh]">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Edit Dog</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Edit Pending Submission</h2>
+            <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1">
+              Approval pending — you can correct any details before review.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 ml-4 flex-shrink-0">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <p className="text-sm text-gray-500 mb-4">
-          The registered name, sex, date of birth, and pedigree cannot be changed here. If these are incorrect, delete this submission and re-register.
-        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Registered Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={registeredName}
+              onChange={(e) => setRegisteredName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              required
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Call Name</label>
             <input
               type="text"
               value={callName}
               onChange={(e) => setCallName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sex</label>
+            <select
+              value={sex}
+              onChange={(e) => setSex(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+            >
+              <option value="">— select —</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+            <input
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+            <input
+              type="text"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Coat Type</label>
+            <input
+              type="text"
+              value={coatType}
+              onChange={(e) => setCoatType(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </div>
@@ -1512,12 +1578,12 @@ function EditPendingDogModal({ dog, onClose }: { dog: Dog; onClose: () => void }
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
-            <input
-              type="text"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-none"
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -1832,8 +1898,8 @@ export function DogDetailPage() {
               </a>
             )}
             <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-              {/* Owner actions: pending dog — edit + delete */}
-              {!canEdit && data.canManageClearances && dog.status === "pending" && (
+              {/* Owner/submitter actions: pending dog — edit + delete */}
+              {!canEdit && (data.canManageClearances || dog.submitted_by === member?.id) && dog.status === "pending" && (
                 <>
                   <button
                     onClick={handleDeleteDog}

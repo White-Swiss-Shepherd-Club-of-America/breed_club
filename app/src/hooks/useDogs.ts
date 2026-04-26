@@ -223,6 +223,7 @@ export function useUpdateDog() {
       date_of_death?: string;
       color?: string;
       coat_type?: string;
+      notes?: string;
       sire_id?: string;
       dam_id?: string;
       pedigree?: PedigreeTree;
