@@ -28,7 +28,7 @@ DELETE FROM dog_registrations WHERE id IN (
 );
 
 -- Prevent duplicate registration numbers at the same organization across different dogs
-CREATE UNIQUE INDEX "idx_dog_registrations_org_number" ON "dog_registrations" ("organization_id", "registration_number");
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_dog_registrations_org_number" ON "dog_registrations" ("organization_id", "registration_number");
 
 -- Prevent the same microchip number being assigned to different dogs
-CREATE UNIQUE INDEX "idx_dog_microchips_number_global" ON "dog_microchips" ("microchip_number");
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_dog_microchips_number_global" ON "dog_microchips" ("microchip_number");
