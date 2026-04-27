@@ -270,7 +270,10 @@ export const dogRegistrations = pgTable(
     registration_url: varchar("registration_url", { length: 500 }),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [uniqueIndex("idx_dog_registrations_unique").on(t.dog_id, t.organization_id)]
+  (t) => [
+    uniqueIndex("idx_dog_registrations_unique").on(t.dog_id, t.organization_id),
+    uniqueIndex("idx_dog_registrations_org_number").on(t.organization_id, t.registration_number),
+  ]
 );
 
 // ─── Dog Microchips ────────────────────────────────────────────────────────
@@ -288,6 +291,7 @@ export const dogMicrochips = pgTable(
   (t) => [
     index("idx_dog_microchips_dog").on(t.dog_id),
     uniqueIndex("idx_dog_microchips_unique").on(t.dog_id, t.microchip_number),
+    uniqueIndex("idx_dog_microchips_number_global").on(t.microchip_number),
   ]
 );
 

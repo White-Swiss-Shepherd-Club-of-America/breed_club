@@ -49,7 +49,7 @@ import {
 import { createMembershipTierSchema, updateMembershipTierSchema } from "@breed-club/shared";
 import { notFound, badRequest, forbidden } from "../lib/errors.js";
 import { logDogAudit, logDogDeletion, logClearanceDeletion } from "../lib/audit.js";
-import { resolvePedigreeTree } from "../lib/pedigree.js";
+import { resolvePedigreeTree, findOrCreateHistoricalStub } from "../lib/pedigree.js";
 import { recomputeHealthRating, recomputeAllClubRatings } from "../lib/rating.js";
 import { refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
 import {
@@ -516,37 +516,11 @@ adminRoutes.patch("/dogs/:id", requirePermission("dogs:edit"), async (c) => {
     dam_id = typeof rawDamId === "string" ? rawDamId : rawDamId === null ? null : undefined;
 
     if (rawSireId && typeof rawSireId === "object" && "registered_name" in rawSireId) {
-      const [stubSire] = await db
-        .insert(dogs)
-        .values({
-          registered_name: rawSireId.registered_name,
-          sex: "male",
-          club_id: clubId,
-          status: "approved",
-          owner_id: null,
-          submitted_by: null,
-          is_public: false,
-          is_historical: true,
-        })
-        .returning();
-      sire_id = stubSire.id;
+      sire_id = await findOrCreateHistoricalStub(db, clubId, rawSireId.registered_name, "male");
     }
 
     if (rawDamId && typeof rawDamId === "object" && "registered_name" in rawDamId) {
-      const [stubDam] = await db
-        .insert(dogs)
-        .values({
-          registered_name: rawDamId.registered_name,
-          sex: "female",
-          club_id: clubId,
-          status: "approved",
-          owner_id: null,
-          submitted_by: null,
-          is_public: false,
-          is_historical: true,
-        })
-        .returning();
-      dam_id = stubDam.id;
+      dam_id = await findOrCreateHistoricalStub(db, clubId, rawDamId.registered_name, "female");
     }
   }
 

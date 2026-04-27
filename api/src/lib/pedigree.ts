@@ -4,7 +4,7 @@
  * on existing dogs' parent links.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, and, ilike } from "drizzle-orm";
 import { dogs } from "../db/schema.js";
 import type { Database } from "../db/client.js";
 
@@ -73,7 +73,34 @@ async function resolveRef(
     return ref;
   }
 
-  // New dog — create historical stub with parents already linked
+  // New dog — check if a matching historical stub already exists before creating
+  const existing = await db.query.dogs.findFirst({
+    where: and(
+      eq(dogs.club_id, clubId),
+      ilike(dogs.registered_name, ref.registered_name),
+      eq(dogs.sex, sex),
+      eq(dogs.is_historical, true),
+    ),
+    columns: { id: true, sire_id: true, dam_id: true },
+  });
+
+  if (existing) {
+    // Reuse existing stub — fill parent gaps if we have resolved parents
+    const updates: Record<string, unknown> = {};
+    if (existing.sire_id === null && sireId !== null) {
+      updates.sire_id = sireId;
+    }
+    if (existing.dam_id === null && damId !== null) {
+      updates.dam_id = damId;
+    }
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date();
+      await db.update(dogs).set(updates).where(eq(dogs.id, existing.id));
+    }
+    return existing.id;
+  }
+
+  // No existing match — create historical stub with parents already linked
   const [stub] = await db
     .insert(dogs)
     .values({
@@ -87,6 +114,47 @@ async function resolveRef(
       is_historical: true,
       sire_id: sireId,
       dam_id: damId,
+    })
+    .returning();
+  return stub.id;
+}
+
+/**
+ * Find or create a historical stub dog by name.
+ * Used by legacy inline sire_id/dam_id stub creation in route handlers.
+ * Looks up existing historical dogs first to prevent duplicates.
+ */
+export async function findOrCreateHistoricalStub(
+  db: Database,
+  clubId: string,
+  registeredName: string,
+  sex: "male" | "female",
+  status: "pending" | "approved" = "approved",
+  submittedBy: string | null = null,
+): Promise<string> {
+  const existing = await db.query.dogs.findFirst({
+    where: and(
+      eq(dogs.club_id, clubId),
+      ilike(dogs.registered_name, registeredName),
+      eq(dogs.sex, sex),
+      eq(dogs.is_historical, true),
+    ),
+    columns: { id: true },
+  });
+
+  if (existing) return existing.id;
+
+  const [stub] = await db
+    .insert(dogs)
+    .values({
+      registered_name: registeredName,
+      sex,
+      club_id: clubId,
+      status,
+      owner_id: null,
+      submitted_by: submittedBy,
+      is_public: false,
+      is_historical: true,
     })
     .returning();
   return stub.id;

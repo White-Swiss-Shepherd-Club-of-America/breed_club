@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ilike } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
@@ -237,6 +237,19 @@ paymentRoutes.post("/webhook", async (c) => {
       if (breedColors.length === 1 && !color) color = breedColors[0];
       if (breedCoatTypes.length === 1 && !coat_type) coat_type = breedCoatTypes[0];
 
+      // Skip creation if a dog with the same name already exists (e.g. user submitted via form AND paid)
+      const existingDog = await db.query.dogs.findFirst({
+        where: and(
+          eq(dogs.club_id, payment.club_id),
+          ilike(dogs.registered_name, dogData.registered_name),
+        ),
+        columns: { id: true },
+      });
+
+      if (existingDog) {
+        console.log(`Dog "${dogData.registered_name}" already exists (${existingDog.id}), skipping creation from payment`);
+      } else {
+
       const [dog] = await db
         .insert(dogs)
         .values({
@@ -281,6 +294,7 @@ paymentRoutes.post("/webhook", async (c) => {
       }
 
       console.log(`Dog created after payment: ${dogData.registered_name}`);
+      } // end else (no existing dog)
     } else if (resourceType === "clearance_submit") {
       // Clearance submission metadata should include clearance fields
       const clearanceData = payment.metadata as any;

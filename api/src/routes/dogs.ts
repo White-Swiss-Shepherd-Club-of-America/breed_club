@@ -22,7 +22,7 @@ import { requireLevel } from "../middleware/rbac.js";
 import { dogs, dogMicrochips, dogRegistrations, dogOwnershipTransfers, contacts, organizations, dogHealthClearances, healthTestTypes, clubs } from "../db/schema.js";
 import { notFound, badRequest, forbidden, conflict } from "../lib/errors.js";
 import { isDogOwner } from "../lib/ownership.js";
-import { resolvePedigreeTree } from "../lib/pedigree.js";
+import { resolvePedigreeTree, findOrCreateHistoricalStub } from "../lib/pedigree.js";
 import { createLLMProvider, getModelConfig } from "../lib/llm/index.js";
 import { classifyRegDoc } from "../lib/extraction/reg-classifier.js";
 import { extractRegDoc } from "../lib/extraction/reg-extractor.js";
@@ -76,6 +76,23 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
     (!inlineRegs || inlineRegs.length === 0)
   ) {
     throw badRequest("At least one external registration (e.g. AKC, UKC) is required");
+  }
+
+  // Block duplicate dogs: check if a dog with the same registered_name already exists in this club
+  const existingDog = await db.query.dogs.findFirst({
+    where: and(
+      eq(dogs.club_id, clubId),
+      ilike(dogs.registered_name, dogData.registered_name),
+      sql`${dogs.status} != 'rejected'`,
+    ),
+    columns: { id: true, registered_name: true, status: true },
+  });
+
+  if (existingDog) {
+    throw conflict(
+      `A dog named "${existingDog.registered_name}" already exists (status: ${existingDog.status}). ` +
+      `If this is a different dog, please contact an administrator.`
+    );
   }
 
   // Check if payment is required
@@ -154,37 +171,11 @@ dogRoutes.post("/", requireLevel(10), async (c) => {
     resolvedDamId = typeof dogData.dam_id === "string" ? dogData.dam_id : null;
 
     if (dogData.sire_id && typeof dogData.sire_id === "object" && "registered_name" in dogData.sire_id) {
-      const [stubSire] = await db
-        .insert(dogs)
-        .values({
-          registered_name: dogData.sire_id.registered_name,
-          sex: "male",
-          club_id: clubId,
-          status: "approved",
-          owner_id: null,
-          submitted_by: null,
-          is_public: false,
-          is_historical: true,
-        })
-        .returning();
-      resolvedSireId = stubSire.id;
+      resolvedSireId = await findOrCreateHistoricalStub(db, clubId, dogData.sire_id.registered_name, "male");
     }
 
     if (dogData.dam_id && typeof dogData.dam_id === "object" && "registered_name" in dogData.dam_id) {
-      const [stubDam] = await db
-        .insert(dogs)
-        .values({
-          registered_name: dogData.dam_id.registered_name,
-          sex: "female",
-          club_id: clubId,
-          status: "approved",
-          owner_id: null,
-          submitted_by: null,
-          is_public: false,
-          is_historical: true,
-        })
-        .returning();
-      resolvedDamId = stubDam.id;
+      resolvedDamId = await findOrCreateHistoricalStub(db, clubId, dogData.dam_id.registered_name, "female");
     }
   }
 
@@ -669,37 +660,11 @@ dogRoutes.patch("/:id", requireLevel(10), async (c) => {
     updatePayload.dam_id = resolved.dam_id;
   } else {
     if (data.sire_id && typeof data.sire_id === "object" && "registered_name" in data.sire_id) {
-      const [stubSire] = await db
-        .insert(dogs)
-        .values({
-          registered_name: data.sire_id.registered_name,
-          sex: "male",
-          club_id: clubId,
-          status: "approved",
-          owner_id: null,
-          submitted_by: null,
-          is_public: false,
-          is_historical: true,
-        })
-        .returning();
-      updatePayload.sire_id = stubSire.id;
+      updatePayload.sire_id = await findOrCreateHistoricalStub(db, clubId, data.sire_id.registered_name, "male");
     }
 
     if (data.dam_id && typeof data.dam_id === "object" && "registered_name" in data.dam_id) {
-      const [stubDam] = await db
-        .insert(dogs)
-        .values({
-          registered_name: data.dam_id.registered_name,
-          sex: "female",
-          club_id: clubId,
-          status: "approved",
-          owner_id: null,
-          submitted_by: null,
-          is_public: false,
-          is_historical: true,
-        })
-        .returning();
-      updatePayload.dam_id = stubDam.id;
+      updatePayload.dam_id = await findOrCreateHistoricalStub(db, clubId, data.dam_id.registered_name, "female");
     }
   }
 
