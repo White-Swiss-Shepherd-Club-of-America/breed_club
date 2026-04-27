@@ -89,6 +89,8 @@ function MembershipTab() {
   const updateMutation = useUpdateFormField();
   const deleteMutation = useDeleteFormField();
 
+  const embedUrl = `${window.location.origin}/embed/apply`;
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(emptyForm());
@@ -157,6 +159,26 @@ function MembershipTab() {
 
   return (
     <>
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <p className="text-sm font-medium text-blue-900 mb-1">
+          Embed URL
+        </p>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-sm bg-white px-3 py-2 rounded border border-blue-200 font-mono break-all select-all">
+            {embedUrl}
+          </code>
+          <button
+            onClick={() => navigator.clipboard.writeText(embedUrl)}
+            className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 shrink-0"
+          >
+            Copy
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-blue-700">
+          Use this URL in an iframe to embed the membership form on any website.
+        </p>
+      </div>
+
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">
           Configure the questions shown on the membership application form.
