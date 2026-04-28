@@ -681,6 +681,8 @@ function MyDogsSection() {
   const dogs = data?.data ?? [];
   const [sortField, setSortField] = useState<DogSortField>("dob");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [hideDeceased, setHideDeceased] = useState(false);
+  const [hideRetired, setHideRetired] = useState(false);
 
   const toggleSort = (field: DogSortField) => {
     if (sortField === field) {
@@ -717,12 +719,36 @@ function MyDogsSection() {
     <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">My Dogs</h2>
-        <Link
-          to="/dogs/register"
-          className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
-        >
-          Register a Dog
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setHideDeceased(!hideDeceased)}
+            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+              hideDeceased
+                ? "bg-gray-900 text-white border-gray-900"
+                : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            {hideDeceased ? "Deceased Hidden" : "Hide Deceased"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setHideRetired(!hideRetired)}
+            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+              hideRetired
+                ? "bg-gray-900 text-white border-gray-900"
+                : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+            }`}
+          >
+            {hideRetired ? "Retired Hidden" : "Hide Retired"}
+          </button>
+          <Link
+            to="/dogs/register"
+            className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          >
+            Register a Dog
+          </Link>
+        </div>
       </div>
 
       {isLoading ? (
@@ -744,10 +770,17 @@ function MyDogsSection() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {sorted.map((dog: DogType) => {
+              {sorted
+                .filter((dog: DogType) => {
+                  if (hideDeceased && (dog.is_deceased || dog.date_of_death)) return false;
+                  if (hideRetired && dog.breeding_status === "retired") return false;
+                  return true;
+                })
+                .map((dog: DogType) => {
                 const isDeceased = !!(dog.is_deceased || dog.date_of_death);
-                const rowBg =
-                  dog.sex === "male"
+                const rowBg = isDeceased
+                  ? "bg-gray-200 hover:bg-gray-300"
+                  : dog.sex === "male"
                     ? "bg-blue-50 hover:bg-blue-100"
                     : dog.sex === "female"
                       ? "bg-pink-50 hover:bg-pink-100"
@@ -758,7 +791,7 @@ function MyDogsSection() {
                     <td className="py-2">
                       <Link
                         to={`/dogs/${dog.id}`}
-                        className={`text-gray-900 font-medium hover:underline ${isDeceased ? "line-through" : ""}`}
+                        className="text-gray-900 font-medium hover:underline"
                       >
                         {dog.registered_name}
                       </Link>
@@ -768,13 +801,13 @@ function MyDogsSection() {
                         </span>
                       )}
                     </td>
-                    <td className={`py-2 text-gray-600 ${isDeceased ? "line-through" : ""}`}>
+                    <td className="py-2 text-gray-600">
                       {dog.call_name || "—"}
                     </td>
-                    <td className={`py-2 text-gray-600 capitalize hidden sm:table-cell ${isDeceased ? "line-through" : ""}`}>
+                    <td className="py-2 text-gray-600 capitalize hidden sm:table-cell">
                       {dog.sex || "—"}
                     </td>
-                    <td className={`py-2 text-gray-600 hidden sm:table-cell ${isDeceased ? "line-through" : ""}`}>
+                    <td className="py-2 text-gray-600 hidden sm:table-cell">
                       {formatDate(dog.date_of_birth)}
                     </td>
                     <td className="py-2">

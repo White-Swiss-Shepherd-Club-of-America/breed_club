@@ -5,19 +5,28 @@
 import { useState } from "react";
 import { useApplicationQueue, useReviewApplication } from "@/hooks/useApplications";
 import type { MembershipApplication } from "@breed-club/shared";
-import { Check, X, RotateCcw } from "lucide-react";
+import { Check, X, RotateCcw, Search } from "lucide-react";
 
 export function ApplicationsPanel() {
   const [statusFilter, setStatusFilter] = useState("submitted");
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
   const { data, isLoading } = useApplicationQueue(statusFilter, page);
   const reviewMutation = useReviewApplication();
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState("");
   const [approvedEmail, setApprovedEmail] = useState<string | null>(null);
 
-  const applications = data?.data ?? [];
+  const allApplications = data?.data ?? [];
   const meta = data?.meta;
+
+  const applications = search
+    ? allApplications.filter(
+        (a: MembershipApplication) =>
+          a.applicant_name?.toLowerCase().includes(search.toLowerCase()) ||
+          a.applicant_email?.toLowerCase().includes(search.toLowerCase())
+      )
+    : allApplications;
 
   const handleReview = async (
     id: string,
@@ -49,23 +58,35 @@ export function ApplicationsPanel() {
       )}
 
       {/* Status filter tabs */}
-      <div className="flex gap-2 mb-6">
-        {["submitted", "approved", "rejected", "needs_revision"].map((status) => (
-          <button
-            key={status}
-            onClick={() => {
-              setStatusFilter(status);
-              setPage(1);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-sm transition ${
-              statusFilter === status
-                ? "bg-gray-900 text-white"
-                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {status.replace(/_/g, " ")}
-          </button>
-        ))}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="flex gap-2">
+          {["submitted", "approved", "rejected", "needs_revision"].map((status) => (
+            <button
+              key={status}
+              onClick={() => {
+                setStatusFilter(status);
+                setPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                statusFilter === status
+                  ? "bg-gray-900 text-white"
+                  : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {status.replace(/_/g, " ")}
+            </button>
+          ))}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name or email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          />
+        </div>
       </div>
 
       {isLoading && (
