@@ -28,6 +28,8 @@ export function AcceptInvitationPage() {
   const { isSignedIn, getToken } = useAuth();
   const { isLoaded } = useUser();
 
+  const { getTierLabel } = useTiers();
+
   const [preview, setPreview] = useState<InvitationPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
@@ -95,7 +97,6 @@ export function AcceptInvitationPage() {
     );
   }
 
-  const { getTierLabel } = useTiers();
   const tierLabel = getTierLabel(preview.tier);
   const expiresAt = new Date(preview.expires_at).toLocaleDateString();
 
