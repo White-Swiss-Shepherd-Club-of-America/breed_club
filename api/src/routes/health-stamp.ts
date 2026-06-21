@@ -11,7 +11,6 @@ import { html, raw } from "hono/html";
 import { eq, and } from "drizzle-orm";
 import type { Env, ApiContext } from "../lib/types.js";
 import { badRequest, notFound } from "../lib/errors.js";
-import { getDb } from "../db/client.js";
 import {
   dogs,
   clubs,
@@ -55,7 +54,7 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
   if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Fetch dog (including health_rating)
   const [dog] = await db
@@ -492,7 +491,7 @@ healthStampRoutes.get("/dogs/:dog_id/badge.svg", async (c: ApiContext) => {
   if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Fetch dog with health rating
   const [dog] = await db

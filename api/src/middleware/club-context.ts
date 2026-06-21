@@ -10,6 +10,10 @@ type ClubVariables = {
   db: Database;
 };
 
+// Module-scope cache — the club row changes ~never, so resolve it once per
+// isolate and reuse it across requests. A redeploy clears this if ever needed.
+let cachedClub: { slug: string; club: typeof clubs.$inferSelect } | null = null;
+
 /**
  * Club context middleware.
  *
@@ -34,15 +38,20 @@ export const clubContext = createMiddleware<{
     );
   }
 
-  const club = await db.query.clubs.findFirst({
-    where: eq(clubs.slug, slug),
-  });
-
+  let club = cachedClub?.slug === slug ? cachedClub.club : undefined;
   if (!club) {
-    return c.json(
-      { error: { code: "NOT_FOUND", message: `Club "${slug}" not found` } },
-      404
-    );
+    club = await db.query.clubs.findFirst({
+      where: eq(clubs.slug, slug),
+    });
+
+    if (!club) {
+      return c.json(
+        { error: { code: "NOT_FOUND", message: `Club "${slug}" not found` } },
+        404
+      );
+    }
+
+    cachedClub = { slug, club };
   }
 
   c.set("clubId", club.id);

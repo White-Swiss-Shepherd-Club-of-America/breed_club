@@ -4,7 +4,6 @@ import { z } from "zod";
 import type { Env, ApiContext } from "../lib/types.js";
 import { notFound, unauthorized, badRequest, conflict, forbidden } from "../lib/errors.js";
 import { isDogOwner } from "../lib/ownership.js";
-import { getDb } from "../db/client.js";
 import {
   healthTestTypes,
   healthTestTypeOrgs,
@@ -184,7 +183,7 @@ healthRoutes.get("/test-types", async (c: ApiContext) => {
   const club = c.get("club");
   if (!club) throw badRequest("Club context required");
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Fetch all test types for this club with their linked organizations
   const testTypes = await db
@@ -256,7 +255,7 @@ healthRoutes.get("/condition-types", async (c: ApiContext) => {
   const club = c.get("club");
   if (!club) throw badRequest("Club context required");
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   const types = await db
     .select()
@@ -284,7 +283,7 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
   const body = await c.req.json();
   const data = createClearanceSchema.parse(body);
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Verify dog exists and user has permission
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
@@ -423,7 +422,7 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
   const body = await c.req.json();
   const { clearances: items, certificate_url } = batchClearanceSchema.parse(body);
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Verify dog exists and user has permission
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
@@ -582,7 +581,7 @@ healthRoutes.get("/clearances", async (c: ApiContext) => {
   const auth = c.get("auth");
   if (!club || !auth?.member || !auth.contactId) throw unauthorized();
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   const query = myClearanceQuerySchema.parse({
     status: c.req.query("status") ?? "all",
@@ -732,7 +731,7 @@ healthRoutes.get("/dogs/:dog_id/clearances", async (c: ApiContext) => {
 
   const member = auth.member;
   const dogId = c.req.param("dog_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Verify dog exists
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
@@ -813,7 +812,7 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
   const body = await c.req.json();
   const data = updateClearanceSchema.parse(body);
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Fetch clearance
   const [clearance] = await db
@@ -910,7 +909,7 @@ healthRoutes.delete("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiConte
   const member = auth.member;
   const dogId = c.req.param("dog_id");
   const clearanceId = c.req.param("clearance_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   const [clearance] = await db
     .select()
@@ -971,7 +970,7 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
   const body = await c.req.json();
   const data = createConditionSchema.parse(body);
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Verify dog exists
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
@@ -1035,7 +1034,7 @@ healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
   if (!club) throw badRequest("Club context required");
 
   const dogId = c.req.param("dog_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Verify dog exists
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
@@ -1062,7 +1061,7 @@ healthRoutes.patch("/dogs/:dog_id/conditions/:condition_id", async (c: ApiContex
 
   const dogId = c.req.param("dog_id");
   const conditionId = c.req.param("condition_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
   if (!dog || dog.club_id !== club.id) throw notFound("Dog");
@@ -1103,7 +1102,7 @@ healthRoutes.delete("/dogs/:dog_id/conditions/:condition_id", async (c: ApiConte
 
   const dogId = c.req.param("dog_id");
   const conditionId = c.req.param("condition_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
   if (!dog || dog.club_id !== club.id) throw notFound("Dog");
@@ -1133,7 +1132,7 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
   const club = c.get("club");
   if (!club) throw badRequest("Club context required");
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Try to serve from cache
   const cached = await db
@@ -1164,7 +1163,7 @@ healthRoutes.get("/my-statistics", async (c: ApiContext) => {
   const auth = c.get("auth") as { memberId: string; contactId: string } | null;
   if (!auth) throw unauthorized("Authentication required");
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
   const [clearanceStats, conditionStats] = await Promise.all([
     computeMyHealthStatistics(db, club.id, auth.contactId),
     computeMyConditionStatistics(db, club.id, auth.contactId),
@@ -1181,7 +1180,7 @@ healthRoutes.get("/my-stats", async (c: ApiContext) => {
   const auth = c.get("auth") as { memberId: string; contactId: string; flags: { is_breeder: boolean } } | null;
   if (!auth) throw unauthorized("Authentication required");
 
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   const cached = await db
     .select()
@@ -1222,7 +1221,7 @@ healthRoutes.post("/dogs/:dog_id/extract", async (c: ApiContext) => {
   }
 
   const dogId = c.req.param("dog_id");
-  const db = await getDb(c.env);
+  const db = c.get("db");
 
   // Verify dog exists and user has permission
   const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
