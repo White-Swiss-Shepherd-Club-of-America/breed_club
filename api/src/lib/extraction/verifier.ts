@@ -26,7 +26,7 @@ function normalizeName(name: string): string {
  * Normalize a microchip number: strip spaces and dashes.
  */
 function normalizeChip(chip: string): string {
-  return chip.replace(/[\s\-]/g, "");
+  return chip.replace(/[\s-]/g, "");
 }
 
 /**

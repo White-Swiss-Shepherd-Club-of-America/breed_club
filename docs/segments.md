@@ -22,7 +22,7 @@ Each segment is a self-contained chunk of work. Complete one before starting the
 
 ## Segment 1: Database + API Foundation [DONE]
 
-**Goal**: All tables exist in Supabase. API boots, authenticates via Clerk, and enforces RBAC. Seed data loaded.
+**Goal**: All tables exist in the managed Postgres database. API boots, authenticates via Clerk, and enforces RBAC. Seed data loaded.
 
 **Tasks**:
 1. Write complete Drizzle schema (`api/src/db/schema.ts`) for ALL tables:
@@ -43,7 +43,7 @@ Each segment is a self-contained chunk of work. Complete one before starting the
 
 **Verification**:
 - `npm run db:migrate` succeeds
-- `npm run db:seed` populates tables (check Supabase Table Editor)
+- `npm run db:seed` populates tables (verify with `psql` or your provider's SQL console)
 - `wrangler dev` → `GET /health` returns 200
 - API rejects requests without valid Clerk JWT on protected routes
 

@@ -7,18 +7,16 @@
  */
 
 import { Hono } from "hono";
-import { html, raw } from "hono/html";
+import { html } from "hono/html";
 import { eq, and } from "drizzle-orm";
 import type { Env, ApiContext } from "../lib/types.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import {
   dogs,
-  clubs,
   dogHealthClearances,
   healthTestTypes,
   healthCertVersions,
   organizations,
-  healthTestTypeOrgs,
 } from "../db/schema.js";
 import type { HealthRating, HealthRatingColor } from "../db/schema.js";
 
@@ -47,118 +45,64 @@ function ratingTextColor(color: HealthRatingColor | "gray"): string {
   return color === "yellow" ? "#212529" : "#ffffff";
 }
 
-// ─── GET /dogs/:id/health — SSR health stamp page with OG tags ─────────────
+// ─── Escaping / truncation ──────────────────────────────────────────────────
 
-healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
-  const club = c.get("club");
-  if (!club) throw badRequest("Club context required");
+/**
+ * XML entity escaping for the SVG badge, which is assembled as a plain string
+ * and served as `image/svg+xml` — an active content type. `&` must be replaced
+ * first or the later replacements would be double-escaped.
+ */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-  const dogId = c.req.param("dog_id");
-  const db = c.get("db");
+/** Truncate BEFORE escaping — cutting escaped text can sever an entity. */
+function truncate(value: string, maxLen: number): string {
+  return value.length > maxLen ? value.slice(0, maxLen - 1) + "…" : value;
+}
 
-  // Fetch dog (including health_rating)
-  const [dog] = await db
-    .select({
-      id: dogs.id,
-      registered_name: dogs.registered_name,
-      call_name: dogs.call_name,
-      photo_url: dogs.photo_url,
-      sex: dogs.sex,
-      date_of_birth: dogs.date_of_birth,
-      status: dogs.status,
-      health_rating: dogs.health_rating,
-    })
-    .from(dogs)
-    .where(and(eq(dogs.id, dogId), eq(dogs.club_id, club.id)))
-    .limit(1);
+// ─── Renderers ──────────────────────────────────────────────────────────────
 
-  if (!dog) {
-    throw notFound("Dog");
-  }
+export type HealthStampTestRow = {
+  test_type: string;
+  short_name: string;
+  category: string | null;
+  result: string;
+  test_date: string | null;
+  organization: string | null;
+  verified: boolean;
+  is_preliminary: boolean;
+};
 
-  // If the dog was evaluated under a cert version, scope displayed tests to that version
-  let certVersionTestIds: Set<string> | null = null;
-  const certVersionId = (dog.health_rating as { cert_version_id?: string } | null)?.cert_version_id;
-  if (certVersionId) {
-    const certVersion = await db.query.healthCertVersions.findFirst({
-      where: eq(healthCertVersions.id, certVersionId),
-      columns: { required_test_type_ids: true },
-    });
-    if (certVersion) {
-      certVersionTestIds = new Set(certVersion.required_test_type_ids);
-    }
-  }
+export type HealthStampPageInput = {
+  club: { name: string; breed_name: string; primary_color: string | null };
+  dog: {
+    id: string;
+    registered_name: string;
+    call_name: string | null;
+    photo_url: string | null;
+    sex: string | null;
+    date_of_birth: string | null;
+  };
+  rating: HealthRating | null;
+  testResults: HealthStampTestRow[];
+  verifiedCount: number;
+  totalTests: number;
+  appUrl: string;
+};
 
-  // Fetch all active test types for this club, then filter to cert version if applicable
-  const allTestTypes = await db
-    .select({
-      id: healthTestTypes.id,
-      name: healthTestTypes.name,
-      short_name: healthTestTypes.short_name,
-      category: healthTestTypes.category,
-      sort_order: healthTestTypes.sort_order,
-    })
-    .from(healthTestTypes)
-    .where(and(eq(healthTestTypes.club_id, club.id), eq(healthTestTypes.is_active, true)))
-    .orderBy(healthTestTypes.sort_order, healthTestTypes.name);
-
-  const displayTestTypes = certVersionTestIds
-    ? allTestTypes.filter((tt) => certVersionTestIds!.has(tt.id))
-    : allTestTypes;
-
-  // Fetch approved clearances for this dog (includes prelims, displayed with label)
-  const clearances = await db
-    .select({
-      id: dogHealthClearances.id,
-      health_test_type_id: dogHealthClearances.health_test_type_id,
-      result: dogHealthClearances.result,
-      test_date: dogHealthClearances.test_date,
-      certificate_number: dogHealthClearances.certificate_number,
-      verified_at: dogHealthClearances.verified_at,
-      is_preliminary: dogHealthClearances.is_preliminary,
-      organization_name: organizations.name,
-      organization_type: organizations.type,
-    })
-    .from(dogHealthClearances)
-    .innerJoin(organizations, eq(dogHealthClearances.organization_id, organizations.id))
-    .where(and(eq(dogHealthClearances.dog_id, dogId), eq(dogHealthClearances.status, "approved")));
-
-  // Build clearance map by test type (grouping multiple clearances per type)
-  const clearanceMap = new Map<string, typeof clearances>();
-  for (const c of clearances) {
-    const arr = clearanceMap.get(c.health_test_type_id) || [];
-    arr.push(c);
-    clearanceMap.set(c.health_test_type_id, arr);
-  }
-
-  // Build test results array scoped to the cert version (or all tests if no cert version)
-  // A test type with multiple clearances (e.g., Hips via PennHIP and OFA) produces multiple rows
-  const testResults = displayTestTypes.flatMap((testType) => {
-    const typeClearances = clearanceMap.get(testType.id);
-    if (!typeClearances || typeClearances.length === 0) {
-      return [{
-        test_type: testType.name,
-        short_name: testType.short_name,
-        category: testType.category,
-        result: "Not tested",
-        test_date: null,
-        organization: null,
-        verified: false,
-        is_preliminary: false,
-      }];
-    }
-    return typeClearances.map((c) => ({
-      test_type: testType.name,
-      short_name: testType.short_name,
-      category: testType.category,
-      // Prelim results are shown but clearly labelled — they do not affect scoring
-      result: c.result || "Not tested",
-      test_date: c.test_date || null,
-      organization: c.organization_name || null,
-      verified: !!c.verified_at,
-      is_preliminary: c.is_preliminary,
-    }));
-  });
+/**
+ * Renders the shareable health stamp page. Every interpolation goes through
+ * hono/html's tagged template, which escapes `& < > " '` — no escape hatch anywhere,
+ * because `result`, `short_name` and the dog/club names are user-supplied.
+ */
+export function renderHealthStampPage(input: HealthStampPageInput) {
+  const { club, dog, rating, testResults, verifiedCount, totalTests, appUrl } = input;
 
   // Generate OG image URL (if dog has photo)
   const ogImageUrl = dog.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(dog.registered_name)}&size=1200&background=655e7a&color=fff`;
@@ -166,27 +110,16 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
   // Build page metadata
   const pageTitle = `${dog.registered_name} - Health Clearances | ${club.name}`;
   const pageDescription = `View verified health clearances for ${dog.registered_name}, a ${club.breed_name} registered with ${club.name}.`;
-  const pageUrl = `${c.env.APP_URL}/dogs/${dogId}/health`;
-
-  // Count verified test types (a test type is verified if ANY clearance for it has verified_at)
-  const verifiedTestTypes = new Set(
-    clearances
-      .filter((c) => c.verified_at && (!certVersionTestIds || certVersionTestIds.has(c.health_test_type_id)))
-      .map((c) => c.health_test_type_id)
-  );
-  const verifiedCount = verifiedTestTypes.size;
-  const totalTests = displayTestTypes.length;
+  const pageUrl = `${appUrl}/dogs/${dog.id}/health`;
 
   // Health rating data
-  const rating = dog.health_rating as HealthRating | null;
   const ratingColor = rating?.color ?? "gray";
   const ratingHex = RATING_COLORS[ratingColor as keyof typeof RATING_COLORS] ?? RATING_COLORS.gray;
   const ratingLabel = rating ? RATING_LABELS[rating.color] : "Not Rated";
   const ratingScore = rating?.score ?? 0;
   const ratingSaturation = rating?.saturation ?? 0;
 
-  // Render HTML page
-  const pageHtml = html`<!DOCTYPE html>
+  return html`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -429,9 +362,9 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
           <div class="progress-bar" style="width: ${ratingSaturation}%; background: ${ratingHex};"></div>
         </div>
         <p class="rating-meta">${ratingSaturation}% of categories tested</p>
-        ${raw(rating?.auto_dq ? '<span class="rating-warning error">Disqualifying result</span>' : "")}
-        ${raw(rating && !rating.required_complete && !rating.auto_dq ? '<span class="rating-warning">Missing required tests</span>' : "")}
-        ${raw(rating?.cert_version_name ? `<span class="cert-version-badge">Cert: ${rating.cert_version_name}</span>` : "")}
+        ${rating?.auto_dq ? html`<span class="rating-warning error">Disqualifying result</span>` : ""}
+        ${rating && !rating.required_complete && !rating.auto_dq ? html`<span class="rating-warning">Missing required tests</span>` : ""}
+        ${rating?.cert_version_name ? html`<span class="cert-version-badge">Cert: ${rating.cert_version_name}</span>` : ""}
       </div>
     </div>
 
@@ -447,40 +380,266 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
           </tr>
         </thead>
         <tbody>
-          ${raw(testResults
-            .reduce((acc, test, idx, arr) => {
-              const prevTest = idx > 0 ? arr[idx - 1] : null;
-              if (!prevTest || prevTest.category !== test.category) {
-                acc.push(`<tr class="cat-row"><td colspan="5">${test.category || "Other"}</td></tr>`);
-              }
-              const isVerified = test.verified;
-              const isNotTested = test.result === "Not tested";
-              const isPrelim = (test as { is_preliminary?: boolean }).is_preliminary ?? false;
-              const certLink = isVerified ? '<span class="verified-check">✓</span>' : "";
-              const prelimBadge = isPrelim ? '<span class="prelim-badge">Prelim</span>' : "";
-              acc.push(
-                `<tr class="test-row${isNotTested ? " not-tested" : ""}">` +
-                `<td class="test-name">${test.short_name}</td>` +
-                `<td><span class="result-badge ${isVerified ? "verified" : "not-tested"}">${test.result}</span>${prelimBadge}</td>` +
-                `<td class="meta">${test.organization || ""}</td>` +
-                `<td class="meta">${test.test_date ? new Date(test.test_date).toLocaleDateString() : ""}</td>` +
-                `<td>${certLink}</td>` +
-                `</tr>`
-              );
-              return acc;
-            }, [] as string[])
-            .join(""))}
+          ${testResults.flatMap((test, idx, arr) => {
+            const prevTest = idx > 0 ? arr[idx - 1] : null;
+            const rows: ReturnType<typeof html>[] = [];
+            if (!prevTest || prevTest.category !== test.category) {
+              rows.push(html`<tr class="cat-row"><td colspan="5">${test.category || "Other"}</td></tr>`);
+            }
+            const isVerified = test.verified;
+            const isNotTested = test.result === "Not tested";
+            rows.push(html`<tr class="test-row${isNotTested ? " not-tested" : ""}">
+            <td class="test-name">${test.short_name}</td>
+            <td><span class="result-badge ${isVerified ? "verified" : "not-tested"}">${test.result}</span>${test.is_preliminary ? html`<span class="prelim-badge">Prelim</span>` : ""}</td>
+            <td class="meta">${test.organization || ""}</td>
+            <td class="meta">${test.test_date ? new Date(test.test_date).toLocaleDateString() : ""}</td>
+            <td>${isVerified ? html`<span class="verified-check">✓</span>` : ""}</td>
+          </tr>`);
+            return rows;
+          })}
         </tbody>
       </table>
     </div>
 
     <div class="footer">
-      <p>Verified by ${club.name} · <a href="${c.env.APP_URL}" style="color: ${club.primary_color || "#655e7a"};">View registry</a></p>
+      <p>Verified by ${club.name} · <a href="${appUrl}" style="color: ${club.primary_color || "#655e7a"};">View registry</a></p>
     </div>
   </div>
 </body>
 </html>`;
+}
 
+export type HealthBadgeInput = {
+  registeredName: string;
+  clubName: string;
+  rating: HealthRating | null;
+};
+
+/**
+ * Renders the embeddable shield badge. The result is served as
+ * `image/svg+xml`, so every interpolation — including the dog and club names —
+ * is run through escapeXml(); an unescaped `"` or `<` would let a registered
+ * name inject markup (and therefore script) into the document.
+ */
+export function renderHealthBadgeSvg(input: HealthBadgeInput): string {
+  const { rating } = input;
+  const color = rating?.color ?? "gray";
+  const fillColor = RATING_COLORS[color as keyof typeof RATING_COLORS] ?? RATING_COLORS.gray;
+  const textColor = ratingTextColor(color as HealthRatingColor);
+  const score = rating ? String(rating.score) : "N/A";
+  const label = rating ? RATING_LABELS[rating.color] : "Not Rated";
+
+  // Truncate first, escape second.
+  const displayName = escapeXml(truncate(input.registeredName, 28));
+  const clubName = escapeXml(truncate(input.clubName, 32));
+  const certVersionName = rating?.cert_version_name ? escapeXml(rating.cert_version_name) : null;
+  const fill = escapeXml(fillColor);
+  const text = escapeXml(textColor);
+
+  // Shield-shaped SVG badge
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="240" viewBox="0 0 200 240">
+  <defs>
+    <clipPath id="shield">
+      <path d="M100,8 L185,40 C185,40 188,140 100,228 C12,140 15,40 15,40 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Shield background -->
+  <path d="M100,8 L185,40 C185,40 188,140 100,228 C12,140 15,40 15,40 Z"
+        fill="${fill}" stroke="${fill}" stroke-width="2"/>
+
+  <!-- Inner shield highlight -->
+  <path d="M100,18 L175,46 C175,46 178,135 100,216 C22,135 25,46 25,46 Z"
+        fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+  <!-- Score number -->
+  <text x="100" y="${rating ? "105" : "110"}" text-anchor="middle"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-size="${rating ? "52" : "32"}" font-weight="800"
+        fill="${text}">${escapeXml(score)}</text>
+
+  <!-- Rating label -->
+  <text x="100" y="135" text-anchor="middle"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-size="13" font-weight="600"
+        fill="${text}" opacity="0.9">${escapeXml(label)}</text>
+
+  <!-- Club name at top -->
+  <text x="100" y="65" text-anchor="middle"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-size="9" font-weight="600" letter-spacing="0.5"
+        fill="${text}" opacity="0.7"
+        text-transform="uppercase">${clubName}</text>
+
+  <!-- Dog name at bottom -->
+  <text x="100" y="175" text-anchor="middle"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-size="10" font-weight="500"
+        fill="${text}" opacity="0.8">${displayName}</text>
+
+  <!-- Version badge (if applicable) -->
+  ${certVersionName ? `
+  <text x="100" y="195" text-anchor="middle"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-size="8" font-weight="400"
+        fill="${text}" opacity="0.6">${certVersionName}</text>
+  ` : ""}
+</svg>`;
+}
+
+// ─── GET /dogs/:id/health — SSR health stamp page with OG tags ─────────────
+
+healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
+  const club = c.get("club");
+  if (!club) throw badRequest("Club context required");
+
+  const dogId = c.req.param("dog_id");
+  const db = c.get("db");
+
+  // Fetch dog (including health_rating)
+  const [dog] = await db
+    .select({
+      id: dogs.id,
+      registered_name: dogs.registered_name,
+      call_name: dogs.call_name,
+      photo_url: dogs.photo_url,
+      sex: dogs.sex,
+      date_of_birth: dogs.date_of_birth,
+      status: dogs.status,
+      health_rating: dogs.health_rating,
+    })
+    .from(dogs)
+    .where(
+      and(
+        eq(dogs.id, dogId),
+        eq(dogs.club_id, club.id),
+        eq(dogs.status, "approved"),
+        eq(dogs.is_public, true)
+      )
+    )
+    .limit(1);
+
+  if (!dog) {
+    throw notFound("Dog");
+  }
+
+  // If the dog was evaluated under a cert version, scope displayed tests to that version
+  let certVersionTestIds: Set<string> | null = null;
+  const certVersionId = (dog.health_rating as { cert_version_id?: string } | null)?.cert_version_id;
+  if (certVersionId) {
+    const certVersion = await db.query.healthCertVersions.findFirst({
+      where: eq(healthCertVersions.id, certVersionId),
+      columns: { required_test_type_ids: true },
+    });
+    if (certVersion) {
+      certVersionTestIds = new Set(certVersion.required_test_type_ids);
+    }
+  }
+
+  // Fetch all active test types for this club, then filter to cert version if applicable
+  const allTestTypes = await db
+    .select({
+      id: healthTestTypes.id,
+      name: healthTestTypes.name,
+      short_name: healthTestTypes.short_name,
+      category: healthTestTypes.category,
+      sort_order: healthTestTypes.sort_order,
+    })
+    .from(healthTestTypes)
+    .where(and(eq(healthTestTypes.club_id, club.id), eq(healthTestTypes.is_active, true)))
+    .orderBy(healthTestTypes.sort_order, healthTestTypes.name);
+
+  const displayTestTypes = certVersionTestIds
+    ? allTestTypes.filter((tt) => certVersionTestIds!.has(tt.id))
+    : allTestTypes;
+
+  // Fetch approved clearances for this dog (includes prelims, displayed with label)
+  const clearances = await db
+    .select({
+      id: dogHealthClearances.id,
+      health_test_type_id: dogHealthClearances.health_test_type_id,
+      result: dogHealthClearances.result,
+      test_date: dogHealthClearances.test_date,
+      certificate_number: dogHealthClearances.certificate_number,
+      verified_at: dogHealthClearances.verified_at,
+      is_preliminary: dogHealthClearances.is_preliminary,
+      organization_name: organizations.name,
+      organization_type: organizations.type,
+    })
+    .from(dogHealthClearances)
+    .innerJoin(organizations, eq(dogHealthClearances.organization_id, organizations.id))
+    .where(and(eq(dogHealthClearances.dog_id, dogId), eq(dogHealthClearances.status, "approved")));
+
+  // Build clearance map by test type (grouping multiple clearances per type)
+  const clearanceMap = new Map<string, typeof clearances>();
+  for (const c of clearances) {
+    const arr = clearanceMap.get(c.health_test_type_id) || [];
+    arr.push(c);
+    clearanceMap.set(c.health_test_type_id, arr);
+  }
+
+  // Build test results array scoped to the cert version (or all tests if no cert version)
+  // A test type with multiple clearances (e.g., Hips via PennHIP and OFA) produces multiple rows
+  const testResults = displayTestTypes.flatMap((testType) => {
+    const typeClearances = clearanceMap.get(testType.id);
+    if (!typeClearances || typeClearances.length === 0) {
+      return [{
+        test_type: testType.name,
+        short_name: testType.short_name,
+        category: testType.category,
+        result: "Not tested",
+        test_date: null,
+        organization: null,
+        verified: false,
+        is_preliminary: false,
+      }];
+    }
+    return typeClearances.map((c) => ({
+      test_type: testType.name,
+      short_name: testType.short_name,
+      category: testType.category,
+      // Prelim results are shown but clearly labelled — they do not affect scoring
+      result: c.result || "Not tested",
+      test_date: c.test_date || null,
+      organization: c.organization_name || null,
+      verified: !!c.verified_at,
+      is_preliminary: c.is_preliminary,
+    }));
+  });
+
+  // Count verified test types (a test type is verified if ANY clearance for it has verified_at)
+  const verifiedTestTypes = new Set(
+    clearances
+      .filter((c) => c.verified_at && (!certVersionTestIds || certVersionTestIds.has(c.health_test_type_id)))
+      .map((c) => c.health_test_type_id)
+  );
+  const verifiedCount = verifiedTestTypes.size;
+  const totalTests = displayTestTypes.length;
+
+  const pageHtml = renderHealthStampPage({
+    club: { name: club.name, breed_name: club.breed_name, primary_color: club.primary_color },
+    dog: {
+      id: dog.id,
+      registered_name: dog.registered_name,
+      call_name: dog.call_name,
+      photo_url: dog.photo_url,
+      sex: dog.sex,
+      date_of_birth: dog.date_of_birth,
+    },
+    rating: dog.health_rating as HealthRating | null,
+    testResults,
+    verifiedCount,
+    totalTests,
+    appUrl: c.env.APP_URL,
+  });
+
+  // No scripts, no remote resources: the page is inline CSS plus one photo.
+  c.header(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:"
+  );
+  c.header("X-Content-Type-Options", "nosniff");
   return c.html(pageHtml);
 });
 
@@ -493,7 +652,7 @@ healthStampRoutes.get("/dogs/:dog_id/badge.svg", async (c: ApiContext) => {
   const dogId = c.req.param("dog_id");
   const db = c.get("db");
 
-  // Fetch dog with health rating
+  // Fetch dog with health rating — public, approved dogs only
   const [dog] = await db
     .select({
       id: dogs.id,
@@ -501,83 +660,30 @@ healthStampRoutes.get("/dogs/:dog_id/badge.svg", async (c: ApiContext) => {
       health_rating: dogs.health_rating,
     })
     .from(dogs)
-    .where(and(eq(dogs.id, dogId), eq(dogs.club_id, club.id)))
+    .where(
+      and(
+        eq(dogs.id, dogId),
+        eq(dogs.club_id, club.id),
+        eq(dogs.status, "approved"),
+        eq(dogs.is_public, true)
+      )
+    )
     .limit(1);
 
   if (!dog) {
     throw notFound("Dog");
   }
 
-  const rating = dog.health_rating as HealthRating | null;
-  const color = rating?.color ?? "gray";
-  const fillColor = RATING_COLORS[color as keyof typeof RATING_COLORS] ?? RATING_COLORS.gray;
-  const textColor = ratingTextColor(color as HealthRatingColor);
-  const score = rating ? String(rating.score) : "N/A";
-  const label = rating ? RATING_LABELS[rating.color] : "Not Rated";
-
-  // Truncate dog name for badge display
-  const maxNameLen = 28;
-  const displayName = dog.registered_name.length > maxNameLen
-    ? dog.registered_name.slice(0, maxNameLen - 1) + "…"
-    : dog.registered_name;
-
-  const clubName = club.name.length > 32
-    ? club.name.slice(0, 31) + "…"
-    : club.name;
-
-  // Shield-shaped SVG badge
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="240" viewBox="0 0 200 240">
-  <defs>
-    <clipPath id="shield">
-      <path d="M100,8 L185,40 C185,40 188,140 100,228 C12,140 15,40 15,40 Z"/>
-    </clipPath>
-  </defs>
-
-  <!-- Shield background -->
-  <path d="M100,8 L185,40 C185,40 188,140 100,228 C12,140 15,40 15,40 Z"
-        fill="${fillColor}" stroke="${fillColor}" stroke-width="2"/>
-
-  <!-- Inner shield highlight -->
-  <path d="M100,18 L175,46 C175,46 178,135 100,216 C22,135 25,46 25,46 Z"
-        fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
-
-  <!-- Score number -->
-  <text x="100" y="${rating ? '105' : '110'}" text-anchor="middle"
-        font-family="system-ui, -apple-system, sans-serif"
-        font-size="${rating ? '52' : '32'}" font-weight="800"
-        fill="${textColor}">${score}</text>
-
-  <!-- Rating label -->
-  <text x="100" y="135" text-anchor="middle"
-        font-family="system-ui, -apple-system, sans-serif"
-        font-size="13" font-weight="600"
-        fill="${textColor}" opacity="0.9">${label}</text>
-
-  <!-- Club name at top -->
-  <text x="100" y="65" text-anchor="middle"
-        font-family="system-ui, -apple-system, sans-serif"
-        font-size="9" font-weight="600" letter-spacing="0.5"
-        fill="${textColor}" opacity="0.7"
-        text-transform="uppercase">${clubName}</text>
-
-  <!-- Dog name at bottom -->
-  <text x="100" y="175" text-anchor="middle"
-        font-family="system-ui, -apple-system, sans-serif"
-        font-size="10" font-weight="500"
-        fill="${textColor}" opacity="0.8">${displayName}</text>
-
-  <!-- Version badge (if applicable) -->
-  ${rating?.cert_version_name ? `
-  <text x="100" y="195" text-anchor="middle"
-        font-family="system-ui, -apple-system, sans-serif"
-        font-size="8" font-weight="400"
-        fill="${textColor}" opacity="0.6">${rating.cert_version_name}</text>
-  ` : ""}
-</svg>`;
+  const svg = renderHealthBadgeSvg({
+    registeredName: dog.registered_name,
+    clubName: club.name,
+    rating: dog.health_rating as HealthRating | null,
+  });
 
   c.header("Content-Type", "image/svg+xml");
   c.header("Cache-Control", "public, max-age=3600");
+  c.header("Content-Security-Policy", "default-src 'none'");
+  c.header("X-Content-Type-Options", "nosniff");
   return c.body(svg);
 });
 

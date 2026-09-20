@@ -1,50 +1,68 @@
-import { neon } from "@neondatabase/serverless";
-import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
+import { Pool } from "@neondatabase/serverless";
+import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
+import type { ExtractTablesWithRelations } from "drizzle-orm";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "./schema.js";
 import * as relations from "./relations.js";
 
 const schemaObj = { ...schema, ...relations };
+type Schema = typeof schemaObj;
 
-// Module-scope cache for the neon-http client only. neon-http is stateless
-// (each query is an independent HTTP call), so the client is safe to reuse
-// across requests. The postgres.js client (local dev) holds a persistent TCP
-// connection bound to the request that created it and must NOT be cached —
-// Cloudflare Workers forbid reusing such I/O objects across requests.
-let cachedNeon: { connectionString: string; db: Database } | null = null;
+/**
+ * Driver-agnostic database handle.
+ *
+ * Both drivers below are structurally assignable to this common `PgDatabase`
+ * base, and both support `.transaction()`. Typing the application against the
+ * base is what removes the need for a cast at the creation site — the previous
+ * `as unknown as Database` silently claimed the neon-http driver had the same
+ * capabilities as postgres.js, which hid the fact that neon-http throws
+ * "No transactions support in neon-http driver" at runtime.
+ */
+export type Database = PgDatabase<PgQueryResultHKT, Schema, ExtractTablesWithRelations<Schema>>;
 
-async function createNeonDb(connectionString: string) {
-  const sql = neon(connectionString);
-  return drizzleNeon(sql, { schema: schemaObj });
+/** A database handle plus the teardown for the connection backing it. */
+export interface DbHandle {
+  db: Database;
+  /** Releases the underlying socket. Call once, after the response is sent. */
+  close(): Promise<void>;
 }
 
-async function createPostgresDb(connectionString: string) {
+/**
+ * Neon over a WebSocket pool.
+ *
+ * Unlike neon-http this supports transactions, and unlike neon-http it owns a
+ * live socket — so it must NOT be cached across requests. Cloudflare Workers
+ * forbid reusing an I/O object created by a different request.
+ */
+function createNeonDb(connectionString: string): DbHandle {
+  const pool = new Pool({ connectionString });
+  return {
+    db: drizzleNeon(pool, { schema: schemaObj }),
+    close: () => pool.end(),
+  };
+}
+
+/**
+ * postgres.js over TCP — local development and tests.
+ *
+ * Imported dynamically on purpose: postgres.js is only reachable on the dev
+ * path, and a static import would pull its Node socket machinery into every
+ * production Worker bundle. The specifier is literal but the *need* is
+ * runtime-selected by `USE_NEON_DRIVER`.
+ */
+async function createPostgresDb(connectionString: string): Promise<DbHandle> {
   const { default: postgres } = await import("postgres");
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const client = postgres(connectionString, {
     idle_timeout: 20,
     max_lifetime: 60 * 5,
   });
-  return drizzle(client, { schema: schemaObj });
+  return {
+    db: drizzle(client, { schema: schemaObj }),
+    close: () => client.end(),
+  };
 }
 
-export async function createDb(connectionString: string, useNeon = false): Promise<Database> {
-  if (useNeon) {
-    if (cachedNeon && cachedNeon.connectionString === connectionString) {
-      return cachedNeon.db;
-    }
-    const db = (await createNeonDb(connectionString)) as unknown as Database;
-    cachedNeon = { connectionString, db };
-    return db;
-  }
-  // Local dev (postgres.js): always create a fresh per-request client.
-  return await createPostgresDb(connectionString);
-}
-
-export type Database = Awaited<ReturnType<typeof createPostgresDb>>;
-
-export async function getDb(envOrDb: any): Promise<Database> {
-  if (envOrDb && typeof envOrDb.select === "function") {
-    return envOrDb;
-  }
-  return createDb(envOrDb.DATABASE_URL, envOrDb.USE_NEON_DRIVER === "true");
+export async function createDb(connectionString: string, useNeon = false): Promise<DbHandle> {
+  return useNeon ? createNeonDb(connectionString) : createPostgresDb(connectionString);
 }

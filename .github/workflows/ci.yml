@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: breed_club
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d breed_club"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5433/breed_club
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # api's db:* scripts run through `dotenv -e ../.env`, so the repo-root
+      # .env has to exist before drizzle-kit is invoked.
+      - name: Write .env for the api workspace scripts
+        run: echo "DATABASE_URL=${DATABASE_URL}" > .env
+
+      - name: Run database migrations
+        run: npm run --workspace=@breed-club/api db:migrate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run --workspace=@breed-club/api test
+
+      - name: Wrangler dry-run build
+        run: npx wrangler@3.114.17 deploy --dry-run
+        working-directory: api
+        continue-on-error: false

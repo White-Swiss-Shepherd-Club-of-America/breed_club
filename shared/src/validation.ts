@@ -404,13 +404,84 @@ export const transferDogSchema = z.object({
 });
 
 // --- Payments ---
+//
+// Payment metadata is CLIENT-SUPPLIED and is replayed by the Stripe webhook to
+// create real resources, so it is a trust boundary. It must be parsed into a
+// closed shape before it is persisted: an open `z.record(z.unknown())` let a
+// caller override the server's own fields (resource_type, club_id, member_id)
+// and buy a 1500¢ resource with a 500¢ payment.
 
-export const createPaymentSessionSchema = z.object({
-  resource_type: z.enum(["dog_create", "clearance_submit", "clearance_batch_submit"]),
-  metadata: z.record(z.unknown()),
-  success_url: z.string().url(),
-  cancel_url: z.string().url(),
+const paymentClearanceItemSchema = z.object({
+  health_test_type_id: uuidSchema,
+  organization_id: uuidSchema,
+  result: z.string().min(1).max(100),
+  result_data: z.record(z.unknown()).nullish(),
+  result_detail: z.string().max(1000).nullish(),
+  test_date: z.string(),
+  expiration_date: z.string().nullish(),
+  certificate_number: z.string().max(100).nullish(),
+  notes: z.string().max(2000).nullish(),
+  is_preliminary: z.boolean().optional().default(false),
+  application_number: z.string().max(100).nullish(),
 });
+
+/** A preliminary result has no official certificate number yet. */
+const rejectPrelimWithCertNumber = (
+  item: { is_preliminary?: boolean; certificate_number?: string | null },
+  ctx: z.RefinementCtx,
+  path: (string | number)[]
+) => {
+  if (item.is_preliminary && item.certificate_number) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Preliminary results cannot have an OFA certificate number",
+      path: [...path, "certificate_number"],
+    });
+  }
+};
+
+export const paymentMetadataSchema = z
+  .discriminatedUnion("resource_type", [
+    createDogSchema.extend({ resource_type: z.literal("dog_create") }),
+    paymentClearanceItemSchema.extend({
+      resource_type: z.literal("clearance_submit"),
+      dog_id: uuidSchema,
+      certificate_url: z.string().max(500).nullish(),
+    }),
+    z.object({
+      resource_type: z.literal("clearance_batch_submit"),
+      dog_id: uuidSchema,
+      certificate_url: z.string().max(500).nullish(),
+      clearances: z.array(paymentClearanceItemSchema).min(1).max(20),
+    }),
+  ])
+  .superRefine((meta, ctx) => {
+    if (meta.resource_type === "clearance_submit") {
+      rejectPrelimWithCertNumber(meta, ctx, []);
+    } else if (meta.resource_type === "clearance_batch_submit") {
+      meta.clearances.forEach((item, i) => rejectPrelimWithCertNumber(item, ctx, ["clearances", i]));
+    }
+  });
+
+export type PaymentMetadata = z.infer<typeof paymentMetadataSchema>;
+export type PaymentResourceType = PaymentMetadata["resource_type"];
+
+export const createPaymentSessionSchema = z
+  .object({
+    // Redundant with metadata.resource_type; accepted for backwards
+    // compatibility but never trusted — the server reads the discriminant
+    // off the parsed metadata it persists.
+    resource_type: z
+      .enum(["dog_create", "clearance_submit", "clearance_batch_submit"])
+      .optional(),
+    metadata: paymentMetadataSchema,
+    success_url: z.string().url(),
+    cancel_url: z.string().url(),
+  })
+  .refine((body) => !body.resource_type || body.resource_type === body.metadata.resource_type, {
+    message: "resource_type must match metadata.resource_type",
+    path: ["resource_type"],
+  });
 
 // --- Voting Tiers ---
 
@@ -477,10 +548,31 @@ export const updateElectionSchema = z.object({
 });
 
 export const castBallotSchema = z.object({
-  votes: z.array(z.object({
-    question_id: uuidSchema,
-    option_id: uuidSchema,
-  })).min(1),
+  // A ballot carries at most one vote per question. A repeated `question_id`
+  // is rejected rather than collapsed: silently de-duplicating would hide
+  // both the client bug and the ballot-stuffing attempt it looks identical to.
+  votes: z
+    .array(
+      z.object({
+        question_id: uuidSchema,
+        option_id: uuidSchema,
+      })
+    )
+    .min(1)
+    .superRefine((votes, ctx) => {
+      const seen = new Set<string>();
+      votes.forEach((vote, i) => {
+        if (seen.has(vote.question_id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Duplicate vote for question ${vote.question_id}`,
+            path: [i, "question_id"],
+          });
+          return;
+        }
+        seen.add(vote.question_id);
+      });
+    }),
 });
 
 // --- Membership Tiers ---
