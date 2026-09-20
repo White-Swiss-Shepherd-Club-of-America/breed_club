@@ -54,7 +54,7 @@ export async function computeMemberHealthStats(
 
   const ownDogIds = ownDogs.map((d) => d.id);
 
-  let ownClearancesByDog: Record<string, number> = {};
+  const ownClearancesByDog: Record<string, number> = {};
   let totalOwnClearances = 0;
 
   if (ownDogIds.length > 0) {

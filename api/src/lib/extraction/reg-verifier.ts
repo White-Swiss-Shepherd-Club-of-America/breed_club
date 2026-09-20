@@ -189,7 +189,7 @@ export function crossVerifyRegDocs(
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function normalizeChip(chip: string): string {
-  return chip.replace(/[\s\-]/g, "");
+  return chip.replace(/[\s-]/g, "");
 }
 
 function normalizeName(name: string): string {

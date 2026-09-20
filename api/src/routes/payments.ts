@@ -1,16 +1,17 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
-import { eq, and, ilike } from "drizzle-orm";
+import { eq, and, ne, ilike } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import type { Database } from "../db/client.js";
 import type { AuthContext } from "@breed-club/shared";
 import { ApiError } from "../lib/errors.js";
-import { payments, dogs, dogMicrochips, dogHealthClearances, clubs, dogRegistrations, healthTestTypeOrgs } from "../db/schema.js";
-import type { ResultSchema } from "../db/schema.js";
-import { createPaymentSessionSchema } from "@breed-club/shared";
+import { payments, dogs, dogMicrochips, dogHealthClearances, clubs, dogRegistrations, members } from "../db/schema.js";
+import { createPaymentSessionSchema, paymentMetadataSchema } from "@breed-club/shared";
 import { requireAuth } from "../middleware/auth.js";
+import { scheduleBackground } from "../lib/background.js";
+import { buildClearanceRow } from "../lib/clearances.js";
+import { memberOwnsDog } from "../lib/ownership.js";
 import { recomputeHealthRating } from "../lib/rating.js";
-import { computeResultScores } from "../lib/scoring.js";
 
 type Variables = {
   clubId: string;
@@ -43,8 +44,10 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
   }
 
   const body = await c.req.json();
-  const validatedBody = createPaymentSessionSchema.parse(body);
-  const { resource_type, metadata, success_url, cancel_url } = validatedBody;
+  const { metadata, success_url, cancel_url } = createPaymentSessionSchema.parse(body);
+  // The discriminant comes from the parsed, closed metadata — never from a
+  // free-form client field, and never from Stripe's echo of one.
+  const resource_type = metadata.resource_type;
 
   // Get club to read fee configuration
   const [club] = await db.select().from(clubs).where(eq(clubs.id, clubId)).limit(1);
@@ -82,7 +85,7 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
       : auth.tierLevel >= 20
       ? tierFees.member || 0
       : tierFees.non_member || 500;
-    const count = (metadata as any)?.clearances?.length || 1;
+    const count = metadata.resource_type === "clearance_batch_submit" ? metadata.clearances.length : 1;
     amountCents = perClearance * count;
     description = `Health Clearance Submission Fee (${count} test${count > 1 ? "s" : ""})`;
   } else {
@@ -136,13 +139,10 @@ paymentRoutes.post("/create-session", requireAuth, async (c) => {
     success_url: `${success_url}?session_id={CHECKOUT_SESSION_ID}&payment_id=${payment.id}`,
     cancel_url: cancel_url,
     client_reference_id: payment.id, // Link back to our payment record
-    metadata: {
-      payment_id: payment.id,
-      club_id: clubId,
-      member_id: auth.memberId,
-      resource_type,
-      ...metadata,
-    },
+    // Stripe metadata carries the DB key and nothing else. Everything the
+    // webhook acts on is re-read from the `payments` row, so a tampered
+    // Checkout Session cannot change what gets created.
+    metadata: { payment_id: payment.id },
   });
 
   // Update payment record with Stripe session ID
@@ -198,33 +198,36 @@ paymentRoutes.post("/webhook", async (c) => {
       return c.json({ received: true });
     }
 
-    // Find payment record
+    // Claim the payment atomically. Stripe delivers at-least-once, so this
+    // conditional UPDATE is the only thing preventing a retry from creating a
+    // second dog or a duplicate set of clearances.
     const [payment] = await db
-      .select()
-      .from(payments)
-      .where(eq(payments.id, paymentId))
-      .limit(1);
-
-    if (!payment) {
-      console.error("Payment not found:", paymentId);
-      return c.json({ received: true });
-    }
-
-    // Mark payment as completed
-    await db
       .update(payments)
       .set({
         status: "completed",
         stripe_payment_intent_id: session.payment_intent as string,
       })
-      .where(eq(payments.id, payment.id));
+      .where(and(eq(payments.id, paymentId), ne(payments.status, "completed")))
+      .returning();
 
-    const resourceType = session.metadata?.resource_type;
+    if (!payment) {
+      // Either no such payment, or it was already processed by an earlier
+      // delivery of this same event. Both are no-ops.
+      console.log("Webhook ignored — payment missing or already completed:", paymentId);
+      return c.json({ received: true });
+    }
 
-    // Create the resource based on type
-    if (resourceType === "dog_create") {
-      // Dog creation metadata should include dog fields
-      const dogData = payment.metadata as any;
+    // Re-validate what we stored. `resource_type` comes from OUR row, never
+    // from `session.metadata`, which the client controls end to end.
+    const parsedMetadata = paymentMetadataSchema.safeParse(payment.metadata);
+    if (!parsedMetadata.success) {
+      console.error("Payment metadata failed validation:", payment.id, parsedMetadata.error.issues);
+      return c.json({ received: true });
+    }
+    const meta = parsedMetadata.data;
+
+    if (meta.resource_type === "dog_create") {
+      const dogData = meta;
 
       // Auto-fill color/coat_type from breed settings if single option configured
       const [club] = await db.select().from(clubs).where(eq(clubs.id, payment.club_id)).limit(1);
@@ -260,8 +263,11 @@ paymentRoutes.post("/webhook", async (c) => {
           date_of_birth: dogData.date_of_birth || null,
           color,
           coat_type,
-          sire_id: dogData.sire_id || null,
-          dam_id: dogData.dam_id || null,
+          // `parentRefSchema` also permits `{ registered_name }`, which this
+          // path cannot resolve to an id (the unpaid path uses resolveRef).
+          // Only a real UUID may reach a uuid column.
+          sire_id: typeof dogData.sire_id === "string" ? dogData.sire_id : null,
+          dam_id: typeof dogData.dam_id === "string" ? dogData.dam_id : null,
           owner_id: dogData.owner_id || null,
           breeder_id: dogData.breeder_id || null,
           photo_url: dogData.photo_url || null,
@@ -274,7 +280,7 @@ paymentRoutes.post("/webhook", async (c) => {
       // Create inline microchips if provided
       if (dogData.microchips && dogData.microchips.length > 0) {
         await db.insert(dogMicrochips).values(
-          dogData.microchips.map((chip: string) => ({
+          dogData.microchips.map((chip) => ({
             dog_id: dog!.id,
             microchip_number: chip,
           }))
@@ -295,73 +301,56 @@ paymentRoutes.post("/webhook", async (c) => {
 
       console.log(`Dog created after payment: ${dogData.registered_name}`);
       } // end else (no existing dog)
-    } else if (resourceType === "clearance_submit") {
-      // Clearance submission metadata should include clearance fields
-      const clearanceData = payment.metadata as any;
+    } else if (meta.resource_type === "clearance_submit" || meta.resource_type === "clearance_batch_submit") {
+      // Ownership is re-checked HERE, not just at the 402 that produced this
+      // metadata. The client relays that metadata back to /create-session and
+      // could name any dog in any club, so the direct path's checks
+      // (health.ts) must be repeated against the payment's own club/member.
+      const [dog] = await db
+        .select({ id: dogs.id, owner_id: dogs.owner_id, submitted_by: dogs.submitted_by })
+        .from(dogs)
+        .where(and(eq(dogs.id, meta.dog_id), eq(dogs.club_id, payment.club_id)))
+        .limit(1);
 
-      await db.insert(dogHealthClearances).values({
-        dog_id: clearanceData.dog_id,
-        health_test_type_id: clearanceData.health_test_type_id,
-        organization_id: clearanceData.organization_id,
-        result: clearanceData.result,
-        result_data: clearanceData.result_data || null,
-        result_detail: clearanceData.result_detail || null,
-        test_date: clearanceData.test_date,
-        expiration_date: clearanceData.expiration_date || null,
-        certificate_number: clearanceData.certificate_number || null,
-        certificate_url: clearanceData.certificate_url || null,
-        status: "pending", // Still requires verification
-        submitted_by: payment.member_id,
-        notes: clearanceData.notes || null,
-      });
+      const [member] = await db
+        .select({
+          contact_id: members.contact_id,
+          is_admin: members.is_admin,
+          can_approve_clearances: members.can_approve_clearances,
+        })
+        .from(members)
+        .where(eq(members.id, payment.member_id))
+        .limit(1);
 
-      console.log(`Health clearance created after payment for dog: ${clearanceData.dog_id}`);
+      const [club] = await db.select().from(clubs).where(eq(clubs.id, payment.club_id)).limit(1);
 
-      // Recompute health rating (async, don't block webhook response)
-      recomputeHealthRating(db, clearanceData.dog_id).catch(() => {});
-    } else if (resourceType === "clearance_batch_submit") {
-      const batchData = payment.metadata as any;
-      const items = batchData.clearances as any[];
-      const sharedCertUrl = batchData.certificate_url || null;
-
-      for (const item of items) {
-        // Look up result_schema for scoring
-        const [orgLink] = await db
-          .select({ result_schema: healthTestTypeOrgs.result_schema })
-          .from(healthTestTypeOrgs)
-          .where(
-            and(
-              eq(healthTestTypeOrgs.health_test_type_id, item.health_test_type_id),
-              eq(healthTestTypeOrgs.organization_id, item.organization_id)
-            )
-          )
-          .limit(1);
-
-        const resultSchema = orgLink?.result_schema as ResultSchema | null;
-        const scores = computeResultScores(item.result, item.result_data, resultSchema);
-
-        await db.insert(dogHealthClearances).values({
-          dog_id: batchData.dog_id,
-          health_test_type_id: item.health_test_type_id,
-          organization_id: item.organization_id,
-          result: item.result,
-          result_data: item.result_data || null,
-          result_detail: item.result_detail || null,
-          result_score: scores.result_score,
-          result_score_left: scores.result_score_left,
-          result_score_right: scores.result_score_right,
-          test_date: item.test_date,
-          expiration_date: item.expiration_date || null,
-          certificate_number: item.certificate_number || null,
-          certificate_url: sharedCertUrl,
-          status: "pending",
-          submitted_by: payment.member_id,
-          notes: item.notes || null,
-        });
+      if (!dog || !member || !memberOwnsDog(member, dog, (club?.settings ?? {}) as Record<string, unknown>)) {
+        // Paid for something they may not attach. Do not create it, and do not
+        // 500 at Stripe — a retry storm cannot fix an authorization failure.
+        console.error(
+          `Clearance payment ${payment.id} rejected: member ${payment.member_id} may not attach to dog ${meta.dog_id}`
+        );
+        return c.json({ received: true });
       }
 
-      console.log(`Batch health clearances (${items.length}) created after payment for dog: ${batchData.dog_id}`);
-      recomputeHealthRating(db, batchData.dog_id).catch(() => {});
+      const items =
+        meta.resource_type === "clearance_batch_submit"
+          ? meta.clearances
+          : [meta];
+      const sharedCertUrl = meta.certificate_url ?? null;
+
+      for (const item of items) {
+        await db.insert(dogHealthClearances).values(
+          await buildClearanceRow(db, {
+            dogId: meta.dog_id,
+            item,
+            certificateUrl: sharedCertUrl,
+            submittedBy: payment.member_id,
+          })
+        );
+      }
+
+      scheduleBackground(c, recomputeHealthRating(db, meta.dog_id), "recomputeHealthRating");
     }
 
     console.log(`Payment completed: ${payment.id}, amount: ${payment.amount_cents}¢`);

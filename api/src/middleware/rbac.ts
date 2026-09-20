@@ -40,27 +40,34 @@ export const loadMember = createMiddleware<{
     return next();
   }
 
-  const member = await db.query.members.findFirst({
-    where: and(eq(members.club_id, clubId), eq(members.clerk_user_id, clerkUserId)),
-    with: {
-      contact: true,
-    },
-  });
+  // Single query: fetch the member and resolve the tier's numeric level in one
+  // round-trip via a left join on (club_id, tier slug). Neon-http makes each
+  // query a network round-trip, so collapsing the former two sequential queries
+  // into one halves the per-request latency here. (The old `with: { contact }`
+  // load was dropped — only member.contact_id is consumed downstream.)
+  const [row] = await db
+    .select({
+      member: members,
+      tierLevel: membershipTiers.level,
+    })
+    .from(members)
+    .leftJoin(
+      membershipTiers,
+      and(
+        eq(membershipTiers.club_id, members.club_id),
+        eq(membershipTiers.slug, members.tier)
+      )
+    )
+    .where(and(eq(members.club_id, clubId), eq(members.clerk_user_id, clerkUserId)))
+    .limit(1);
 
-  if (!member) {
+  if (!row?.member) {
     c.set("auth", null);
     return next();
   }
 
-  // Resolve the tier's numeric level
-  const tierRow = await db.query.membershipTiers.findFirst({
-    where: and(
-      eq(membershipTiers.club_id, clubId),
-      eq(membershipTiers.slug, member.tier)
-    ),
-    columns: { level: true },
-  });
-  const tierLevel = tierRow?.level ?? 0;
+  const member = row.member;
+  const tierLevel = row.tierLevel ?? 0;
   const isAdmin = tierLevel >= SYSTEM_LEVELS.ADMIN || member.is_admin === true;
 
   const authCtx: AuthContext = {

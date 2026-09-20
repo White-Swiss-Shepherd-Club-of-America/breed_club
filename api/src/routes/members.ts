@@ -238,7 +238,9 @@ memberRoutes.patch("/me/breeder", requireAuth, async (c) => {
 /**
  * GET /directory — breeder directory.
  * Returns members where show_in_directory=true and is_breeder=true.
- * Accessible to non_member+.
+ * Public: no auth. The projection below is an explicit allow-list — never
+ * return whole member rows here, they carry clerk_user_id, is_admin,
+ * skip_fees and the can_approve_* permission flags.
  */
 memberRoutes.get("/directory", async (c) => {
   const db = c.get("db");
@@ -256,7 +258,29 @@ memberRoutes.get("/directory", async (c) => {
   const [data, countResult] = await Promise.all([
     db.query.members.findMany({
       where,
-      with: { contact: true },
+      columns: {
+        id: true,
+        logo_url: true,
+        banner_url: true,
+        primary_color: true,
+        accent_color: true,
+        pup_status: true,
+        pup_expected_date: true,
+      },
+      with: {
+        contact: {
+          columns: {
+            full_name: true,
+            kennel_name: true,
+            email: true,
+            phone: true,
+            city: true,
+            state: true,
+            country: true,
+            website_url: true,
+          },
+        },
+      },
       limit: query.limit,
       offset: (query.page - 1) * query.limit,
     }),

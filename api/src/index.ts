@@ -33,10 +33,30 @@ const app = new Hono<{ Bindings: Env }>();
 // ─── Global middleware ──────────────────────────────────────────────────────
 
 app.use("*", logger());
+// CORS: exact-match allow-list. Deployments MUST set the `CORS_ORIGINS` var
+// (comma-separated origins, e.g. "https://app.example.org") or the SPA will be
+// blocked — the fallback below covers local `vite dev` only. An origin that is
+// not on the list gets no `Access-Control-Allow-Origin` header at all; it is
+// never echoed back, because `credentials: true` would make that a full
+// cross-origin session read for any site on the internet.
+const DEV_ORIGINS = ["http://localhost:5273", "http://127.0.0.1:5273"];
+
+let allowListCache: { raw: string | undefined; origins: string[] } | null = null;
+
+function allowedOrigins(raw: string | undefined): string[] {
+  if (allowListCache && allowListCache.raw === raw) return allowListCache.origins;
+  const origins = raw
+    ? raw.split(",").map((o) => o.trim()).filter((o) => o.length > 0)
+    : DEV_ORIGINS;
+  allowListCache = { raw, origins };
+  return origins;
+}
+
 app.use(
   "*",
   cors({
-    origin: (origin) => origin, // TODO: restrict to app domain in production
+    origin: (origin, c) =>
+      allowedOrigins((c.env as Env).CORS_ORIGINS).includes(origin) ? origin : undefined,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -152,15 +172,18 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    const db = await createDb(env.DATABASE_URL, env.USE_NEON_DRIVER === "true");
+    const { db, close } = await createDb(env.DATABASE_URL, env.USE_NEON_DRIVER === "true");
     const [club] = await db
       .select({ id: clubs.id })
       .from(clubs)
       .where(eq(clubs.slug, env.CLUB_SLUG))
       .limit(1);
 
-    if (club) {
-      ctx.waitUntil(refreshHealthStatisticsCache(db, club.id));
-    }
+    const work = club ? refreshHealthStatisticsCache(db, club.id) : Promise.resolve();
+    ctx.waitUntil(
+      work
+        .catch((err) => console.error("health statistics refresh failed", err))
+        .finally(close)
+    );
   },
 };

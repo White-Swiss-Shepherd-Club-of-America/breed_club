@@ -307,7 +307,7 @@ export async function mergeRegExtractions(
       documentIndex: i,
       registry: e.registry_abbreviation,
     })),
-    (v) => v.replace(/[\s\-]/g, "")
+    (v) => v.replace(/[\s-]/g, "")
   );
   if (chipConflict) conflicts.push(chipConflict);
 

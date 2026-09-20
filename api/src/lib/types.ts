@@ -12,12 +12,14 @@ export interface Env {
   CLERK_SECRET_KEY: string;
   CLERK_PUBLISHABLE_KEY: string;
   CLERK_JWKS_URL: string;
+  CLERK_JWT_KEY?: string; // PEM public key — when set, JWTs verify locally (no JWKS network fetch per request)
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   RECAPTCHA_SECRET_KEY: string;
   RESEND_API_KEY: string;
   EMAIL_FROM: string; // e.g. "Club Name <noreply@mail.example.com>"
   APP_URL: string; // Frontend URL, e.g. https://app.wssca.org (no trailing slash)
+  CORS_ORIGINS?: string; // Comma-separated exact origin allow-list, e.g. "https://app.example.org,https://example.org"
   ENVIRONMENT: "development" | "staging" | "production";
   CLUB_SLUG: string; // For single-club deployments, identifies which club
   BUILD_VERSION?: string; // Injected at deploy time via --var; shows git tag/hash

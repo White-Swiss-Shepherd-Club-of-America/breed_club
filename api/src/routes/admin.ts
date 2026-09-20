@@ -52,6 +52,7 @@ import { logDogAudit, logDogDeletion, logClearanceDeletion } from "../lib/audit.
 import { resolvePedigreeTree, findOrCreateHistoricalStub } from "../lib/pedigree.js";
 import { recomputeHealthRating, recomputeAllClubRatings } from "../lib/rating.js";
 import { refreshHealthStatisticsCache } from "../lib/compute-health-stats.js";
+import { scheduleBackground } from "../lib/background.js";
 import {
   updateMemberSchema,
   updateDogSchema,
@@ -459,7 +460,7 @@ adminRoutes.delete("/dogs/:id", requireLevel(100), async (c) => {
     await tx.update(dogs).set({ dam_id: null }).where(eq(dogs.dam_id, id));
 
     // Audit log (inserted before delete; dog_id will be SET NULL by cascade)
-    await logDogDeletion(tx as unknown as Database, {
+    await logDogDeletion(tx, {
       clubId,
       dogId: id,
       memberId: auth.member!.id,
@@ -850,8 +851,16 @@ adminRoutes.get("/clearances/pending", requirePermission("health:verify"), async
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
 
-  // Get pending clearances for dogs in this club
-  const where = eq(dogHealthClearances.status, "pending");
+  // Scope in SQL, not in JS. The previous version fetched pending clearances
+  // across every club into the Worker and filtered afterwards, which both
+  // leaked cross-tenant rows into memory and made the page size wrong.
+  const where = and(
+    eq(dogHealthClearances.status, "pending"),
+    inArray(
+      dogHealthClearances.dog_id,
+      db.select({ id: dogs.id }).from(dogs).where(eq(dogs.club_id, clubId))
+    )
+  );
 
   const [data, countResult] = await Promise.all([
     db.query.dogHealthClearances.findMany({
@@ -914,13 +923,10 @@ adminRoutes.get("/clearances/pending", requirePermission("health:verify"), async
       .where(where),
   ]);
 
-  // Filter to only clearances for dogs in this club
-  const filteredData = data.filter((c) => c.dog?.club_id === clubId);
-
   const total = Number(countResult[0]?.count ?? 0);
 
   return c.json({
-    data: filteredData,
+    data,
     meta: { page: query.page, limit: query.limit, total, pages: Math.ceil(total / query.limit) },
   });
 });
@@ -981,9 +987,9 @@ adminRoutes.post("/clearances/:id/approve", requirePermission("health:verify"), 
     where: eq(dogHealthClearances.id, id),
   });
 
-  // Recompute health rating after approval (async, don't block response)
-  recomputeHealthRating(db, clearance.dog_id).catch(() => {});
-  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
+  // Recompute health rating after approval — must survive the response.
+  scheduleBackground(c, recomputeHealthRating(db, clearance.dog_id), "recomputeHealthRating");
+  scheduleBackground(c, refreshHealthStatisticsCache(db, clubId), "refreshHealthStatisticsCache");
 
   return c.json({ clearance: updated });
 });
@@ -1032,9 +1038,9 @@ adminRoutes.post("/clearances/:id/reject", requirePermission("health:verify"), a
     where: eq(dogHealthClearances.id, id),
   });
 
-  // Recompute health rating after rejection (async, don't block response)
-  recomputeHealthRating(db, clearance.dog_id).catch(() => {});
-  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
+  // Recompute health rating after rejection — must survive the response.
+  scheduleBackground(c, recomputeHealthRating(db, clearance.dog_id), "recomputeHealthRating");
+  scheduleBackground(c, refreshHealthStatisticsCache(db, clubId), "refreshHealthStatisticsCache");
 
   return c.json({ clearance: updated });
 });
@@ -1078,8 +1084,8 @@ adminRoutes.delete("/clearances/:id", requireLevel(100), async (c) => {
 
   await db.delete(dogHealthClearances).where(eq(dogHealthClearances.id, id));
 
-  recomputeHealthRating(db, clearance.dog_id).catch(() => {});
-  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
+  scheduleBackground(c, recomputeHealthRating(db, clearance.dog_id), "recomputeHealthRating");
+  scheduleBackground(c, refreshHealthStatisticsCache(db, clubId), "refreshHealthStatisticsCache");
 
   return c.json({ success: true });
 });
@@ -1288,26 +1294,39 @@ adminRoutes.get("/transfers/pending", requirePermission("dogs:approve"), async (
   const clubId = c.get("clubId");
   const query = paginationSchema.parse(c.req.query());
 
-  const transfers = await db.query.dogOwnershipTransfers.findMany({
-    where: eq(dogOwnershipTransfers.status, "pending"),
-    with: {
-      dog: {
-        columns: { id: true, registered_name: true, call_name: true, club_id: true },
-      },
-      fromOwner: { columns: { id: true, full_name: true, kennel_name: true } },
-      toOwner: { columns: { id: true, full_name: true, kennel_name: true } },
-    },
-    limit: query.limit,
-    offset: (query.page - 1) * query.limit,
-    orderBy: (t, { desc }) => [desc(t.created_at)],
-  });
+  // Scope in SQL. The previous version paged over every club's pending
+  // transfers, filtered in JS, then reported `pages: 1` — so the queue was
+  // both cross-tenant and unpaginable (page 2 silently returned nothing).
+  const where = and(
+    eq(dogOwnershipTransfers.status, "pending"),
+    inArray(
+      dogOwnershipTransfers.dog_id,
+      db.select({ id: dogs.id }).from(dogs).where(eq(dogs.club_id, clubId))
+    )
+  );
 
-  // Filter to transfers for dogs in this club
-  const filtered = transfers.filter((t) => t.dog?.club_id === clubId);
+  const [transfers, countResult] = await Promise.all([
+    db.query.dogOwnershipTransfers.findMany({
+      where,
+      with: {
+        dog: {
+          columns: { id: true, registered_name: true, call_name: true, club_id: true },
+        },
+        fromOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+        toOwner: { columns: { id: true, full_name: true, kennel_name: true } },
+      },
+      limit: query.limit,
+      offset: (query.page - 1) * query.limit,
+      orderBy: (t, { desc }) => [desc(t.created_at)],
+    }),
+    db.select({ count: sql<number>`count(*)` }).from(dogOwnershipTransfers).where(where),
+  ]);
+
+  const total = Number(countResult[0]?.count ?? 0);
 
   return c.json({
-    data: filtered,
-    meta: { page: query.page, limit: query.limit, total: filtered.length, pages: 1 },
+    data: transfers,
+    meta: { page: query.page, limit: query.limit, total, pages: Math.ceil(total / query.limit) },
   });
 });
 
@@ -1432,7 +1451,7 @@ adminRoutes.post("/cert-versions", requirePermission("test_types:manage"), async
     .returning();
 
   // Recompute all dog ratings so the new cert version takes effect
-  recomputeAllClubRatings(db, clubId).catch(() => {});
+  scheduleBackground(c, recomputeAllClubRatings(db, clubId), "recomputeAllClubRatings");
 
   return c.json({ cert_version: version }, 201);
 });
@@ -1460,7 +1479,7 @@ adminRoutes.patch("/cert-versions/:id", requirePermission("test_types:manage"), 
     .returning();
 
   // Recompute all dog ratings so updated cert version takes effect
-  recomputeAllClubRatings(db, clubId).catch(() => {});
+  scheduleBackground(c, recomputeAllClubRatings(db, clubId), "recomputeAllClubRatings");
 
   return c.json({ cert_version: updated });
 });
@@ -1484,7 +1503,7 @@ adminRoutes.delete("/cert-versions/:id", requirePermission("test_types:manage"),
     .where(eq(healthCertVersions.id, id));
 
   // Recompute all dog ratings so deactivation takes effect
-  recomputeAllClubRatings(db, clubId).catch(() => {});
+  scheduleBackground(c, recomputeAllClubRatings(db, clubId), "recomputeAllClubRatings");
 
   return c.json({ success: true });
 });
@@ -2100,7 +2119,7 @@ adminRoutes.post("/health-conditions/:id/approve", requirePermission("health:ver
     .set({ status: "approved" })
     .where(eq(healthConditions.id, id));
 
-  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, clubId));
+  scheduleBackground(c, refreshHealthStatisticsCache(db, clubId), "refreshHealthStatisticsCache");
 
   return c.json({ ok: true });
 });

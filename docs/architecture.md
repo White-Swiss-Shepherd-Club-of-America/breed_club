@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pivot from Go API + self-hosted K8s to a serverless stack: **Cloudflare Workers** (API) + **Vite React SPA** (app frontend) + **Supabase** (DB + storage) + **Clerk** (auth). Hugo marketing site stays separate.
+Pivot from Go API + self-hosted K8s to a serverless stack: **Cloudflare Workers** (API) + **Vite React SPA** (app frontend) + **managed PostgreSQL** (DB) + **Cloudflare R2** (object storage) + **Clerk** (auth). Hugo marketing site stays separate.
 
 Three deployments:
 - **whiteswissshepherd.org** — Hugo marketing site (existing, stays on S3+CloudFront, possible future CF Pages migration)
@@ -48,8 +48,8 @@ This is ~50-100 lines in a single Hono route. No separate framework needed. The 
 | TypeScript | Language |
 | Drizzle ORM | DB access, type-safe queries, migrations |
 | `postgres` (postgres.js) | PostgreSQL driver |
-| Supabase PostgreSQL | Managed database |
-| Supabase Storage | Object storage (photos, certs) |
+| Managed PostgreSQL | Database (any provider; Neon is the worked example) |
+| Cloudflare R2 | Object storage (photos, certs) via the `CERTIFICATES_BUCKET` binding |
 | `@clerk/backend` | JWT verification via JWKS |
 | Stripe | Payment processing |
 | Zod | Request validation |
@@ -280,7 +280,7 @@ result_detail (text — free-form notes, e.g., PennHIP laxity percentages),
 test_date (date),
 expiration_date (date, nullable — some tests expire),
 certificate_number (varchar),
-certificate_url (varchar — Supabase Storage link),
+certificate_url (varchar — R2 object key),
 status (pending | approved | rejected),
 submitted_by (FK → members),
 verified_by (FK → members),
@@ -420,7 +420,7 @@ breed-club-manager/
 │   │   └── lib/
 │   │       ├── types.ts
 │   │       ├── errors.ts
-│   │       ├── storage.ts         # Supabase Storage helpers
+│   │       ├── form-data.ts       # Multipart upload parsing (R2 writes live in routes/uploads.ts)
 │   │       └── stripe.ts
 │   ├── wrangler.toml
 │   ├── drizzle.config.ts
@@ -498,13 +498,13 @@ Health stamp URL options:
 - Set up npm workspaces monorepo (root + app/ + api/ + shared/)
 - Scaffold Vite React app skeleton
 - Scaffold Hono Workers API skeleton
-- Write README with full Cloudflare + Clerk + Supabase setup guide
+- Write README with full Cloudflare + Clerk + database setup guide
 - Write segmented build plan in docs/
 - Copy architecture plan into docs/
 
 ### Segment 1: Database + API Foundation
 - Drizzle schema for ALL tables (clubs, contacts, members, organizations, dogs, dog_registrations, health_test_types, health_test_type_orgs, dog_health_clearances, health_conditions, litters, litter_pups, membership_applications, payments)
-- Supabase project setup + initial migration
+- Managed Postgres project setup + initial migration
 - Seed data script (organizations, health_test_types, default club)
 - Hono API skeleton with CORS, error handling, health check
 - Clerk JWT auth middleware
@@ -595,7 +595,7 @@ Health stamp URL options:
 
 ## Verification Plan
 
-1. **Local dev**: `wrangler dev` for API, `vite dev` for frontend, Supabase local or free project
+1. **Local dev**: `wrangler dev` for API, `vite dev` for frontend, local Postgres via `make up` or a free managed Postgres project
 2. **Health stamp test**: Create a dog via API, visit the health stamp URL, verify HTML + OG tags render correctly (`curl -s URL | grep og:title`)
 3. **RBAC test**: Create members with different tiers + flags, verify API returns 403 for unauthorized routes
 4. **Approval flow test**: Submit dog as certificate user → verify it appears in clearance approver queue → approve → verify it's visible in registry

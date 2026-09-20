@@ -10,8 +10,8 @@ Built for the [White Swiss Shepherd Club of America](https://whiteswissshepherd.
 |-------|-----------|---------|
 | Frontend | React 19 + Vite + TypeScript + Tailwind + shadcn/ui | Cloudflare Pages |
 | API | Hono + TypeScript + Drizzle ORM | Cloudflare Workers |
-| Database | PostgreSQL | Supabase |
-| Storage | S3-compatible object storage | Supabase Storage |
+| Database | PostgreSQL (any provider) | Neon, or any managed PostgreSQL |
+| Storage | Cloudflare R2 | Cloudflare |
 | Auth | Clerk | Clerk |
 | Payments | Stripe | Stripe |
 
@@ -37,7 +37,7 @@ Built for the [White Swiss Shepherd Club of America](https://whiteswissshepherd.
 - [Node.js](https://nodejs.org/) >= 20
 - npm >= 10
 - A free [Cloudflare](https://dash.cloudflare.com/sign-up) account
-- A free [Supabase](https://supabase.com) account
+- An account with a managed PostgreSQL provider (e.g. [Neon](https://neon.tech) — free tier)
 - A free [Clerk](https://clerk.com) account
 - A [Stripe](https://stripe.com) account (for payments — can be deferred)
 
@@ -55,42 +55,38 @@ npm install
 
 This installs all dependencies across the monorepo (app, api, shared).
 
-### 2. Set Up Supabase (Database + Storage)
+### 2. Set Up the Database
 
-#### Create a Supabase Project
+The API needs PostgreSQL 14+ and nothing else — no vendor SDK, no provider-specific
+features. Use any managed PostgreSQL provider you like; all the application needs is a
+connection string. [Neon](https://neon.tech) is used as the worked example below because
+it has a free tier and a serverless driver the API can opt into.
 
-1. Go to [supabase.com](https://supabase.com) and sign in
-2. Click **New Project**
-3. Fill in:
-   - **Name**: `breed-club` (or your club name)
-   - **Database Password**: generate a strong password and **save it**
-   - **Region**: choose the closest to your users
-   - **Plan**: Free (500MB database, 1GB storage)
-4. Click **Create new project** — wait for provisioning (~2 minutes)
+> For local development you don't need a hosted database at all: `make up` starts
+> PostgreSQL in Docker on port 5433.
+
+#### Create a Database
+
+1. Create a project/database with your provider (Neon: [console.neon.tech](https://console.neon.tech) → **New Project**)
+2. Name it `breed-club` (or your club name) and pick the region closest to your users
+3. Save the generated database password — most providers display it only once
 
 #### Get Your Connection String
 
-1. In the Supabase dashboard, go to **Project Settings** → **Database**
-2. Under **Connection string**, select **URI** tab
-3. Copy the connection string. It looks like:
+1. Copy the connection string from your provider's dashboard. It looks like:
    ```
-   postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+   postgresql://user:password@host/dbname?sslmode=require
    ```
-4. **Important**: Use the **Transaction (port 6543)** connection string, not the Session one. This is required for serverless/edge runtimes like Cloudflare Workers.
+2. **Use the pooled / transaction-mode endpoint if your provider offers one.** Cloudflare
+   Workers open a connection per request, so a direct session endpoint will exhaust the
+   connection limit.
+3. This string is the `DATABASE_URL` used everywhere below.
 
-#### Set Up Storage Buckets
+#### Optional: Neon Serverless Driver
 
-1. In the Supabase dashboard, go to **Storage**
-2. Click **New bucket**, create two buckets:
-   - `public` — toggle **Public bucket** ON (for dog photos, club logo, stamp assets)
-   - `private` — leave Public OFF (for health certificates, uploaded documents)
-
-#### Get Your Supabase Keys
-
-1. Go to **Project Settings** → **API**
-2. Note the following:
-   - **Project URL** (e.g., `https://abcdefgh.supabase.co`)
-   - **service_role key** (under **Project API keys** → `service_role` — this is a secret, never expose it to the frontend)
+On Neon you can set `USE_NEON_DRIVER = "true"` (a `[vars]` entry in `api/wrangler.toml`)
+to use `@neondatabase/serverless` instead of `postgres.js`. Leave it unset on every other
+provider.
 
 ### 3. Set Up Clerk (Authentication)
 
@@ -149,6 +145,15 @@ wrangler login
 
 This opens a browser window to authenticate with your Cloudflare account.
 
+#### Create the R2 Bucket (Uploads)
+
+Health certificates and uploaded documents are stored in Cloudflare R2, bound to the
+Worker as `CERTIFICATES_BUCKET`.
+
+1. In the Cloudflare dashboard, go to **R2** → **Create bucket**
+2. Name it `breed-club-certificates`, or edit `bucket_name` under `[[r2_buckets]]` in `api/wrangler.toml` to match the name you chose
+3. Leave public access off — the API serves files through authenticated routes
+
 #### Set Up Cloudflare Pages (Frontend)
 
 Option A — Connect to GitHub (recommended for auto-deploys):
@@ -181,7 +186,7 @@ cd api
 
 # Database
 wrangler secret put DATABASE_URL
-# Paste your Supabase connection string (transaction mode, port 6543)
+# Paste your database connection string (pooled endpoint)
 
 # Clerk
 wrangler secret put CLERK_SECRET_KEY
@@ -192,13 +197,6 @@ wrangler secret put CLERK_PUBLISHABLE_KEY
 
 wrangler secret put CLERK_JWKS_URL
 # Paste your Clerk JWKS URL
-
-# Supabase
-wrangler secret put SUPABASE_URL
-# Paste your Supabase project URL
-
-wrangler secret put SUPABASE_SERVICE_KEY
-# Paste your Supabase service_role key
 
 # Stripe (can be deferred until Segment 5)
 wrangler secret put STRIPE_SECRET_KEY
@@ -241,10 +239,8 @@ VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
 CLERK_SECRET_KEY=sk_test_your_key_here
 CLERK_JWKS_URL=https://your-instance.clerk.accounts.dev/.well-known/jwks.json
 
-# Supabase
-DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=eyJ...your_service_role_key
+# Database
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 
 # Stripe (optional for initial development)
 STRIPE_SECRET_KEY=sk_test_...
@@ -294,7 +290,7 @@ The Vite dev server proxies `/api/*` requests to the Wrangler dev server automat
 1. Open http://localhost:5173 — you should see the app home page
 2. Click Sign In — Clerk auth flow should work
 3. Hit http://localhost:8787/health — should return `{"status":"ok"}`
-4. Check the Supabase dashboard → Table Editor — tables should be created
+4. Connect to your database (`psql "$DATABASE_URL" -c '\dt'` or your provider's SQL console) — the tables should be created
 
 ---
 

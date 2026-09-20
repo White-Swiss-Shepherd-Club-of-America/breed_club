@@ -2,6 +2,7 @@ import { createMiddleware } from "hono/factory";
 import { eq } from "drizzle-orm";
 import type { Env } from "../lib/types.js";
 import { createDb, type Database } from "../db/client.js";
+import { scheduleBackground } from "../lib/background.js";
 import { clubs } from "../db/schema.js";
 
 type ClubVariables = {
@@ -27,34 +28,40 @@ export const clubContext = createMiddleware<{
   Bindings: Env;
   Variables: ClubVariables;
 }>(async (c, next) => {
-  const db = await createDb(c.env.DATABASE_URL, c.env.USE_NEON_DRIVER === "true");
+  const { db, close } = await createDb(c.env.DATABASE_URL, c.env.USE_NEON_DRIVER === "true");
   c.set("db", db);
 
-  const slug = c.env.CLUB_SLUG;
-  if (!slug) {
-    return c.json(
-      { error: { code: "CONFIG_ERROR", message: "CLUB_SLUG not configured" } },
-      500
-    );
-  }
-
-  let club = cachedClub?.slug === slug ? cachedClub.club : undefined;
-  if (!club) {
-    club = await db.query.clubs.findFirst({
-      where: eq(clubs.slug, slug),
-    });
-
-    if (!club) {
+  try {
+    const slug = c.env.CLUB_SLUG;
+    if (!slug) {
       return c.json(
-        { error: { code: "NOT_FOUND", message: `Club "${slug}" not found` } },
-        404
+        { error: { code: "CONFIG_ERROR", message: "CLUB_SLUG not configured" } },
+        500
       );
     }
 
-    cachedClub = { slug, club };
-  }
+    let club = cachedClub?.slug === slug ? cachedClub.club : undefined;
+    if (!club) {
+      club = await db.query.clubs.findFirst({
+        where: eq(clubs.slug, slug),
+      });
 
-  c.set("clubId", club.id);
-  c.set("club", club);
-  return next();
+      if (!club) {
+        return c.json(
+          { error: { code: "NOT_FOUND", message: `Club "${slug}" not found` } },
+          404
+        );
+      }
+
+      cachedClub = { slug, club };
+    }
+
+    c.set("clubId", club.id);
+    c.set("club", club);
+    return await next();
+  } finally {
+    // The neon WebSocket pool owns a live socket that must not outlive the
+    // request. `await next()` above guarantees downstream handlers are done.
+    scheduleBackground(c, close(), "db close");
+  }
 });

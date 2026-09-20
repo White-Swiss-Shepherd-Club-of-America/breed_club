@@ -9,6 +9,8 @@
     "deploy": "wrangler deploy",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "dotenv -e ../.env -- drizzle-kit generate",
     "db:migrate": "dotenv -e ../.env -- drizzle-kit migrate",
     "db:push": "dotenv -e ../.env -- drizzle-kit push",
@@ -37,6 +39,7 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.18.0",
+    "vitest": "^4.1.11",
     "wrangler": "^3.99.0"
   }
 }

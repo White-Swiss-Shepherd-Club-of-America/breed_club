@@ -304,11 +304,19 @@ votingRoutes.post("/tiers/assign/bulk", requireLevel(100), async (c) => {
  */
 votingRoutes.delete("/tiers/assignments/:memberId", requireLevel(100), async (c) => {
   const db = c.get("db");
+  const clubId = c.get("clubId");
   const memberId = c.req.param("memberId");
 
-  const existing = await db.query.memberVotingTiers.findFirst({
-    where: eq(memberVotingTiers.member_id, memberId),
-  });
+  // `member_voting_tiers` has no club_id of its own, so the scope has to come
+  // from the member row. Without this join a level-100 admin of club A could
+  // delete club B's assignment by guessing a member id.
+  const [existing] = await db
+    .select({ id: memberVotingTiers.id })
+    .from(memberVotingTiers)
+    .innerJoin(members, eq(memberVotingTiers.member_id, members.id))
+    .where(and(eq(memberVotingTiers.member_id, memberId), eq(members.club_id, clubId)))
+    .limit(1);
+
   if (!existing) throw notFound("Voting tier assignment");
 
   await db.delete(memberVotingTiers).where(eq(memberVotingTiers.id, existing.id));
@@ -539,6 +547,43 @@ votingRoutes.delete("/elections/:id", requireLevel(100), async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * Writes one member's ballot: participation rows first, then the anonymous
+ * weighted records, inside a single transaction.
+ *
+ * Both properties are load-bearing.
+ *
+ * *Order* — `idx_vote_participation_unique` on (question_id, member_id) is the
+ * only server-side guard against a double vote that slips past the pre-check
+ * (a concurrent request). Writing participation first makes that index the
+ * first constraint evaluated, so a loser never reaches `vote_records`.
+ *
+ * *Atomicity* — without it, a rejected participation insert leaves the
+ * weighted rows committed with no record that the member voted, letting the
+ * caller replay the request and multiply their weight without limit.
+ *
+ * Exported so the integration suite can drive the write path directly and
+ * assert that a failed participation insert leaves `vote_records` empty.
+ */
+export async function recordBallot(
+  db: Database,
+  votes: readonly { question_id: string; option_id: string }[],
+  memberId: string,
+  points: number
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(voteParticipation)
+      .values(votes.map((v) => ({ question_id: v.question_id, member_id: memberId })));
+
+    await tx
+      .insert(voteRecords)
+      .values(
+        votes.map((v) => ({ question_id: v.question_id, option_id: v.option_id, points }))
+      );
+  });
+}
+
+/**
  * POST /elections/:id/vote — cast ballot.
  *
  * Anonymity: inserts into vote_records (what was voted) and
@@ -629,23 +674,8 @@ votingRoutes.post("/elections/:id/vote", requireLevel(10), async (c) => {
     throw conflict(`You have already voted on question(s): ${alreadyVoted.join(", ")}`);
   }
 
-  // 6. Insert vote records and participation in a transaction
-  // vote_records: anonymous (no member_id)
-  // vote_participation: tracking (no option_id, no points)
-  await db.insert(voteRecords).values(
-    body.votes.map((v) => ({
-      question_id: v.question_id,
-      option_id: v.option_id,
-      points,
-    }))
-  );
-
-  await db.insert(voteParticipation).values(
-    body.votes.map((v) => ({
-      question_id: v.question_id,
-      member_id: auth.memberId,
-    }))
-  );
+  // 6. Persist the ballot atomically.
+  await recordBallot(db, body.votes, auth.memberId, points);
 
   return c.json({ ok: true, voted: body.votes.length });
 });

@@ -4,7 +4,7 @@
  * - POST /                — submit application (requires Clerk auth, no member needed)
  * - GET  /                — list own applications
  * - GET  /queue           — pending applications (member_approver only)
- * - GET  /:id             — get single application
+ * - GET  /:id             — get single application (member_approver only)
  * - PATCH /:id/review     — approve/reject (member_approver only)
  */
 
@@ -204,8 +204,11 @@ applicationRoutes.get("/queue", requirePermission("members:approve"), async (c) 
 
 /**
  * GET /:id — get a single application.
+ * Reviewer-only: the payload carries applicant PII (name, email, phone,
+ * address) and every form answer. Applicants read their own submissions
+ * through `GET /` instead, which scopes by their contact email.
  */
-applicationRoutes.get("/:id", requireAuth, async (c) => {
+applicationRoutes.get("/:id", requirePermission("members:approve"), async (c) => {
   const db = c.get("db");
   const clubId = c.get("clubId");
   const id = c.req.param("id");

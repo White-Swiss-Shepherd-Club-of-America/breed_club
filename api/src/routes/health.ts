@@ -17,8 +17,10 @@ import {
   memberHealthStatsCache,
 } from "../db/schema.js";
 import type { ResultSchema } from "../db/schema.js";
-import { computeResultScores } from "../lib/scoring.js";
+import { computeResultScores, computeResultSummary } from "../lib/scoring.js";
 import { recomputeHealthRating } from "../lib/rating.js";
+import { buildClearanceRow } from "../lib/clearances.js";
+import { scheduleBackground } from "../lib/background.js";
 import { healthStatisticsCache } from "../db/schema.js";
 import {
   computeFullHealthStatistics,
@@ -108,57 +110,9 @@ const myClearanceQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
-// ─── Result Summary Helpers ─────────────────────────────────────────────────
+// (computeResultSummary moved to ../lib/scoring.js — shared with the paid
+// submission path in routes/payments.ts so both produce identical rows.)
 
-/**
- * Compute a human-readable result summary string from structured result_data.
- * Falls back to the provided result string if result_data is null.
- */
-function computeResultSummary(
-  result: string,
-  resultData: Record<string, unknown> | null | undefined,
-  resultSchema: { type: string } | null | undefined
-): string {
-  if (!resultData || !resultSchema) return result;
-
-  switch (resultSchema.type) {
-    case "numeric_lr": {
-      const left = resultData.left as Record<string, number> | undefined;
-      const right = resultData.right as Record<string, number> | undefined;
-      if (!left || !right) return result;
-      const keys = Object.keys(left);
-      const parts = keys.map((k) => `${k.toUpperCase()}: L=${left[k]}, R=${right[k]}`);
-      return parts.join("; ");
-    }
-    case "point_score_lr": {
-      const left = resultData.left as Record<string, number> | undefined;
-      const right = resultData.right as Record<string, number> | undefined;
-      const total = resultData.total as number | undefined;
-      if (left?.total != null && right?.total != null && total != null) {
-        return `${total} (R:${right.total}, L:${left.total})`;
-      }
-      return result;
-    }
-    case "elbow_lr": {
-      const left = resultData.left as { grade?: number } | undefined;
-      const right = resultData.right as { grade?: number } | undefined;
-      if (left && right) {
-        return `L: Grade ${left.grade ?? "?"}, R: Grade ${right.grade ?? "?"}`;
-      }
-      return result;
-    }
-    case "enum_lr": {
-      const left = resultData.left as { value?: string } | undefined;
-      const right = resultData.right as { value?: string } | undefined;
-      if (left && right) {
-        return `L: ${left.value ?? "?"}, R: ${right.value ?? "?"}`;
-      }
-      return result;
-    }
-    default:
-      return result;
-  }
-}
 
 const MEDICAL_SEVERITIES = ["mild", "moderate", "severe"] as const;
 const BREEDING_IMPACTS = ["informational", "advisory", "disqualifying"] as const;
@@ -331,24 +285,8 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
     throw conflict("Clearance already exists for this test type, organization, and date");
   }
 
-  // Look up result_schema for this test type + org to auto-compute result summary
-  const [orgLink] = await db
-    .select({ result_schema: healthTestTypeOrgs.result_schema })
-    .from(healthTestTypeOrgs)
-    .where(
-      and(
-        eq(healthTestTypeOrgs.health_test_type_id, data.health_test_type_id),
-        eq(healthTestTypeOrgs.organization_id, data.organization_id)
-      )
-    )
-    .limit(1);
-
-  const resultSchema = orgLink?.result_schema as ResultSchema | null;
-
-  const baseResult = computeResultSummary(data.result, data.result_data, resultSchema);
-  const computedResult = data.is_preliminary ? `${baseResult} (Prelim)` : baseResult;
-
-  const scores = computeResultScores(data.result, data.result_data, resultSchema);
+  // Result summary and scores are computed by `buildClearanceRow` at insert
+  // time, so both the paid and unpaid paths derive them identically.
 
   // Check if payment is required
   const feeConfig = club.settings as any;
@@ -379,33 +317,23 @@ healthRoutes.post("/dogs/:dog_id/clearances", async (c: ApiContext) => {
     );
   }
 
-  // No payment required - create clearance immediately
+  // No payment required — create clearance immediately. Both this path and
+  // the Stripe webhook build the row with `buildClearanceRow`, so paying a
+  // fee cannot change the stored result, score, or (Prelim) marker.
   const [clearance] = await db
     .insert(dogHealthClearances)
-    .values({
-      dog_id: dogId,
-      health_test_type_id: data.health_test_type_id,
-      organization_id: data.organization_id,
-      result: computedResult,
-      result_data: data.result_data ?? null,
-      result_detail: data.result_detail,
-      result_score: scores.result_score,
-      result_score_left: scores.result_score_left,
-      result_score_right: scores.result_score_right,
-      test_date: data.test_date,
-      expiration_date: data.expiration_date,
-      certificate_number: data.is_preliminary ? null : (data.certificate_number ?? null),
-      certificate_url: data.certificate_url,
-      is_preliminary: data.is_preliminary ?? false,
-      application_number: data.application_number ?? null,
-      notes: data.notes,
-      status: "pending",
-      submitted_by: member.id,
-    })
+    .values(
+      await buildClearanceRow(db, {
+        dogId,
+        item: data,
+        certificateUrl: data.certificate_url,
+        submittedBy: member.id,
+      })
+    )
     .returning();
 
-  // Recompute health rating (async, don't block response)
-  recomputeHealthRating(db, dogId).catch(() => {});
+  // Must survive the response — Workers may cancel the context otherwise.
+  scheduleBackground(c, recomputeHealthRating(db, dogId), "recomputeHealthRating");
 
   return c.json({ clearance }, 201);
 });
@@ -459,12 +387,9 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
     seen.add(key);
   }
 
-  // Validate each item: check DB duplicates, look up schemas, compute scores
-  const prepared: Array<{
-    item: typeof items[0];
-    computedResult: string;
-    scores: { result_score: number | null; result_score_left: number | null; result_score_right: number | null };
-  }> = [];
+  // Validate each item: reject DB duplicates. Result summary and scores are
+  // computed by `buildClearanceRow` at insert time.
+  const prepared: Array<{ item: typeof items[0] }> = [];
 
   for (const item of items) {
     // Check for existing duplicate in DB (includes is_preliminary in the match)
@@ -486,24 +411,7 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
       throw conflict(`Clearance already exists for test type ${item.health_test_type_id}, organization ${item.organization_id}, and date ${item.test_date}`);
     }
 
-    // Look up result_schema
-    const [orgLink] = await db
-      .select({ result_schema: healthTestTypeOrgs.result_schema })
-      .from(healthTestTypeOrgs)
-      .where(
-        and(
-          eq(healthTestTypeOrgs.health_test_type_id, item.health_test_type_id),
-          eq(healthTestTypeOrgs.organization_id, item.organization_id)
-        )
-      )
-      .limit(1);
-
-    const resultSchema = orgLink?.result_schema as ResultSchema | null;
-    const baseResult = computeResultSummary(item.result, item.result_data, resultSchema);
-    const computedResult = (item.is_preliminary ?? false) ? `${baseResult} (Prelim)` : baseResult;
-    const scores = computeResultScores(item.result, item.result_data, resultSchema);
-
-    prepared.push({ item, computedResult, scores });
+    prepared.push({ item });
   }
 
   // Check if payment is required
@@ -536,40 +444,28 @@ healthRoutes.post("/dogs/:dog_id/clearances/batch", async (c: ApiContext) => {
     );
   }
 
-  // No payment required — insert all in a transaction
+  // No payment required — insert all in a transaction.
   const created = await db.transaction(async (tx) => {
     const results = [];
-    for (const { item, computedResult, scores } of prepared) {
+    for (const { item } of prepared) {
       const [clearance] = await tx
         .insert(dogHealthClearances)
-        .values({
-          dog_id: dogId,
-          health_test_type_id: item.health_test_type_id,
-          organization_id: item.organization_id,
-          result: computedResult,
-          result_data: item.result_data ?? null,
-          result_detail: item.result_detail,
-          result_score: scores.result_score,
-          result_score_left: scores.result_score_left,
-          result_score_right: scores.result_score_right,
-          test_date: item.test_date,
-          expiration_date: item.expiration_date,
-          certificate_number: item.is_preliminary ? null : (item.certificate_number ?? null),
-          certificate_url,
-          is_preliminary: item.is_preliminary ?? false,
-          application_number: item.application_number ?? null,
-          notes: item.notes,
-          status: "pending",
-          submitted_by: member.id,
-        })
+        .values(
+          await buildClearanceRow(tx, {
+            dogId,
+            item,
+            certificateUrl: certificate_url,
+            submittedBy: member.id,
+          })
+        )
         .returning();
       results.push(clearance);
     }
     return results;
   });
 
-  // Recompute health rating once
-  recomputeHealthRating(db, dogId).catch(() => {});
+  // Must survive the response — Workers may cancel the context otherwise.
+  scheduleBackground(c, recomputeHealthRating(db, dogId), "recomputeHealthRating");
 
   return c.json({ clearances: created }, 201);
 });
@@ -826,7 +722,14 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
   }
 
   // Check permissions — dog owner, clearance submitter, or approver can update
-  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  // Scoped in SQL: this handler previously loaded the dog by id alone and
+  // never compared its club, so a clearance on another tenant's dog was
+  // editable by anyone who could guess both UUIDs.
+  const [dog] = await db
+    .select()
+    .from(dogs)
+    .where(and(eq(dogs.id, dogId), eq(dogs.club_id, club.id)))
+    .limit(1);
   if (!dog) throw notFound("Dog");
 
   const canEdit =
@@ -858,7 +761,7 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
   }
 
   // If result_data is being updated, re-compute the result summary
-  let updateData: Record<string, unknown> = { ...data };
+  const updateData: Record<string, unknown> = { ...data };
   if (data.result_data !== undefined || data.result !== undefined) {
     const [orgLink] = await db
       .select({ result_schema: healthTestTypeOrgs.result_schema })
@@ -893,8 +796,8 @@ healthRoutes.patch("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiContex
     .where(eq(dogHealthClearances.id, clearanceId))
     .returning();
 
-  // Recompute health rating (async, don't block response)
-  recomputeHealthRating(db, dogId).catch(() => {});
+  // Must survive the response — Workers may cancel the context otherwise.
+  scheduleBackground(c, recomputeHealthRating(db, dogId), "recomputeHealthRating");
 
   return c.json({ clearance: updated });
 });
@@ -921,7 +824,12 @@ healthRoutes.delete("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiConte
     throw notFound("Clearance");
   }
 
-  const [dog] = await db.select().from(dogs).where(eq(dogs.id, dogId)).limit(1);
+  // Scoped in SQL — same missing-club-predicate bug as the edit path.
+  const [dog] = await db
+    .select()
+    .from(dogs)
+    .where(and(eq(dogs.id, dogId), eq(dogs.club_id, club.id)))
+    .limit(1);
   if (!dog) throw notFound("Dog");
 
   const canDelete =
@@ -953,7 +861,7 @@ healthRoutes.delete("/dogs/:dog_id/clearances/:clearance_id", async (c: ApiConte
 
   await db.delete(dogHealthClearances).where(eq(dogHealthClearances.id, clearanceId));
 
-  recomputeHealthRating(db, dogId).catch(() => {});
+  scheduleBackground(c, recomputeHealthRating(db, dogId), "recomputeHealthRating");
 
   return c.json({ ok: true });
 });
@@ -1021,7 +929,7 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
     .returning();
 
   if (status === "approved") {
-    c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, club.id));
+    scheduleBackground(c, refreshHealthStatisticsCache(db, club.id), "refreshHealthStatisticsCache");
   }
 
   return c.json({ condition }, 201);
@@ -1031,7 +939,8 @@ healthRoutes.post("/dogs/:dog_id/conditions", async (c: ApiContext) => {
 
 healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
   const club = c.get("club");
-  if (!club) throw badRequest("Club context required");
+  const auth = c.get("auth");
+  if (!club || !auth?.member) throw unauthorized();
 
   const dogId = c.req.param("dog_id");
   const db = c.get("db");
@@ -1043,10 +952,20 @@ healthRoutes.get("/dogs/:dog_id/conditions", async (c: ApiContext) => {
     throw notFound("Dog");
   }
 
+  // Unapproved reports (pending/rejected) carry unverified diagnoses and
+  // free-text notes — only the dog's owner and clearance approvers see them.
+  // isDogOwner already covers admin + can_approve_clearances (health:verify).
+  const canSeeUnapproved = isDogOwner(auth, dog, (club.settings ?? {}) as Record<string, unknown>);
+
+  const conditionFilters = [eq(healthConditions.dog_id, dogId)];
+  if (!canSeeUnapproved) {
+    conditionFilters.push(eq(healthConditions.status, "approved"));
+  }
+
   const conditions = await db
     .select()
     .from(healthConditions)
-    .where(eq(healthConditions.dog_id, dogId))
+    .where(and(...conditionFilters))
     .orderBy(desc(healthConditions.created_at));
 
   return c.json({ conditions });
@@ -1149,7 +1068,7 @@ healthRoutes.get("/statistics", async (c: ApiContext) => {
 
   // Cache miss (first load) — compute live and cache for next time
   const data = await computeFullHealthStatistics(db, club.id);
-  c.executionCtx.waitUntil(refreshHealthStatisticsCache(db, club.id));
+  scheduleBackground(c, refreshHealthStatisticsCache(db, club.id), "refreshHealthStatisticsCache");
 
   return c.json(data);
 });
@@ -1196,7 +1115,11 @@ healthRoutes.get("/my-stats", async (c: ApiContext) => {
   }
 
   const data = await computeMemberHealthStats(db, club.id, auth.memberId, auth.contactId, auth.flags.is_breeder);
-  c.executionCtx.waitUntil(refreshMemberHealthStatsCache(db, auth.memberId, club.id, auth.contactId, auth.flags.is_breeder));
+  scheduleBackground(
+    c,
+    refreshMemberHealthStatsCache(db, auth.memberId, club.id, auth.contactId, auth.flags.is_breeder),
+    "refreshMemberHealthStatsCache"
+  );
 
   return c.json(data);
 });

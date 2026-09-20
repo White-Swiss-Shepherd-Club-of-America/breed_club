@@ -24,6 +24,58 @@ function scoreFromRanges(
   return ranges.length > 0 ? ranges[ranges.length - 1].score : null;
 }
 
+// ─── Result Summary Helpers ─────────────────────────────────────────────────
+
+/**
+ * Compute a human-readable result summary string from structured result_data.
+ * Falls back to the provided result string if result_data is null.
+ */
+export function computeResultSummary(
+  result: string,
+  resultData: Record<string, unknown> | null | undefined,
+  resultSchema: { type: string } | null | undefined
+): string {
+  if (!resultData || !resultSchema) return result;
+
+  switch (resultSchema.type) {
+    case "numeric_lr": {
+      const left = resultData.left as Record<string, number> | undefined;
+      const right = resultData.right as Record<string, number> | undefined;
+      if (!left || !right) return result;
+      const keys = Object.keys(left);
+      const parts = keys.map((k) => `${k.toUpperCase()}: L=${left[k]}, R=${right[k]}`);
+      return parts.join("; ");
+    }
+    case "point_score_lr": {
+      const left = resultData.left as Record<string, number> | undefined;
+      const right = resultData.right as Record<string, number> | undefined;
+      const total = resultData.total as number | undefined;
+      if (left?.total != null && right?.total != null && total != null) {
+        return `${total} (R:${right.total}, L:${left.total})`;
+      }
+      return result;
+    }
+    case "elbow_lr": {
+      const left = resultData.left as { grade?: number } | undefined;
+      const right = resultData.right as { grade?: number } | undefined;
+      if (left && right) {
+        return `L: Grade ${left.grade ?? "?"}, R: Grade ${right.grade ?? "?"}`;
+      }
+      return result;
+    }
+    case "enum_lr": {
+      const left = resultData.left as { value?: string } | undefined;
+      const right = resultData.right as { value?: string } | undefined;
+      if (left && right) {
+        return `L: ${left.value ?? "?"}, R: ${right.value ?? "?"}`;
+      }
+      return result;
+    }
+    default:
+      return result;
+  }
+}
+
 /**
  * Compute result scores (0-100) from structured result_data and the org's result_schema.
  *

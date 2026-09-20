@@ -220,7 +220,7 @@ export function DogCreatePage() {
       setPaymentError(null);
 
       // Build pedigree slots from extracted pedigree tree (if present)
-      let slots = createEmptySlots();
+      const slots = createEmptySlots();
       if (data.pedigree) {
         const slotKeys = [
           "sire", "dam",

@@ -18,6 +18,21 @@ type AuthVariables = {
 };
 
 /**
+ * Build verifyToken options.
+ *
+ * When CLERK_JWT_KEY (the PEM public key from the Clerk dashboard) is set,
+ * Clerk verifies the JWT signature locally — no JWKS network fetch per
+ * request. This removes a remote round-trip from every authenticated request.
+ * Falls back to secretKey-based verification (fetches JWKS) when unset.
+ */
+function buildVerifyOptions(env: Env) {
+  if (env.CLERK_JWT_KEY) {
+    return { jwtKey: env.CLERK_JWT_KEY, secretKey: env.CLERK_SECRET_KEY };
+  }
+  return { secretKey: env.CLERK_SECRET_KEY };
+}
+
+/**
  * Optional auth: sets clerkUserId if token is present, null otherwise.
  * Does not reject unauthenticated requests.
  */
@@ -34,9 +49,7 @@ export const optionalAuth = createMiddleware<{
   const token = authHeader.slice(7);
 
   try {
-    const payload = await verifyToken(token, {
-      secretKey: c.env.CLERK_SECRET_KEY,
-    });
+    const payload = await verifyToken(token, buildVerifyOptions(c.env));
     c.set("clerkUserId", payload.sub);
   } catch (err) {
     console.warn("JWT verification failed:", err);
@@ -61,9 +74,7 @@ export const requireAuth = createMiddleware<{
   const token = authHeader.slice(7);
 
   try {
-    const payload = await verifyToken(token, {
-      secretKey: c.env.CLERK_SECRET_KEY,
-    });
+    const payload = await verifyToken(token, buildVerifyOptions(c.env));
     c.set("clerkUserId", payload.sub);
   } catch (err) {
     console.warn("JWT verification failed:", err);
