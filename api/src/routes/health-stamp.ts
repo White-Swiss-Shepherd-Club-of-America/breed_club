@@ -510,14 +510,12 @@ healthStampRoutes.get("/dogs/:dog_id/health", async (c: ApiContext) => {
       health_rating: dogs.health_rating,
     })
     .from(dogs)
-    .where(
-      and(
-        eq(dogs.id, dogId),
-        eq(dogs.club_id, club.id),
-        eq(dogs.status, "approved"),
-        eq(dogs.is_public, true)
-      )
-    )
+    // Approval is the publication gate for the stamp. `is_public` is NOT
+    // checked: it defaults to false (schema.ts:204) and in practice no dog
+    // has ever had it set, so requiring it took the entire stamp/badge
+    // feature dark. Unapproved dogs stay hidden, which is the actual leak
+    // this predicate exists to prevent.
+    .where(and(eq(dogs.id, dogId), eq(dogs.club_id, club.id), eq(dogs.status, "approved")))
     .limit(1);
 
   if (!dog) {
@@ -660,14 +658,8 @@ healthStampRoutes.get("/dogs/:dog_id/badge.svg", async (c: ApiContext) => {
       health_rating: dogs.health_rating,
     })
     .from(dogs)
-    .where(
-      and(
-        eq(dogs.id, dogId),
-        eq(dogs.club_id, club.id),
-        eq(dogs.status, "approved"),
-        eq(dogs.is_public, true)
-      )
-    )
+    // See the stamp page handler: approval is the gate, not `is_public`.
+    .where(and(eq(dogs.id, dogId), eq(dogs.club_id, club.id), eq(dogs.status, "approved")))
     .limit(1);
 
   if (!dog) {
